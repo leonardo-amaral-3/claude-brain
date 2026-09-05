@@ -1,0 +1,90 @@
+filters:
+  and:
+    - file.hasTag("claude-sessao")
+formulas:
+  retomar: if(session_id, "claude --resume " + session_id, "")
+properties:
+  data:
+    displayName: Data
+  resumo:
+    displayName: O que aconteceu
+  projeto:
+    displayName: Projeto
+  file.tags:
+    displayName: Assuntos
+  formula.retomar:
+    displayName: Retomar
+  file.mtime:
+    displayName: Modificada
+views:
+  - type: table
+    name: Todas as sessões
+    order:
+      - file.name
+      - data
+      - resumo
+      - projeto
+      - file.tags
+  - type: table
+    name: Por projeto
+    groupBy:
+      property: projeto
+      direction: ASC
+    order:
+      - file.name
+      - data
+      - resumo
+      - file.tags
+  - type: table
+    name: Esteira gm
+    filters:
+      or:
+        - file.hasTag("fluxo-gm")
+        - file.hasTag("gm-triage")
+        - file.hasTag("gm-explore")
+        - file.hasTag("gm-card")
+        - file.hasTag("gm-spec")
+        - file.hasTag("gm-plan-tasks")
+        - file.hasTag("gm-implement")
+        - file.hasTag("gm-ship")
+        - file.hasTag("gm-release")
+    order:
+      - file.name
+      - data
+      - resumo
+      - file.tags
+  - type: table
+    name: Deploy e infraestrutura
+    filters:
+      or:
+        - file.hasTag("deploy")
+        - file.hasTag("migrations")
+        - file.hasTag("infraestrutura")
+    order:
+      - file.name
+      - data
+      - resumo
+      - file.tags
+  - type: table
+    name: Sem resumo
+    filters:
+      or:
+        - "!resumo"
+        - resumo == ""
+    order:
+      - file.name
+      - data
+      - projeto
+  - type: table
+    name: Retomar sessão
+    order:
+      - file.name
+      - data
+      - formula.retomar
+  - type: cards
+    name: Recentes
+    order:
+      - file.name
+      - data
+      - resumo
+    limit: 12

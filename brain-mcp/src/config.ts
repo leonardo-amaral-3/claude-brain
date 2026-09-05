@@ -68,11 +68,18 @@ function construirVars(cfg: BrainConfig): Record<string, string> {
 }
 
 function expandir(valor: string, vars: Record<string, string>): string {
-  return valor.replace(/\$\{(\w+)\}/g, (todo, nome: string) => {
+  const saida = valor.replace(/\$\{(\w+)\}/g, (todo, nome: string) => {
     const v = vars[nome] ?? process.env[nome];
     if (v === undefined) throw new Error(`brain.config.json: variavel \${${nome}} nao definida (veja o bloco "vars")`);
     return barras(v);
   });
+  // Sobrou um `${`? O nome nao casou o \w+ do regex (`${WS-1}`, `${ WS }`) e passaria reto.
+  // Falhar aqui e obrigatorio: um caminho meio-expandido vira pasta LITERAL na primeira escrita,
+  // e a tool que escreveu jura que gravou. Ja aconteceu — melhor o servidor nem subir.
+  if (saida.includes("${")) {
+    throw new Error(`brain.config.json: "${valor}" tem variavel malformada — use \${NOME} com letras, numeros ou _`);
+  }
+  return saida;
 }
 
 /** Caminho do config: $BRAIN_CONFIG, ou brain.config.json ao lado do pacote. */

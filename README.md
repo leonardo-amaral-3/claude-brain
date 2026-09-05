@@ -69,6 +69,32 @@ O instalador:
 
 ---
 
+## Como as pastas precisam estar
+
+Antes de configurar, o desenho — é o que faz as peças se encontrarem. **A raiz do workspace é o
+cofre do Obsidian, e os repos ficam dentro dela:**
+
+```
+~/meu-workspace/              ← raiz do workspace = cofre do Obsidian
+├── CLAUDE.md                 ← as 2 regras + a seção ## Board que as skills gm-* leem
+├── claude/
+│   ├── diario/               ← notas de sessão      (hook SessionEnd + /diario)
+│   ├── decisoes/             ← decisões             (tool lembrar)
+│   └── mapas/                ← mapas de arquitetura (/mapear)
+├── planning/<card>-<slug>/   ← spec.md + tasks/     (gm-spec, gm-plan-tasks)
+├── meu-repo/                 ← os REPOS ficam dentro do cofre
+└── outro-repo/
+```
+
+Um workspace é qualquer pasta com uma subpasta `claude/` — é por ela que os hooks reconhecem onde
+estão. O prefixo numérico das pastas de `planning/` também não é decoração: é por ele que o grafo
+liga a feature ao card do GitHub.
+
+**[`docs/workspace-e-obsidian.md`](docs/workspace-e-obsidian.md)** cobre isso inteiro: como abrir o
+cofre e esconder os repos da busca do Obsidian, o frontmatter que cada tipo de nota precisa ter,
+quem escreve em qual pasta, como montar dois workspaces na mesma máquina, e a checklist de criar um
+workspace do zero.
+
 ## Configuração
 
 São **dois** arquivos, e nenhum dos dois é versionado — cada máquina tem os seus.
@@ -287,8 +313,15 @@ claude-brain/
 │   ├── brain-briefing.js       SessionStart: injeta o briefing
 │   ├── obsidian-diario.js      SessionEnd: escreve a nota (em milissegundos)
 │   └── obsidian-diario-titulo.js   processo destacado que enriquece a nota depois
-├── templates/                  CLAUDE.example.md, brain-workspaces.example.json, settings.hooks.json
-├── docs/esteira-gm.md          a esteira em detalhe
+├── templates/                  para copiar no seu workspace
+│   ├── CLAUDE.example.md       o CLAUDE.md do workspace, com a seção ## Board
+│   ├── Sessões.base            tabela do Obsidian sobre as notas de sessão
+│   ├── mapas-README.md         a convenção dos mapas de arquitetura
+│   ├── brain-workspaces.example.json
+│   └── settings.hooks.json
+├── docs/
+│   ├── workspace-e-obsidian.md  estrutura de pastas e setup do cofre
+│   └── esteira-gm.md            a esteira em detalhe
 ├── install.ps1 / install.sh
 └── sync.ps1 / sync.sh
 ```
@@ -324,7 +357,19 @@ silêncio de propósito: hook de contexto nunca pode atrapalhar o boot da CLI.
 
 **A nota da sessão não aparece no Obsidian.**
 Ela é escrita no fim da sessão e enriquecida por um processo destacado, que leva ~30 s. Se ficar
-presa em "_Resumo automático em andamento…_", o enriquecedor morreu — rode `/diario` na mão.
+presa em "_Resumo automático em andamento…_", o enriquecedor morreu — rode `/diario` na mão. Se não
+aparece nota nenhuma, o `cwd` estava fora dos `prefixo` do `brain-workspaces.json`, ou o cofre foi
+aberto na pasta errada: o vault é a **raiz do workspace**, não `claude/diario`. Ver
+[`docs/workspace-e-obsidian.md`](docs/workspace-e-obsidian.md).
+
+**A busca do Obsidian devolve código em vez de notas.**
+Falta pôr os repos no `userIgnoreFilters` do cofre (*Settings → Files and links → Excluded files*).
+Isso é config do Obsidian e não tem relação com o `excludeDirs` do brain — um não conhece o outro.
+
+**As decisões do workspace B aparecem no cofre do workspace A.**
+É o comportamento atual: a tool `lembrar` grava sempre no **primeiro** root com `source: "decisao"`
+do `brain.config.json`, sem olhar o `cwd` (diferente dos hooks e das skills `/diario` e `/mapear`,
+que roteiam por workspace). Ponha primeiro o cofre onde você prefere que elas se acumulem.
 
 **As skills `gm-*` param pedindo o board.**
 Falta a seção `## Board` no `CLAUDE.md` do workspace. Veja
