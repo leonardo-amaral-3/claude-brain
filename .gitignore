@@ -1,0 +1,16 @@
+# Configuracao pessoal — cada maquina tem a sua, criada pelo instalador a partir do .example
+brain-mcp/brain.config.json
+brain-mcp/brain.config.json.bak*
+
+# Gerado
+brain-mcp/node_modules/
+brain-mcp/dist/
+brain-mcp/data/
+
+# Rascunho local
+*.bak
+*.orig
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db

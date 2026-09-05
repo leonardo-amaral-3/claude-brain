@@ -1,0 +1,28 @@
+{
+  "name": "brain-mcp",
+  "version": "0.1.0",
+  "description": "Servidor MCP local: RAG do contexto e evolucao do produto (planning, docs, diario, memoria)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "index": "node dist/cli.js",
+    "index:full": "node dist/cli.js --full",
+    "start": "node dist/index.js",
+    "smoke": "node scripts/smoke.mjs",
+    "eval": "node scripts/eval.mjs",
+    "uso": "node scripts/uso.mjs",
+    "embed": "node dist/cli.js --embed",
+    "grafo": "node dist/cli.js --grafo"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "gray-matter": "^4.0.3",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  }
+}

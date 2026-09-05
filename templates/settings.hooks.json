@@ -1,0 +1,28 @@
+{
+  "_comentario": "Trecho para ~/.claude/settings.json. O install.ps1/install.sh funde isso automaticamente; use a mao so se preferir.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <CLAUDE_HOME>/hooks/brain-briefing.js",
+            "timeout": 15,
+            "statusMessage": "Lendo o cérebro do produto..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <CLAUDE_HOME>/hooks/obsidian-diario.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

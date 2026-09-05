@@ -1,0 +1,76 @@
+{
+  "_comentario": [
+    "Copie para brain.config.json e ajuste. Caminhos aceitam ${VAR}:",
+    "  ${HOME}         -> pasta do usuario",
+    "  ${CLAUDE_HOME}  -> ~/.claude (ou $CLAUDE_CONFIG_DIR)",
+    "  ${BRAIN_ROOT}   -> a pasta deste brain-mcp",
+    "  qualquer chave do bloco vars abaixo, e qualquer variavel de ambiente",
+    "Caminho absoluto tambem funciona; a variavel so evita reescrever o arquivo em cada maquina.",
+    "",
+    "produto   -> citado na descricao das tools, para o modelo saber de que indice se trata.",
+    "sinonimos -> termos do SEU dominio, somados aos embutidos em src/search.ts. Entram so na",
+    "             passada OR da busca: e o que faz a pergunta alcancar o jeito que o documento",
+    "             foi escrito. No AND destruiriam a precisao."
+  ],
+
+  "vars": {
+    "WS": "${HOME}/meu-workspace"
+  },
+
+  "produto": "Meu Produto (o que ele faz em 3 palavras)",
+
+  "sinonimos": {
+    "nfe": ["nota", "fiscal"],
+    "conciliacao": ["conciliar", "conciliado"]
+  },
+
+  "roots": [
+    { "path": "${WS}/planning", "source": "planning", "repo": "meu-repo" },
+    { "path": "${WS}/meu-repo/planning", "source": "planning", "repo": "meu-repo" },
+    { "path": "${WS}/meu-repo/docs", "source": "docs", "repo": "meu-repo" },
+
+    { "path": "${WS}/meu-repo", "source": "docs", "repo": "meu-repo", "recursive": false },
+
+    { "path": "${WS}/claude/diario", "source": "diario", "repo": null, "excludeFiles": ["index.md"] },
+    { "path": "${WS}/claude/decisoes", "source": "decisao", "repo": null },
+    { "path": "${WS}/claude/mapas", "source": "mapa", "repo": null },
+
+    { "path": "${CLAUDE_HOME}/projects/C--Users-voce-meu-workspace/memory", "source": "memoria", "repo": null, "excludeFiles": ["MEMORY.md"] },
+
+    { "path": "${WS}/notas", "source": "notas", "repo": null },
+
+    { "path": "${WS}/meu-repo", "source": "code", "repo": "meu-repo", "kind": "code" },
+
+    { "path": "${BRAIN_ROOT}/data/github/docs", "source": "github", "repo": null },
+    { "path": "${BRAIN_ROOT}/data/git/docs", "source": "git", "repo": null }
+  ],
+
+  "github": {
+    "repos": ["minha-org/meu-repo"],
+    "syncIntervalMin": 30,
+    "commentsSinceDays": 180,
+    "maxItems": 2000
+  },
+
+  "codeExtensions": [
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".sql", ".prisma", ".zmodel",
+    ".sh", ".ps1", ".yml", ".yaml", ".toml"
+  ],
+
+  "excludeDirs": [
+    "node_modules", ".git", "cdk.out", "dist", "coverage", ".obsidian",
+    ".pytest_cache", "__pycache__", ".venv", "build", ".next",
+    ".serverless", ".turbo", "out", ".worktrees", ".agents", ".claude"
+  ],
+  "excludeFiles": [],
+  "maxCodeFileBytes": 400000,
+
+  "git": {
+    "repos": [
+      { "path": "${WS}/meu-repo", "repo": "meu-repo" }
+    ],
+    "desde": "24 months ago",
+    "maximo": 4000
+  }
+}

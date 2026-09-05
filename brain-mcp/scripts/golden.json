@@ -1,0 +1,78 @@
+[
+  {
+    "q": "blocklist gestao aihs linha fragmento",
+    "esperado": [
+      "1072-gestao-aihs-linha-fragmento",
+      "cards/1072",
+      "prs/1078"
+    ],
+    "estilo": "keywords"
+  },
+  {
+    "q": "por que a AIH consolidada aparece duas vezes na tela de gestão de AIHs?",
+    "esperado": [
+      "1072-gestao-aihs-linha-fragmento",
+      "cards/1072",
+      "prs/1078"
+    ],
+    "estilo": "natural"
+  },
+  {
+    "q": "como funciona a esteira gm de desenvolvimento?",
+    "esperado": [
+      "fluxo-gm-desenvolvimento"
+    ],
+    "estilo": "natural"
+  },
+  {
+    "q": "filtro de campo e valor da AIH",
+    "esperado": [
+      "filtro-campo-valor"
+    ],
+    "estilo": "keywords"
+  },
+  {
+    "q": "o que ficou decidido sobre os manuais de críticas?",
+    "esperado": [
+      "manuais-criticas"
+    ],
+    "estilo": "natural"
+  },
+  {
+    "q": "renomear responsável para solicitante no controle de instituição",
+    "esperado": [
+      "rename-responsavel-solicitante"
+    ],
+    "estilo": "natural"
+  },
+  {
+    "q": "quais portas os stacks docker locais usam?",
+    "esperado": [
+      "notoria-local-env"
+    ],
+    "estilo": "natural"
+  },
+  {
+    "q": "onde fica a regra que impede designar AIH para competencia anterior?",
+    "esperado": [
+      "1070-competencia-anterior-designacao",
+      "cards/1070"
+    ],
+    "estilo": "natural"
+  },
+  {
+    "q": "validacao de CNES da instituicao na auditoria",
+    "esperado": [
+      "1075-validacao-cnes-instituicao",
+      "cards/1075"
+    ],
+    "estilo": "keywords"
+  },
+  {
+    "q": "o que o brain-mcp usa para busca semantica e por que nao sqlite-vec?",
+    "esperado": [
+      "decisoes/2026-09-02-a-busca-do-brain-mcp"
+    ],
+    "estilo": "natural"
+  }
+]

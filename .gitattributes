@@ -1,0 +1,12 @@
+# Normaliza tudo para LF no repositorio.
+* text=auto eol=lf
+
+# PowerShell prefere CRLF; um .ps1 com LF ainda roda, mas o editor do Windows reclama.
+*.ps1 text eol=crlf
+
+# Script de shell com CRLF nao roda no Linux/macOS ("bad interpreter: ^M"), entao trava aqui.
+*.sh text eol=lf
+
+# Binarios e lock: sem conversao nem diff ruidoso.
+*.png binary
+package-lock.json -diff

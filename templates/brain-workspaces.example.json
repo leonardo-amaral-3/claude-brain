@@ -1,0 +1,14 @@
+{
+  "_comentario": [
+    "Copie para ~/.claude/brain-workspaces.json. Lido pelos hooks (nao pelo servidor MCP).",
+    "db        -> o indice do brain (data/brain.db dentro do brain-mcp instalado)",
+    "prefixo   -> raiz do workspace; o hook so age quando o cwd da sessao esta dentro dele",
+    "repos     -> repos deste workspace | exceto -> todos menos esses (escolha um dos dois)",
+    "Aceita ${HOME} e ${CLAUDE_HOME}."
+  ],
+  "db": "${HOME}/claude-brain/brain-mcp/data/brain.db",
+  "workspaces": [
+    { "nome": "trabalho", "prefixo": "${HOME}/meu-workspace", "exceto": ["projeto-pessoal"] },
+    { "nome": "pessoal", "prefixo": "${HOME}/pessoal", "repos": ["projeto-pessoal"] }
+  ]
+}
