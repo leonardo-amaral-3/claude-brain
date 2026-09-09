@@ -47,33 +47,85 @@ and every `description` — is written in pt-BR.**
 
 The argument is an issue number (`#1072` / `1072`) or an existing planning folder.
 
-1. Fetch the card: `gh issue view <n> --repo <owner>/<repo> --json title,body,url,comments` (`<repo>`: one of the repos listed in `## Board` of the workspace CLAUDE.md — infer, ask if ambiguous).
+1. Fetch the card: `gh issue view <n> --repo <owner>/<repo> --json title,body,url,comments`. `<repo>` is one of the repos listed in `## Board` of the workspace CLAUDE.md; a single repo there, or one already named in the conversation, is the answer — say which and move on. Two or more, with nothing settling it → one `AskUserQuestion` call **before fetching**; header `Repo`, question and options in pt-BR, one per repo (more than four: full list in the message, likeliest in the options, per rule 4):
+
+   > O mesmo número existe em cada repositório e aponta para um card diferente em cada um. Buscar
+   > no errado traz outro card, e a spec sai inteira especificando a feature errada — sem nenhum
+   > erro visível até alguém implementar.
+   >
+   > - **`<repo-a>`** — <o que vive nele, em meia linha>. Foi o último citado nesta conversa.
+   > - **`<repo-b>`** — <o que vive nele>. Escolha esta se o #<n> for de lá.
 
 **First branch, before anything else: is this card a phase of an epic awaiting promotion?** If its comments carry `<!-- gm:fase -->`, the spec already exists — it lives in the parent epic and covers every phase. Do **not** run Phases 1–5: exploring and re-writing `spec.md` would overwrite an approved contract. Jump straight to **Phase 6's promotion path** (item 4), which is a short human-facing exchange, not a specification:
 
    a. Read the parent's `gm:spec` comment and the phase's `gm:fase` comment (what it covers, what is out of scope, the note left for promotion by whoever sliced).
    b. Check the predecessor phase is actually closed — its card closed **and** its PRs merged. If not, say so and stop: promoting early is how a phase inherits work that is still moving.
-   c. Re-cut the phase in light of what the predecessor revealed, with the user — including splitting it into two cards when the note says so.
-   d. Propose 1–3 verifiable acceptance criteria carved from the spec's `## Requisitos & critérios de aceite`, plus the **declared route**, and get explicit human approval for both.
+   c. Re-cut the phase in light of what the predecessor revealed. Put the two things side by side
+      in the message — o recorte como a fase nasceu, e o que a fase anterior de fato mudou — and
+      then one `AskUserQuestion` call; header `Recorte`, question and options in pt-BR:
+
+      > Esta fase foi recortada antes de a anterior existir, e ela mexeu em <o que mudou>. Agora é
+      > a hora barata de mexer na fronteira: depois que a especificação começa, mudá-la custa
+      > reespecificar.
+      >
+      > - **Manter o recorte** — o que a fase anterior revelou não move a fronteira; segue direto
+      >   para os critérios de aceite.
+      > - **Fatiar em dois cards** — a fase cresceu além do que cabe numa; nasce um card irmão
+      >   agora, e só o primeiro segue nesta sessão.
+      > - **Redesenhar a fronteira** — mesma fase, escopo diferente: parte do que era dela passa
+      >   para uma fase seguinte, ou o contrário. A mudança entra no `gm:spec-ref` do item (e), que
+      >   é onde o revisor da PR vai procurá-la.
+
+   d. Propose 1–3 verifiable acceptance criteria carved from the spec's `## Requisitos & critérios
+      de aceite`, plus the **declared route** — never inherited from the phase before it. Both are
+      the artifact: they go in the message written out in full, and then the *artefato* set from
+      `## Como perguntar e como aprovar`. *Ajustar* rewrites and shows again; *Rejeitar* stops the
+      promotion, and the phase stays where it is.
    e. Apply: replace `gm:fase` with the full `<!-- gm:spec-ref -->` comment, add the card to the board with the board fields, and move it to 🎯 Especificação.
    f. Offer exactly one follow-up: `/gm-plan-tasks <folder>` for this phase.
 2. Planning folder: `planning/<issue>-<slug>/` (short kebab slug from the title; reuse the folder if it already exists).
 3. Seed from the card: Estado atual (verify load-bearing `file:line` claims in the code — they may be stale), Direção, Por quê, Fora do escopo.
-4. **Critérios de aceite are mandatory.** If the card lacks a `## Critérios de aceite` section (older cards), derive 1–3 verifiable "pronto quando…" bullets from the Direção and confirm them with the user **before anything else** — they are the seed of the requirements, the test plan and the validation checklist.
+4. **Critérios de aceite are mandatory.** If the card lacks a `## Critérios de aceite` section (older cards), derive 1–3 verifiable "pronto quando…" bullets from the Direção. They are the artifact, and they come **before anything else**: put the bullets in the message, worded as they would stand on the card, and run the *artefato* set from `## Como perguntar e como aprovar`. They seed the requirements, the test plan and the dev-validation checklist, so whatever gets specified on top of the wrong ones is work thrown away. *Ajustar* rewrites the bullets and asks again; *Rejeitar* means the direção on the card does not carry criteria yet — it goes back to `/gm-card`.
 5. If a PRD exists (comment `<!-- gm:prd -->` or `planning/<folder>/PRD.md`), read it — it exists only for genuinely new product areas (via `gm-prd`).
 
-## Choose the depth (proportional to risk — suggest, user decides)
+## Choose the depth (proportional to risk)
 
-- **Completa** — changes behavior, contracts, schema or business rules broadly. Full Q&A, full document.
-- **Lite** — contained change (one screen, one filter, one rule). Same skeleton, short sections; a non-applicable section becomes `N/A — <por quê>` (never silently omitted).
-- **Rota curta** (the card says so) — the spec is a single paragraph; still passes the critique and the approval below, published on the card, and feeds a single task.
+The route on the card was suggested before anyone had read the code; here it meets what the
+exploration actually found. Ask it **before** the Q&A of Phase 1 — the depth decides how many
+questions there will be, so asking it afterwards would be asking on a premise still open. One
+`AskUserQuestion` call; header `Profundidade`, question and options in pt-BR. Say which one you
+recommend, and why, in the message before the call:
+
+> Isto decide quanto documento existe antes de o código existir — e quanto tempo de conversa daqui
+> até a implementação. O card declarou <rota>; o que explorei mostra <em uma linha: o que confirma
+> ou o que mudou>.
+>
+> - **Completa** — muda comportamento, contrato, schema ou regra de negócio em mais de um lugar.
+>   Q&A inteiro e documento inteiro: é o que deixa o implementador sem nenhuma decisão a tomar, ao
+>   custo de uma sessão longa aqui.
+> - **Lite** — mudança contida (uma tela, um filtro, uma regra). Mesmo esqueleto, seções curtas;
+>   seção que não se aplica vira `N/A — <por quê>` e nunca some calada.
+> - **Rota curta** — o corpo técnico é um parágrafo. Ainda passa pela crítica, pelo gate e pela
+>   publicação no card, e alimenta uma task só. Escolher esta numa mudança que mexe em dados é
+>   exatamente como o implementador acaba decidindo sozinho o que a spec não disse.
+
+Say the chosen depth out loud in one line before Phase 1 starts, so it lives in the transcript and
+every section below is read against it.
 
 ## Phase 1: Explore, then Q&A
 
 Explore the codebase **before** asking anything: structure, conventions, the code the card points at, related patterns. Then resolve every open decision with the user:
 
-- One question at a time, direct, no filler.
-- Multiple valid approaches → present them with trade-offs and let the user decide. Never decide silently.
+- **One question at a time** — through the mechanics of `## Como perguntar e como aprovar`, one `AskUserQuestion` call each. It is a mechanism, not a pace: batching means settling something whose premise was still open. Direct, no filler.
+- Multiple valid approaches → the trade-off **is** the question, and it reaches the human as one `AskUserQuestion` call with one option per approach (2–4; beyond that, the full list in the message and the likeliest as options). `header` names the decision in up to 12 characters (`Cache`, `Migration`, `Ordenação`); question and options in pt-BR. Never settle it silently — and never lay the approaches out in prose that ends by asking which one the user prefers, which is the free-text gesture this convention replaces. Each `description` says **what choosing it makes the implementer do differently**, not what the approach is called:
+
+  > <O que está em jogo, em uma ou duas linhas: o que o código faz hoje e por que há mais de um
+  > caminho a partir daí. Nenhum nome de arquivo, seção ou campo antes disto.>
+  >
+  > - **<Caminho A, 1–5 palavras>** — <o que passa a acontecer, e o que custa>.
+  > - **<Caminho B>** — <idem, e por que alguém escolheria este>.
+
+  When the options are alternative **wordings** of the same thing — o nome de um campo, a frase de um erro, o texto de um critério de aceite — put each wording in that option's `preview`. Seeing the two side by side is what decides; prose describing a difference in wording never does. `preview` is per option, so it is never where an artifact goes.
 - Default to existing project patterns; confirm when deviating.
 - Stop only when zero decisions remain for the implementer.
 
@@ -137,11 +189,31 @@ Fix what the critique finds; what can't be resolved alone goes to the user as an
 
 ## Phase 4: Human gate
 
-Present the spec plus a short list of what the critique caught and how it was resolved. **Explicit approval required** — never proceed on silence. When the change is sensitive (touches data, faturamento rules, or migrations), recommend a second human reviewer with a 24h timebox; the user decides whether to wait.
+This is the gate the rest of the chain leans on: everything downstream executes what clears it, literally.
+
+**Sensitive change first.** When the spec touches data, faturamento rules or migrations, whether a
+second human reads it changes what clearing this gate means — so it is its own call, before the
+spec goes up; header `2º revisor`, question and options in pt-BR. A workspace whose `CLAUDE.md`
+declares there is no second human skips this call and says so in one line:
+
+> Esta spec mexe em <dado · regra de faturamento · migration>. A norma recomenda um segundo humano
+> com prazo de 24h, e quem decide se a espera vale é você.
+>
+> - **Esperar o segundo revisor** — a spec fica parada até <data+24h>; o card não sai de
+>   🎯 Especificação e nada é implementado em cima dela nesse intervalo.
+> - **Seguir sem segundo revisor** — a spec vai ao gate agora e a implementação pode começar hoje.
+>   O contrapeso passa a ser a verificação pós-deploy, que vira obrigatória e bloqueante.
+
+**Then the spec itself.** It goes in the message — the full document plus a short list of what the
+critique caught and how each finding was resolved, since the tool renders no long body — and then
+the *artefato* set from `## Como perguntar e como aprovar`. Silence is not a yes here and never
+was: *Ajustar* comes back with the correction, rewrites and shows again, as many rounds as it
+takes; *Rejeitar* means the contract is wrong rather than incomplete — nothing is published, and
+the card stays in 🎯 Especificação.
 
 ## Phase 5: Publish on the card
 
-Team-visible — show before posting. First line of the comment exactly `<!-- gm:spec -->`, then the full spec. Create-or-update, never stack:
+Team-visible, so the comment goes in the message before it exists on GitHub — repo, card number and the exact body — and then the *artefato* set from `## Como perguntar e como aprovar` decides. *Ajustar* corrects and shows again; *Rejeitar* posts nothing, and the report has to say the spec stayed local, because a spec that never reached the card is exactly what makes `gm-plan-tasks` and the G4 review find an empty one. First line of the comment exactly `<!-- gm:spec -->`, then the full spec. Create-or-update, never stack:
 
 ```
 gh api --paginate repos/<owner>/<repo>/issues/<n>/comments \

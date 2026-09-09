@@ -51,8 +51,27 @@ and every `description` — is written in pt-BR.**
 
 The argument is either an issue number (`#123` / `123`) or a feature name.
 
-- **Issue number**: fetch it: `gh issue view <n> --repo <owner>/<repo> --json title,body,url,state`. `<repo>` is one of the repos listed in the `## Board` section of the workspace CLAUDE.md — infer from context, ask if ambiguous.
-- **Feature name**: search the board for an existing card: `gh search issues --owner <owner> "<keywords>" --limit 10` (2–3 keyword variations). Strong match → show it and confirm it is the right card. No match → tell the user the chain works best with a card (PRD/tech-spec get published on it, and the CI review reads them from there) and offer to create one via `gm-card` first. If the user prefers to proceed without a card, continue — planning stays local-only and the CI review won't have spec context.
+- **Issue number**: fetch it: `gh issue view <n> --repo <owner>/<repo> --json title,body,url,state`. `<repo>` is one of the repos listed in the `## Board` section of the workspace CLAUDE.md. A single repo there, or one already named in the conversation → use it and say which. Two or more, with nothing in the context settling it → one `AskUserQuestion` call **before fetching**; header `Repo`, question and options in pt-BR, one option per repo (more than four listed: the full list goes in the message and the options carry the likeliest, per rule 4):
+
+  > O mesmo número de issue existe em cada repositório e aponta para um card diferente em cada um.
+  > Buscar no errado traz outro card, e o PRD sai inteiro descrevendo a feature errada — sem
+  > nenhum erro visível no caminho.
+  >
+  > - **`<repo-a>`** — <o que vive nele, em meia linha>. Foi o último citado nesta conversa.
+  > - **`<repo-b>`** — <o que vive nele>. Escolha esta se o #<n> for de lá.
+
+- **Feature name**: search the board for an existing card: `gh search issues --owner <owner> "<keywords>" --limit 10` (2–3 keyword variations). Match or no match, the fork is the same one, and it goes to the human in one `AskUserQuestion` call; header `Card`, question and options in pt-BR. With a match, the candidate goes in the message first — número, título e estação do board — because the tool renders no long body:
+
+  > <Com match: «<título>» (#<n>, <estação>) é o card mais próximo do que você descreveu. | Sem
+  > match: nenhum card aberto casa com «<termos buscados>».> O PRD é publicado como comentário no
+  > card, e é de lá que o review de IA da PR vai lê-lo mais tarde — sem card, ele fica só na sua
+  > máquina.
+  >
+  > - **É esse card** — o PRD nasce preso ao #<n> e a pasta vira `planning/<n>-<slug>/`.
+  > - **Criar o card antes** — paro aqui, você roda `/gm-card`, e o PRD começa depois já com
+  >   critérios de aceite escritos para responder.
+  > - **Seguir sem card** — o PRD fica local em `planning/<slug>/` e não vai para o GitHub: o
+  >   review de IA da PR vai revisar o diff sem contexto nenhum de spec.
 
 Planning folder: `planning/<issue>-<slug>/`, where `<slug>` is a short kebab-case version of the card title (e.g. `planning/1029-numero-provisorio-unico-instituicao/`). Without a card: `planning/<slug>/`.
 
@@ -64,22 +83,22 @@ This is the most important phase. Your only goal right now is to fully understan
 
 If there is a card, its body is the starting point: "Estado atual" (often with `file:line` evidence), "Direção", "Por quê", "Fora do escopo". Also reuse anything a `gm-explore` or `gm-card` produced earlier in this session. **Do not re-ask what the card already answers.** Open the conversation by summarizing your reading of the card in 3–5 lines, then ask about the first real gap. Verify in the code (read-only) any load-bearing card claim that might be stale.
 
-Without a card, ask the user to describe the feature and start from zero.
+Without a card, start from zero: the feature arrives described by the user, in their own words. This one stays free prose on purpose — a description of something that does not exist yet has no option set to offer.
 
 ### How to conduct this phase
 
 The user's description might be high-level or detailed — either way, your job is to identify every gap in your understanding and fill it through conversation.
 
-- Ask questions **one at a time**. This keeps the conversation focused and natural.
+- **One question at a time**, through the mechanics of `## Como perguntar e como aprovar` — one `AskUserQuestion` call each, never a batch. This is a mechanism, not a pace: a question asked before the previous answer landed is a question answered on a premise that was still open.
 - Be direct and concise with your questions — no filler, no preamble. Just the question.
 - Each question should target a specific gap: user personas, use cases, edge cases, business rules, constraints, expected behaviors, success criteria, scope boundaries, assumptions that need validation.
 - After the user answers, internalize the answer and move to the next gap. Don't summarize what they said back to them unless clarification is genuinely needed.
-- If something is ambiguous or could be interpreted multiple ways, ask for clarification immediately rather than assuming.
+- Ambiguity is not a gap to fill later: two readings of the same sentence are already an option set. Resolve it on the spot through the choice mechanics of `## Como perguntar e como aprovar` — name both readings and what each one would make the PRD say — never as free text to type, and never by quietly taking the likelier one.
 - Keep going until you have zero remaining questions. Thoroughness here prevents problems later.
 
 ### When to move to Phase 2
 
-When you genuinely have no more questions, tell the user clearly: you believe you have a complete understanding and are ready to write the PRD. List the key aspects you understand so the user can catch anything missing. Only move on when both of you agree the understanding is complete.
+When you genuinely have no more questions, your understanding **is** the artifact — and this is the last cheap moment to fix it, because everything written from here on is written on top of it. Put it in the message: the key aspects as you understood them, one bullet each, so a gap shows up as a missing bullet. Then run the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* opens Phase 2; *Ajustar* comes back here with the gap and the Q&A resumes from it; *Rejeitar* means the reading is wrong at the root, and it restarts from what the card says.
 
 ## Phase 2: Write and Publish the PRD
 
@@ -132,7 +151,7 @@ Omit `## References` only when there is no card. Skip sections that don't apply;
 
 ### Publish on the card
 
-Skip if there is no card. The comment is visible to the whole team — show the user what will be posted and get explicit approval first.
+Skip if there is no card. The comment is visible to the whole team, so it goes in the message before it exists on GitHub — repo, card number and the exact body that will be posted — and then the *artefato* set from `## Como perguntar e como aprovar` decides what happens to it. *Ajustar* comes back with the correction and shows it again; *Rejeitar* posts nothing, and the report says the PRD stayed local.
 
 1. Write the comment to a scratchpad file: first line exactly `<!-- gm:prd -->`, then the full PRD markdown.
 2. Create-or-update — never stack a second PRD comment:
