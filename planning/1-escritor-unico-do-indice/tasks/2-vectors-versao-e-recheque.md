@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `vectors.ts` — cache que expira por versão, backfill que reconfere a liderança
 
