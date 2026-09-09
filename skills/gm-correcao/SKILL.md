@@ -50,7 +50,8 @@ falso positivo é pior que ignorá-lo, porque entra no diff com ar de correção
 ## Triar
 
 Verifique cada achado até `file:line` **antes** de classificar. Depois, quatro baldes — os três
-últimos são os protocolos do `gm-implement`, não invente outros:
+últimos são os protocolos do `gm-implement`, não invente outros; a **emenda pós-tasks**, quarta
+seção de lá, é anterior à PR e não se aplica aqui:
 
 | Balde | Quando | O que fazer |
 |---|---|---|
