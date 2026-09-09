@@ -429,6 +429,12 @@ Ao fim do script, `lease.liberar()`. Consequência a aceitar conscientemente: en
 o tique do próximo servidor (≤ ⅓ do TTL) **não há líder**, e portanto ninguém varre. É janela curta e
 autocorrigida — preferível a deixar um lease órfão de processo já morto segurando o índice.
 
+**Costura de teste (task 4), no mesmo espírito do `embutir` da Área 4:** os 10 s saem de
+`BRAIN_CLI_ESPERA_MS`, com 10 s de padrão e o mesmo undefined-check do TTL (`Number(x) || 10_000`
+comeria o `0`). Sem ela o caso `cli-disputa-o-lease` pagaria 10 s a cada rodada da suíte só para ver
+a recusa. Não muda decisão nenhuma — o comportamento padrão continua sendo tentar a cada 1 s por
+10 s —, e de quebra dá um escape em script: `BRAIN_CLI_ESPERA_MS=0` recusa na primeira tentativa.
+
 ### Área 8 — `brain-mcp/src/tools.ts` (tool `reindex`)
 
 A tool `reindex` (linha 364) é o mesmo tipo de ação humana explícita que a CLI, e hoje chama
@@ -443,6 +449,27 @@ regra, com a mesma escapatória:
 
 `registerTools` passa a receber o `lease` como parâmetro. O `INSERT INTO uso` de `tools.ts:42`
 **não muda** — segue em todo processo, dentro do `try/catch` que já o impede de derrubar a tool.
+
+**Emenda 2026-09-09 (task 4) — quem toma o lease pelo `reindex` tem de assumir o TRABALHO, não só o
+título.** A frase acima — "mantém a liderança (o processo virou líder de fato)" — era otimista:
+virar líder **por fora do tique não liga nada**. Em `index.ts` o trabalho pesado só arranca em dois
+lugares: no boot (`if (lease.souLider) assumirTrabalhoPesado()`) e no `aoAssumir` do tique — e o
+tique só chama `aoAssumir` quando um **seguidor** adquire o lease dentro dele
+(`else if (this.tentarAdquirir())`). Um seguidor promovido pelo `reindex` passa a cair no ramo
+`if (this.lider) renovar()` para sempre: renova o lease indefinidamente e **nunca** liga vigia nem
+backfill — enquanto o líder anterior, esse sim, notou a perda e desligou o dele. Resultado: ninguém
+vigia arquivo, ninguém preenche vetor, e o índice congela até alguém reiniciar uma sessão. É o CA4
+desfeito pela porta dos fundos, e por uma linha que esta feature introduz.
+
+Isto **não** é a janela curta que a Área 7 aceita de olhos abertos. Aquela é autocorrigida — a CLI
+*libera* o lease e o próximo tique promove alguém. Esta não fecha sozinha: o lease fica de pé,
+segurado por um líder que não faz o trabalho de líder.
+
+Portanto `registerTools` recebe **também** `aoAssumirLideranca: () => void`, e `index.ts` passa
+`assumirTrabalhoPesado` — que já nasceu idempotente (guarda `pesadoAtivo`), de modo que chamá-la num
+processo que já era líder não duplica vigia, grafo nem backfill. O `reindex` a chama **depois** de
+adquirir o lease e **antes** de varrer. Consequência para o escopo declarado da task 4: `index.ts`
+muda em **duas** linhas, não em uma.
 
 ### Área 9 — `brain-mcp/scripts/concorrencia.mjs` (arquivo NOVO) + `package.json`
 
@@ -487,10 +514,10 @@ continua onde a spec já a pôs: `npm run eval` contra o índice real, no ship.
 | `brain-mcp/src/vectors.ts` | `VectorIndex` invalida cache por `meta.versao_indice`; `preencherEmbeddings` reconfere liderança por lote; `BEGIN IMMEDIATE` |
 | `brain-mcp/src/indexer.ts` | `BEGIN` → `BEGIN IMMEDIATE` (linha 206) |
 | `brain-mcp/src/grafo.ts` | `BEGIN` → `BEGIN IMMEDIATE` (linha 93) |
-| `brain-mcp/src/index.ts` | eleição no boot; `assumirTrabalhoPesado()` idempotente; tique de promoção/rebaixamento; handlers de saída liberam o lease |
-| `brain-mcp/src/cli.ts` | disputa o lease com espera de 10 s; `--force`; libera ao fim |
-| `brain-mcp/src/tools.ts` | tool `reindex` exige lease, com parâmetro `forcar` |
-| `brain-mcp/scripts/concorrencia.mjs` | **novo** — teste dos 4 critérios com N servidores reais |
+| `brain-mcp/src/index.ts` | eleição no boot; `assumirTrabalhoPesado()` idempotente; tique de promoção/rebaixamento; handlers de saída liberam o lease; passa `assumirTrabalhoPesado` ao `registerTools` (emenda task 4) |
+| `brain-mcp/src/cli.ts` | disputa o lease com espera de 10 s; `--force`; libera ao fim (inclusive saindo por erro); espera configurável por `BRAIN_CLI_ESPERA_MS` |
+| `brain-mcp/src/tools.ts` | tool `reindex` exige lease, com parâmetro `forcar`; ao ser promovida, dispara o trabalho pesado (emenda task 4) |
+| `brain-mcp/scripts/concorrencia.mjs` | **novo** — teste dos 4 critérios com N servidores reais; casos da CLI e do `reindex` (task 4) |
 | `brain-mcp/scripts/embeddings-falso.mjs` | **novo** (emenda task 3) — stub determinístico do modelo, só para teste |
 | `brain-mcp/scripts/embeddings-falso-hook.mjs` | **novo** (emenda task 3) — hook ESM que injeta o stub no servidor spawnado |
 | `brain-mcp/package.json` | script `concorrencia` |
@@ -577,6 +604,8 @@ descartável (`BRAIN_CONFIG` + `BRAIN_DB` + `BRAIN_LEASE_TTL_MS=3000`). Um caso 
 | CA3 | `posse-apos-morte-abrupta` — `SIGKILL` no líder, espera > TTL | outra `instancia` em `lider`; algum sobrevivente logou `assumi o índice`; um arquivo novo passa a ser indexado |
 | CA3 | `posse-apos-saida-graciosa` — **fecha o stdin** do líder (não `SIGTERM`: em Windows ele não é recebível) | `lider` fica vazia imediatamente; sucessor assume no tique seguinte, **sem** esperar o TTL |
 | CA3 | `reindex-nao-derruba-lider` — `fullReindex` no líder | após o `clearAll`, o líder continua dono do lease (prova que `clearAll` não toca em `lider`/`meta`) |
+| TD-5 | `reindex-recusa-e-forca` — seguidor chama `reindex`, depois de novo com `forcar: true` | a recusa é **texto** (não erro de protocolo), cita o pid do dono e não escreve em `docs` nem em `lider`; com `forcar` o processo vira líder **e assume o trabalho pesado** (emenda task 4) |
+| TD-5 | `cli-disputa-o-lease` — CLI com o índice ocupado, com espera, e saindo por erro | recusa acionável (pid, host, expiração, `--force`) sem varrer nada; a espera **repete** até o lease ser liberado; `liberar()` acontece inclusive no caminho que estoura |
 | CA4 | `seguidor-nao-envelhece` — líder indexa arquivo novo; seguidor busca por termo único | acha por via léxica **e** semântica; `meta.versao_indice` incrementou |
 | — | `lease-expirado-e-tomado` — teste de unidade de `Lease`: duas instâncias sobre o mesmo db | a 2ª só ganha depois do TTL; `forcar: true` ganha na hora; `renovar()` da 1ª devolve `false` depois |
 | regressão | `npm run smoke` | o servidor ainda responde `initialize` + `tools/list` + `tools/call` |

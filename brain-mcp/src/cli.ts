@@ -6,14 +6,67 @@ import { GithubSyncer } from "./githubSync.js";
 import { preencherEmbeddings } from "./vectors.js";
 import { Grafo } from "./grafo.js";
 import { sincronizarGit } from "./gitSync.js";
+import { Lease } from "./lease.js";
+
+/**
+ * Tenta a cada segundo até o prazo. A espera existe porque o motivo mais comum de recusa é um
+ * líder que está de SAÍDA — a sessão do Claude Code que o usuário acabou de fechar. Dez segundos
+ * cobrem isso sem incomodar ninguém, e esperar calado é melhor que recusar na cara de quem só
+ * queria indexar. Com `forcar`, a primeira tentativa já ganha e nada disto roda.
+ */
+async function adquirirComEspera(lease: Lease, forcar: boolean, prazoMs: number): Promise<boolean> {
+  const limite = Date.now() + prazoMs;
+  for (;;) {
+    if (lease.tentarAdquirir(forcar)) return true;
+    if (Date.now() >= limite) return false;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+// Quanto esperar antes de recusar. É configurável por uma razão só, e ela é a mesma do `embutir`
+// de `vectors.ts`: sem isto, o caso que exercita a recusa pagaria 10 s a cada rodada da suíte.
+// Vale como escape em script, também — 0 recusa já na primeira tentativa, sem esperar ninguém.
+// Undefined-check pelo mesmo motivo do TTL do lease: `Number(x) || 10_000` comeria justamente o 0.
+const brutoEspera = process.env.BRAIN_CLI_ESPERA_MS;
+const ESPERA_MS =
+  brutoEspera === undefined || Number.isNaN(Number(brutoEspera)) ? 10_000 : Number(brutoEspera);
 
 const full = process.argv.includes("--full");
 const github = process.argv.includes("--github");
 const embed = process.argv.includes("--embed");
 const grafo = process.argv.includes("--grafo");
 const git = process.argv.includes("--git");
+const forcar = process.argv.includes("--force");
 const config = loadConfig();
 const db = openDb(dbPath);
+
+// A CLI é a mesma coisa que a tool `reindex`: ação humana explícita de reindexação. Por isso segue
+// a mesma regra (TD-5) — disputa o lease ANTES de qualquer escrita e RECUSA com aviso em vez de
+// roubar. Roubar não corromperia o banco (disso o SQLite dá conta), mas poria dois varredores
+// completos sobre os mesmos arquivos, que é exatamente o desperdício que o card #1 veio matar.
+const lease = new Lease(db);
+if (!(await adquirirComEspera(lease, forcar, ESPERA_MS))) {
+  const d = lease.dono();
+  const ate = d ? new Date(d.expiraEm).toLocaleTimeString() : "?";
+  console.error(
+    `O índice está sob o servidor pid ${d?.pid ?? "?"} (${d?.host ?? "?"}), lease até ${ate}.\n` +
+      `Feche as sessões do Claude Code, ou rode de novo com --force para tomar a liderança.`
+  );
+  process.exit(1);
+}
+
+// Liberar no `exit` cobre também os caminhos que saem POR ERRO, e são eles que mais importam aqui:
+// um lease órfão de processo já morto barraria a próxima CLI e o próximo servidor até o TTL vencer.
+// O handler roda mesmo num throw de top-level await, e `liberar()` é síncrono (logo legítimo em
+// handler de exit) e condicionado à instância (logo incapaz de apagar o lease de outro).
+process.on("exit", () => {
+  try {
+    lease.liberar();
+  } catch {
+    /* já estamos saindo; falhar aqui não pode impedir o processo de morrer */
+  }
+});
+
 const indexer = new Indexer(db, config);
 
 if (github) {
@@ -54,6 +107,9 @@ if (embed) {
     console.log(`Gerando embeddings de ${pendentes} chunks (o modelo carrega na 1ª vez, ~15 s)…`);
     let ultimo = 0;
     const r = await preencherEmbeddings(db, {
+      // Mesmo motivo do servidor: se um --force de outro processo tomar a liderança no meio, a
+      // CLI para no lote corrente em vez de brigar por um trabalho que já não é dela.
+      aindaSouLider: () => lease.souLider,
       onProgresso: (feitos, total) => {
         if (feitos - ultimo >= 320 || feitos === total) {
           console.log(`  ${feitos}/${total} (${Math.round((feitos / total) * 100)}%)`);
@@ -118,3 +174,8 @@ if (leaked.length) {
 } else {
   console.log("\nSanidade OK: nenhum path de node_modules/cdk.out/.git no índice.");
 }
+
+// Fim normal. O handler de `exit` faria isto de qualquer jeito; a chamada explícita existe para o
+// caminho feliz ser legível — quem lê o script vê onde a liderança acaba, sem deduzi-lo de um
+// handler registrado cem linhas acima. `liberar()` é idempotente, então os dois não se atrapalham.
+lease.liberar();

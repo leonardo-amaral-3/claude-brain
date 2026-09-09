@@ -83,7 +83,9 @@ const vigia = new Vigia(config, indexer, (motivo, n) =>
   console.error(`[brain] índice atualizado (${motivo}): ${n} arquivos`)
 );
 
-registerTools(server, db, indexer, syncer, buscador, grafo, vigia, produto);
+// `assumirTrabalhoPesado` é function declaration (hoisted) e idempotente: passá-la aqui é o que
+// faz um `reindex {forcar:true}` num seguidor promover o processo de verdade, e não só de nome.
+registerTools(server, db, indexer, syncer, buscador, grafo, vigia, lease, assumirTrabalhoPesado, produto);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

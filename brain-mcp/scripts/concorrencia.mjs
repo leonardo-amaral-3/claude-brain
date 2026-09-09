@@ -11,7 +11,7 @@
 // que sobem `dist/index.js` de verdade e falam JSON-RPC por stdio. Os de servidor recebem o stub
 // determinístico de embeddings (ver embeddings-falso.mjs e a emenda 2026-09-09 da spec).
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -99,25 +99,27 @@ async function ate(cond, ms, oQue) {
 const servidores = [];
 
 /** Uma fixture por caso: banco, config e pasta de documentos próprios, sem interferência. */
-function criarFixture(nome, docs = {}) {
+function criarFixture(nome, docs = {}, opts = {}) {
   const dir = join(fixture, nome);
   const docsDir = join(dir, "docs");
   mkdirSync(docsDir, { recursive: true });
   for (const [arquivo, conteudo] of Object.entries(docs)) {
     writeFileSync(join(docsDir, arquivo), conteudo);
   }
+  // `lembrar` exige um root com source "decisao" e ESTOURA sem ele (memoria.ts:39-44). Só as
+  // fixtures que exercitam a tool pagam o diretório extra; as demais seguem exatamente como antes.
+  const decisoesDir = join(dir, "decisoes");
+  const roots = [{ path: comoRoot(docsDir), source: "docs", repo: null }];
+  if (opts.comDecisoes) {
+    mkdirSync(decisoesDir, { recursive: true });
+    roots.push({ path: comoRoot(decisoesDir), source: "decisao", repo: null });
+  }
   const cfg = join(dir, "brain.config.json");
-  writeFileSync(
-    cfg,
-    JSON.stringify(
-      { ...configBase, roots: [{ path: comoRoot(docsDir), source: "docs", repo: null }] },
-      null,
-      2
-    )
-  );
+  writeFileSync(cfg, JSON.stringify({ ...configBase, roots }, null, 2));
   return {
     dir,
     docsDir,
+    decisoesDir,
     db: join(dir, "brain.db"),
     config: cfg,
     registro: join(dir, "quem-embutiu.log"),
@@ -193,6 +195,29 @@ function subirServidor(fx, rotulo) {
   s.chamar = async (name, args) => {
     const r = await s.pedir("tools/call", { name, arguments: args });
     return r.result?.content?.[0]?.text ?? "";
+  };
+
+  /**
+   * Como `chamar`, mas devolve o que `chamar` esconde: erro de protocolo e `isError`. Quem afirma
+   * "a chamada CONCLUIU sem erro" precisa distinguir resposta vazia de falha — e para `chamar` as
+   * duas são a mesma string vazia, que é justamente como um teste de CA1 passaria em silêncio.
+   */
+  s.chamarCru = async (name, args) => {
+    const r = await s.pedir("tools/call", { name, arguments: args });
+    const texto = (r.result?.content ?? []).map((c) => c.text ?? "").join("\n");
+    const erroProtocolo = r.error ? JSON.stringify(r.error).slice(0, 300) : null;
+    const isError = r.result?.isError === true;
+    return {
+      texto,
+      erroProtocolo,
+      isError,
+      falhou: Boolean(erroProtocolo) || isError,
+      // O que o CA1 proíbe pelo nome, venha na resposta ou no erro de protocolo.
+      comLock: /SQLITE_BUSY|database is locked|database table is locked/i.test(
+        texto + (erroProtocolo ?? "")
+      ),
+      resumo: () => `[${name}] ${erroProtocolo ?? texto.slice(0, 200)}`,
+    };
   };
 
   /** Morte abrupta: em Windows isto é TerminateProcess e NENHUM handler do filho roda. */
@@ -829,6 +854,350 @@ caso("posse-apos-saida-graciosa", async () => {
     msParaAssumir < TTL_SERVIDOR_MS + TIQUE_SERVIDOR_MS,
     `a posse levou ${msParaAssumir} ms — o caminho gracioso não pode custar o TTL inteiro`
   );
+});
+
+caso("seguidor-escreve-durante-reindex", async () => {
+  // CA1, 2º cenário — o defeito do card na forma mais literal que ele tem. Durante a redação da
+  // spec, um `lembrar` devolveu `database is locked` E MESMO ASSIM gravou a linha: falha PARCIAL,
+  // que é pior que falhar limpo. Por isso não basta a tool responder sem erro — o caso confere
+  // também que a decisão ficou INTEIRA (linha na tabela + arquivo no cofre).
+  //
+  // Documentos o bastante para o fullReindex do líder segurar a trava por um tempo real: com um
+  // punhado deles a transação fecharia antes de o seguidor ser chamado, e o caso passaria por
+  // velocidade em vez de por concorrência.
+  const docs = {};
+  for (let i = 0; i < 400; i++) {
+    docs[`d${i}.md`] = `# Documento ${i}\n\nParagrafo do documento numero ${i}, sobre marmota e alfazema.\n`;
+  }
+  const fx = criarFixture("seguidor-escreve", docs, { comDecisoes: true });
+  const lider = subirServidor(fx, "lider");
+  await ate(() => lider.eLider(), 30000, () => `o líder bootar -> ${lider.diagnostico()}`);
+  // O seguidor só sobe depois de o líder terminar o boot INTEIRO, e a ordem tem duas razões — a
+  // segunda custou um vermelho intermitente. (1) O backfill de boot também escreve, e a disputa
+  // que este caso mede é com o fullReindex, não com o resto do boot. (2) Com 400 documentos o boot
+  // do líder pode levar mais que o TTL de 3 s da fixture, e o tique que renova o lease só começa
+  // DEPOIS dele: um seguidor subindo nessa janela acharia o lease vencido e nasceria líder — e o
+  // caso ficaria sem seguidor, esperando por um log que nunca viria.
+  await ate(
+    () => lider.err.includes("[brain] embeddings:"),
+    60000,
+    () => `o backfill inicial do líder -> ${lider.diagnostico()}`
+  );
+  const seg = subirServidor(fx, "seguidor");
+  await ate(
+    () => seg.err.includes("boot (seguidor)"),
+    30000,
+    () => `o seguidor bootar -> ${seg.diagnostico()}`
+  );
+  await lider.handshake();
+  await seg.handshake();
+
+  let reindexTerminou = false;
+  const oReindex = lider
+    .chamarCru("reindex", { full: true, forcar: true })
+    .then((r) => ((reindexTerminou = true), r));
+
+  // Martela o seguidor ENQUANTO a transação do líder está aberta, em vez de disparar uma vez e
+  // torcer para cair na janela certa. Cada rodada faz uma LEITURA e uma ESCRITA — os dois lados
+  // que o CA1 exige que concluam —, e a condição do laço garante que toda rodada da lista foi
+  // emitida com o reindex ainda em voo. O teto de 40 só impede laço infinito se algo travar.
+  const rodadas = [];
+  for (let i = 0; !reindexTerminou && i < 40; i++) {
+    const busca = await seg.chamarCru("search_context", { query: "marmota alfazema", limit: 3 });
+    const lembrar = await seg.chamarCru("lembrar", {
+      fato: `Decisao ${i} gravada por um seguidor durante a reindexacao completa do lider.`,
+      tipo: "descoberta",
+      escopo: "concorrencia",
+    });
+    rodadas.push({ i, busca, lembrar });
+  }
+
+  const reindex = await oReindex;
+  ok(!reindex.falhou, `o reindex do líder falhou: ${reindex.resumo()}`);
+  ok(rodadas.length >= 1, "nenhuma rodada do seguidor foi emitida durante o reindex");
+
+  for (const { i, busca, lembrar } of rodadas) {
+    ok(!busca.falhou, `search_context da rodada ${i} falhou: ${busca.resumo()}`);
+    ok(!busca.comLock, `search_context da rodada ${i} bateu em lock: ${busca.resumo()}`);
+    ok(!lembrar.falhou, `lembrar da rodada ${i} falhou: ${lembrar.resumo()}`);
+    ok(!lembrar.comLock, `lembrar da rodada ${i} bateu em lock: ${lembrar.resumo()}`);
+    ok(lembrar.texto.length > 0, `lembrar da rodada ${i} respondeu vazio`);
+  }
+  // Deliberadamente NÃO se afirma que a busca trouxe resultado: `fullReindex` é `clearAll` (em
+  // autocommit) seguido de `scan` (em transação), então existe uma janela COMMITADA de índice
+  // vazio, e uma busca honesta do seguidor pode cair nela e responder "Nenhum resultado". O CA1
+  // pede que a chamada conclua sem erro, e é isso — e só isso — que se afirma aqui.
+
+  // A prova contra a falha parcial: para cada `lembrar` que respondeu ok tem de haver linha na
+  // tabela E arquivo em disco. Era exatamente aqui que o defeito original se escondia.
+  const db = openDb(fx.db);
+  try {
+    const linhas = db
+      .prepare("SELECT id, fato, doc_path FROM decisoes WHERE escopo = 'concorrencia' ORDER BY id")
+      .all();
+    ok(
+      linhas.length === rodadas.length,
+      `${rodadas.length} lembrar concluíram, mas a tabela tem ${linhas.length} decisões`
+    );
+    for (const l of linhas) {
+      ok(
+        existsSync(l.doc_path),
+        `decisão ${l.id} ficou pela metade: linha gravada e arquivo ausente (${l.doc_path})`
+      );
+    }
+  } finally {
+    db.close();
+  }
+});
+
+caso("reindex-nao-derruba-lider", async () => {
+  // CA3 pelo avesso: mandar o PRÓPRIO líder reindexar tudo não pode custar-lhe a liderança.
+  // `clearAll` hoje apaga docs, chunks, FTS e files — se um dia alguém acrescentar `lider` ou
+  // `meta` a essa lista, o líder se derrubaria no meio do próprio trabalho e o índice ficaria
+  // órfão até o TTL vencer. Este caso é o alarme dessa mudança.
+  const fx = criarFixture("reindex-nao-derruba-lider", {
+    "alfa.md": "# Alfa\n\nDocumento de origem para a fixture do reindex.\n",
+    "beta.md": "# Beta\n\nSegundo documento, para o scan ter o que reindexar.\n",
+  });
+  const a = subirServidor(fx, "a");
+  await ate(() => a.eLider(), 30000, () => `o servidor A assumir a liderança -> ${a.diagnostico()}`);
+  await a.handshake();
+
+  // Primeiro full só para levantar o contador acima de 1: se `meta` fosse apagado e recriado pelo
+  // bump seguinte, o valor voltaria a '1' — indistinguível de um índice novo se o teste comparasse
+  // contra 1. Com o contador em 2+, a queda para 1 fica visível.
+  const primeiro = await a.chamarCru("reindex", { full: true });
+  ok(!primeiro.falhou, `o primeiro reindex falhou: ${primeiro.resumo()}`);
+
+  const antes = lerLider(fx.db);
+  const versaoAntes = lerVersao(fx.db);
+  ok(antes !== null && Number(antes.pid) === a.pid, "a tabela não apontava o A antes do reindex");
+  ok(versaoAntes >= 2, `esperava versao_indice >= 2 antes do 2º full, veio ${versaoAntes}`);
+
+  const r = await a.chamarCru("reindex", { full: true });
+  ok(!r.falhou, `o reindex falhou: ${r.resumo()}`);
+  ok(
+    /Varridos \d+ arquivos/.test(r.texto),
+    `o reindex não relatou varredura: ${r.texto.slice(0, 200)}`
+  );
+
+  const depois = lerLider(fx.db);
+  ok(depois !== null, "o lease sumiu da tabela no fullReindex — `clearAll` levou `lider` junto");
+  ok(
+    depois.instancia === antes.instancia,
+    "a instância dona do lease mudou durante o reindex do próprio dono"
+  );
+  ok(Number(depois.expira_em) >= Number(antes.expira_em), "o lease do líder não foi renovado");
+  const versaoDepois = lerVersao(fx.db);
+  ok(
+    versaoDepois > versaoAntes,
+    `meta.versao_indice não sobreviveu ao clearAll (${versaoAntes} -> ${versaoDepois})`
+  );
+  ok(!a.err.includes("perdi a liderança"), "o líder se rebaixou durante o próprio reindex");
+
+  // Líder na tabela é barato; líder DE FATO é o que importa. Arquivo novo tem de ser indexado.
+  writeFileSync(
+    join(fx.docsDir, "apos-reindex.md"),
+    "# Apos\n\nArquivo criado depois do fullReindex do proprio lider.\n"
+  );
+  await ate(
+    () => contar(fx.db, "SELECT COUNT(*) c FROM docs WHERE path LIKE '%apos-reindex.md'") === 1,
+    30000,
+    "o líder voltar a indexar depois do próprio fullReindex"
+  );
+});
+
+caso("reindex-recusa-e-forca", async () => {
+  // O portão da tool, nos dois lados: a recusa e a escapatória (TD-5). E, no fim, a emenda
+  // 2026-09-09 desta task — quem é promovido pelo `forcar` tem de assumir o TRABALHO de líder e
+  // não só o título, senão o índice fica com um dono que não vigia nada.
+  const fx = criarFixture("reindex-recusa-e-forca", {
+    "alfa.md": "# Alfa\n\nDocumento de origem para a fixture da recusa.\n",
+  });
+  const a = subirServidor(fx, "a");
+  await ate(() => a.eLider(), 30000, () => `o servidor A assumir a liderança -> ${a.diagnostico()}`);
+  const b = subirServidor(fx, "b");
+  await ate(
+    () => b.err.includes("boot (seguidor)"),
+    30000,
+    () => `o servidor B bootar como seguidor -> ${b.diagnostico()}`
+  );
+  await b.handshake();
+  await ate(() => a.err.includes("vigia:"), 30000, "o líder A ligar o vigia");
+  // ESPERAR o boot de B terminar é o que dá sentido à última metade do caso, e custou uma
+  // mutação para descobrir. `index.ts` só avalia `if (lease.souLider) assumirTrabalhoPesado()`
+  // dentro do `setTimeout(…, 500)` do boot; se o `forcar` chegasse antes disso, B ganharia vigia
+  // POR AQUELE caminho e o caso passaria mesmo sem o `aoAssumirLideranca` desta task — verde por
+  // escalonamento, não por comportamento. "modelo de embeddings pronto" sai de dentro do mesmo
+  // setTimeout, então vê-lo no stderr prova que aquela janela já fechou.
+  await ate(
+    () => b.err.includes("modelo de embeddings pronto"),
+    30000,
+    () => `o boot de B passar do setTimeout inicial -> ${b.diagnostico()}`
+  );
+
+  // --- a recusa ---
+  const docsAntes = contar(fx.db, "SELECT COUNT(*) c FROM docs");
+  const donoAntes = lerLider(fx.db);
+  const recusa = await b.chamarCru("reindex", { full: true });
+
+  ok(!recusa.falhou, `a recusa veio como erro de protocolo, não como resposta: ${recusa.resumo()}`);
+  ok(
+    /não reindexei/i.test(recusa.texto),
+    `a recusa não diz que não reindexou: ${recusa.texto.slice(0, 200)}`
+  );
+  ok(
+    recusa.texto.includes(String(a.pid)),
+    `a recusa não é acionável — não cita o pid ${a.pid} do dono: ${recusa.texto.slice(0, 200)}`
+  );
+  ok(/forcar/i.test(recusa.texto), "a recusa não diz como sair dela (forcar: true)");
+
+  // "Não escreve NADA" é a metade que importa: um `full` que rodasse antes de recusar teria
+  // esvaziado o índice. `uso` é a exceção conhecida da spec (TD-2) e não entra nesta conta.
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsAntes,
+    "a recusa mexeu na tabela docs — algo escreveu antes de recusar"
+  );
+  ok(
+    lerLider(fx.db).instancia === donoAntes.instancia,
+    "a recusa trocou o dono do lease — a tentativa que falha não pode escrever em `lider`"
+  );
+
+  // --- a escapatória ---
+  const forcado = await b.chamarCru("reindex", { full: true, forcar: true });
+  ok(!forcado.falhou, `o reindex forçado falhou: ${forcado.resumo()}`);
+  ok(
+    /Varridos \d+ arquivos/.test(forcado.texto),
+    `o forçado não varreu: ${forcado.texto.slice(0, 200)}`
+  );
+
+  const donoDepois = lerLider(fx.db);
+  ok(
+    Number(donoDepois.pid) === b.pid,
+    `esperava o pid ${b.pid} como dono depois do forcar, veio ${donoDepois.pid}`
+  );
+  await ate(() => a.err.includes("perdi a liderança"), 30000, "o servidor A se rebaixar");
+
+  // --- a emenda: o promovido assume o trabalho, não só o título ---
+  // Sem o `aoAssumirLideranca` que esta task acrescentou, B renovaria o lease para sempre no ramo
+  // `if (this.lider)` do tique, sem nunca ligar vigia nem backfill — e como A já se rebaixou e
+  // desligou o dele, NINGUÉM indexaria mais nada. O arquivo abaixo é o que separa os dois mundos.
+  ok(b.err.includes("vigia:"), "B tomou a liderança e não ligou o vigia (líder só no nome)");
+  // E veio pelo caminho certo: o tique anuncia "assumi o índice" ao promover, o `reindex` não.
+  // Sem esta linha, um vigia ligado por promoção do tique passaria por prova da emenda.
+  ok(
+    !b.err.includes("assumi o índice"),
+    "B foi promovido pelo tique, não pelo reindex — o caso deixou de provar a emenda"
+  );
+  writeFileSync(
+    join(fx.docsDir, "apos-forcar.md"),
+    "# Apos\n\nArquivo criado depois de B tomar a lideranca a forca.\n"
+  );
+  await ate(
+    () => contar(fx.db, "SELECT COUNT(*) c FROM docs WHERE path LIKE '%apos-forcar.md'") === 1,
+    30000,
+    "o novo líder B indexar um arquivo criado depois da promoção"
+  );
+});
+
+caso("cli-disputa-o-lease", async () => {
+  // A Área 7, que nenhum outro caso alcança: a CLI é um processo à parte, sem MCP e sem stdio, e
+  // é o segundo caminho de escrita pesada da feature. Três coisas se provam aqui — a recusa, a
+  // espera que de fato REPETE, e a liberação do lease inclusive quando o script sai por erro.
+  const fx = criarFixture("cli-disputa-o-lease", {
+    "alfa.md": "# Alfa\n\nDocumento de origem para a fixture da CLI.\n",
+  });
+
+  /** A CLI roda como o usuário a roda: processo próprio, argv de verdade, stdout/stderr lidos. */
+  const rodarCli = (args, env = {}, script = join(root, "dist", "cli.js")) =>
+    new Promise((res) => {
+      const c = spawn(process.execPath, [script, ...args], {
+        cwd: root,
+        env: { ...process.env, BRAIN_DB: fx.db, BRAIN_CONFIG: fx.config, ...env },
+      });
+      let out = "";
+      let err = "";
+      c.stdout.on("data", (d) => (out += d.toString()));
+      c.stderr.on("data", (d) => (err += d.toString()));
+      c.on("exit", (code) => res({ code, out, err }));
+    });
+
+  const db = openDb(fx.db);
+  const dono = new Lease(db);
+  ok(dono.tentarAdquirir() === true, "não consegui montar a fixture do lease");
+  // Segurar o lease renovando é obrigatório: o TTL deste processo de teste é de 500 ms, e sem a
+  // renovação ele venceria no meio da própria asserção — a CLI acharia o índice livre e o caso
+  // testaria o contrário do que promete.
+  const segurando = setInterval(() => {
+    try {
+      dono.renovar();
+    } catch {
+      /* banco ocupado neste tique não muda nada */
+    }
+  }, 150);
+
+  try {
+    const linhaDono = lerLider(fx.db);
+    const docsAntes = contar(fx.db, "SELECT COUNT(*) c FROM docs");
+
+    // --- 1. recusa, e recusa ACIONÁVEL ---
+    // BRAIN_CLI_ESPERA_MS=0 troca os 10 s de espera por uma tentativa só: a espera é exercitada
+    // no passo 2, e pagá-la aqui seria 10 s a cada rodada da suíte por nada.
+    const recusa = await rodarCli([], { BRAIN_CLI_ESPERA_MS: "0" });
+    ok(recusa.code === 1, `esperava código 1 na recusa, veio ${recusa.code}: ${recusa.err.slice(0, 200)}`);
+    ok(recusa.err.includes(String(linhaDono.pid)), `a recusa não cita o pid do dono: ${recusa.err.slice(0, 200)}`);
+    ok(recusa.err.includes(linhaDono.host), "a recusa não cita o host do dono");
+    ok(/lease até \S/.test(recusa.err), "a recusa não diz até quando vale o lease do dono");
+    ok(recusa.err.includes("--force"), "a recusa não diz como sair dela (--force)");
+    ok(
+      !/Varredura incremental|Reindexação completa/.test(recusa.out),
+      "a CLI varreu antes de recusar — a disputa tem de vir antes de qualquer escrita"
+    );
+    ok(
+      contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsAntes,
+      "a recusa mexeu na tabela docs"
+    );
+    ok(lerLider(fx.db).instancia === linhaDono.instancia, "a CLI roubou o lease em vez de recusar");
+
+    // --- 2. a espera REPETE, não é um sleep só ---
+    // A CLI sobe com 6 s de prazo enquanto o lease ainda está preso; ~1 s depois o dono some. Se
+    // `adquirirComEspera` tentasse uma vez e dormisse o resto, ela terminaria em recusa. Concluir
+    // com sucesso só é possível tentando de novo DEPOIS de o lease ser liberado.
+    const esperando = rodarCli([], { BRAIN_CLI_ESPERA_MS: "6000" });
+    await dormir(1000);
+    clearInterval(segurando);
+    dono.liberar();
+    const persistente = await esperando;
+    ok(
+      persistente.code === 0,
+      `a CLI desistiu em vez de repetir a tentativa (código ${persistente.code}): ${persistente.err.slice(0, 200)}`
+    );
+    ok(/Varredura incremental/.test(persistente.out), "a CLI ganhou o lease mas não varreu");
+    ok(lerLider(fx.db) === null, "a CLI terminou e não devolveu o lease");
+
+    // --- 3. sair por ERRO também devolve o lease ---
+    // Um lease órfão de processo morto barraria a próxima CLI e o próximo servidor até o TTL
+    // vencer. Não há como fazer a CLI real falhar no meio sem um ponto de injeção de falha no
+    // código de produção — que seria maquinário permanente para um caso só —, então o teste
+    // injeta o erro numa CÓPIA do artefato já compilado. A cópia mora em dist/ porque os imports
+    // dela são relativos (`./config.js`) e só resolvem ao lado dos irmãos.
+    const copia = join(root, "dist", "cli-que-estoura.tmp.js");
+    const fonte = readFileSync(join(root, "dist", "cli.js"), "utf8");
+    const marca = "const indexer = new Indexer(db, config);";
+    ok(fonte.includes(marca), "não achei onde injetar o erro na cópia do dist/cli.js");
+    writeFileSync(copia, fonte.replace(marca, marca + '\nthrow new Error("estouro proposital");'));
+    try {
+      const quebrada = await rodarCli([], { BRAIN_CLI_ESPERA_MS: "0" }, copia);
+      ok(quebrada.code === 1, `esperava código 1 no estouro, veio ${quebrada.code}`);
+      ok(/estouro proposital/.test(quebrada.err), `estourou no lugar errado: ${quebrada.err.slice(0, 200)}`);
+      ok(lerLider(fx.db) === null, "a CLI saiu por erro e deixou o lease para trás");
+    } finally {
+      rmSync(copia, { force: true });
+    }
+  } finally {
+    clearInterval(segurando);
+    db.close();
+  }
 });
 
 // ---------------------------------------------------------------- execução
