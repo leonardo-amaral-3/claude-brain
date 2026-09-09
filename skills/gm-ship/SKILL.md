@@ -12,11 +12,28 @@ argument-hint: [feature-folder]
 1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
 2. Every file in `tasks/` (epic: `tasks/<fase>/`, only the phase in flight) starts with `✅ Status: Complete`; otherwise stop and point to `/gm-implement $ARGUMENTS`.
 3. Inside the module repo (nested git repository): on the feature branch, `git status` clean.
-4. **Run the full relevant suite** (api/web tests + typecheck of the touched packages). Red → stop and show; a PR never opens on red.
+4. **Run the full relevant suite** (api/web tests + typecheck of the touched packages). Red → stop and show; a PR never opens on red. **Verde não encerra a checagem** — leia o resultado contra as decisões da spec; se a suíte ou uma medição derruba alguma, vale a regra do `## Open the PR` abaixo.
 
 ## Open the PR
 
 1. `git push -u origin <feature-branch>`.
+
+**Antes de escrever o corpo: alguma decisão da spec caiu?** A pergunta vale da precondição 4 até o
+`gh pr create`, e o gatilho é mecânico: ao escrever `## Critérios de aceite` no passo 2, confira cada
+critério contra o que a suíte e as **medições desta sessão** mostraram — critério que só passa
+reinterpretando a spec é decisão caída. Foi assim que o caso que originou esta regra apareceu: uma
+medição, não um teste vermelho, então suíte verde não encerra a checagem.
+
+Se caiu: **não abra a PR.** PR contra spec sabidamente errada nasce mentindo para o revisor humano e
+para a revisão de CI do G4, que revisa lendo o `gm:spec`. Pare e mande o humano para
+`/gm-implement $ARGUMENTS`, nomeando **emenda pós-tasks** — é lá que a emenda datada é aprovada e
+escrita em `spec.md` + `gm:spec`, e é lá que nasce a task N+1, sem `/gm-spec` (que é autoria) e sem
+`/gm-plan-tasks` (que re-proporia as tasks já feitas). A branch já empurrada no passo 1 não
+atrapalha: branch sem PR não aparece no board nem dispara revisão, e você volta para cá pela
+precondição 3 quando a task estiver `✅`.
+
+**Não confunda com a precondição 2:** aquela é task **pendente**; esta é tudo `✅` e a spec errada.
+
 2. Body (scratchpad file; the literal `**Card:** #<n>` on the FIRST line is machine-read by the CI review — never use `Closes`, the card's lifecycle belongs to the board; the branch created by gm-implement is already linked to the issue, so this PR attaches to the card's Development field automatically):
 
    ```markdown
@@ -41,6 +58,10 @@ argument-hint: [feature-folder]
         "esta fase cobre" e a tabela "deliberadamente fora" — porque um revisor que só recebe
         "a spec está no card" encontra card vazio e revisa o diff no escuro. O que está fora de
         escopo de propósito é o que torna a detecção de escopo extra mecânica em vez de instintiva. -->
+   <!-- houve emenda pós-tasks? uma linha por emenda:
+        "Emenda AAAA-MM-DD: <a decisão que caiu, em meia linha> — nota completa no gm:spec"
+        para o revisor humano ver que uma decisão do G2 caiu DEPOIS do planejamento, sem ter de
+        diffar o comentário do card. -->
 
    ## Tasks
    - [x] 1 — <título>
