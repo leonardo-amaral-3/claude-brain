@@ -90,7 +90,7 @@ export class Grafo {
 
     // As decisões são gravadas pelo usuário (tool `lembrar`), não derivadas de arquivo —
     // precisam sobreviver à reconstrução.
-    db.exec("BEGIN");
+    db.exec("BEGIN IMMEDIATE");
     try {
       // Apaga TUDO, inclusive decisões. A versão anterior preservava entidades de decisão
       // achando que estava protegendo dado que não vem de arquivo — mas os cards eram

@@ -96,4 +96,9 @@ export function loadConfig(): BrainConfig {
   return cfg;
 }
 
-export const dbPath = join(packageRoot, "data", "brain.db");
+/**
+ * Caminho do banco: $BRAIN_DB, ou data/brain.db ao lado do pacote — mesmo padrão de BRAIN_CONFIG
+ * acima, e o padrão é o valor de sempre, então nenhuma instalação percebe. Existe porque sem ele
+ * o teste de concorrência seria impossível ou destrutivo: só há um banco, e é o índice vivo.
+ */
+export const dbPath = process.env.BRAIN_DB || join(packageRoot, "data", "brain.db");

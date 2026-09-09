@@ -137,7 +137,7 @@ export async function preencherEmbeddings(
     if (lote.length === 0) break;
 
     const vetores = await embedPassagens(lote.map((c) => c.text));
-    db.exec("BEGIN");
+    db.exec("BEGIN IMMEDIATE");
     try {
       for (let i = 0; i < lote.length; i++) upd.run(paraBlob(vetores[i]), lote[i].id);
       db.exec("COMMIT");
