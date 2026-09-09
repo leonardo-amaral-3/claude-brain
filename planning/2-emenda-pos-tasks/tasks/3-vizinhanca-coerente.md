@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: A vizinhança que passaria a mentir (CA4)
 
