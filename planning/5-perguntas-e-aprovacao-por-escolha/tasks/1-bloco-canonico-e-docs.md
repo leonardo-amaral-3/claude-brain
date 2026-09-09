@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: A convenção — o bloco canônico nas 11 skills e a seção longa em `docs/`
 
