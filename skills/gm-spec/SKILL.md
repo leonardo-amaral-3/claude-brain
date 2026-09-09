@@ -115,7 +115,7 @@ gh api --paginate repos/<owner>/<repo>/issues/<n>/comments \
 # id → PATCH repos/.../issues/comments/<id> -F body=@<file>   |   sem id → gh issue comment <n> --body-file <file>
 ```
 
-**Spec viva:** emendas aprovadas durante a implementação (protocolo de desvio do gm-implement) atualizam `spec.md` E este comentário, com nota datada — a spec publicada nunca vira mentira histórica.
+**Spec viva:** emendas aprovadas durante a implementação (protocolo de desvio do gm-implement) atualizam `spec.md` E este comentário, com nota datada — a spec publicada nunca vira mentira histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a última task e a PR.
 
 Board (the team board): ao INICIAR a fase 1, mover o card para 🎯 Especificação — é o ponto de compromisso:
 ```
