@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: Ação humana disputa o lease — CLI, tool `reindex` e README
 
