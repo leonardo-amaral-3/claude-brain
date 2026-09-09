@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: A detecção no `gm-ship` — regra, ponteiro e linha da PR
 
