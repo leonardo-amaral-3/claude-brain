@@ -225,6 +225,30 @@ perdeu), seguidor tenta adquirir (e chama `aoAssumir` se ganhou).
 - `busy_timeout` (linha 11): `5000` → `30000`, com o comentário trocado para citar a medição de 9,3 s.
 - Duas tabelas novas no `db.exec` de criação (aditivas, `IF NOT EXISTS`, no mesmo bloco):
 
+**Emenda 2026-09-09 (task 3) — o `busy_timeout` não cobre o `journal_mode`, e isso derrubava servidor
+no boot.** `openDb` passa a ligar o WAL por um helper `ligarWal(db)` com retry curto (até 20
+tentativas de 25 ms, só para `errcode === 5`), e o `busy_timeout` passa a ser definido **antes** dele.
+
+*Como apareceu:* o caso `um-so-lider` desta task pegou servidores **morrendo no boot** com
+`database is locked` e stack em `openDb`. Medido em 2026-09-09: **12 mortes em 192 aberturas
+simultâneas** de um banco novo. Um processo que morre no boot por lock é exatamente o que o **CA1**
+proíbe — a task não podia fechar com isso de pé.
+
+*Por que a spec errou o diagnóstico:* a Technical Overview trata `busy_timeout = 30_000` como o
+antídoto geral para contenção. Não é. `PRAGMA journal_mode = WAL` precisa de trava exclusiva e o
+SQLite **não invoca o busy handler nesse caminho** — devolve `SQLITE_BUSY` imediatamente. Por isso a
+ordem dos dois PRAGMAs, sozinha, não resolve: apenas estreita a janela (medido — voltou a falhar 1
+vez em 10 rodadas da suíte). Só o retry fecha: **0 falhas em 512 aberturas**, com a suíte verde em 8
+rodadas seguidas.
+
+*Escopo do retry, de propósito estreito:* o journal mode é persistente no arquivo, então a disputa só
+existe nas primeiras aberturas de um banco recém-criado; depois o PRAGMA é no-op e nunca reentra no
+laço. E só `errcode === 5` é retentado — qualquer outro erro sobe na hora, para não transformar um
+defeito real em espera silenciosa.
+
+*Regressão:* caso `abrir-em-paralelo-nao-quebra` em `scripts/concorrencia.mjs` (5 rodadas × 10
+aberturas simultâneas de banco novo). Conferido que ele reprova contra o código anterior à emenda.
+
 ```sql
 CREATE TABLE IF NOT EXISTS lider (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -429,12 +453,36 @@ não esperar 60 s pela tomada de posse.
 
 `package.json`: `"concorrencia": "node scripts/concorrencia.mjs"`.
 
+**Emenda 2026-09-09 (task 3):** os casos que sobem servidor de verdade obtêm embeddings de um
+**stub injetado por hook de resolução ESM** (`node --import scripts/embeddings-falso-hook.mjs`, que
+redireciona `dist/embeddings.js` para um módulo falso de ~35 linhas). Nenhum código de produção
+muda; o stub vive só em `scripts/`.
+
+*Motivo:* `embute-uma-vez` (CA2) e `seguidor-nao-envelhece` (CA4) exigem que um servidor **spawnado**
+gere embeddings — `Buscador` só toma o caminho semântico quando `jaPronto()` é true (`search.ts:272`).
+O modelo real `Xenova/multilingual-e5-small` tem **470 MB** (`model.onnx`, medido) e está cacheado só
+no `node_modules` da *instalação*; como `embeddings.ts:26` mantém `allowRemoteModels = true`, cada
+servidor spawnado baixaria 470 MB e pagaria ~15 s, numa suíte que roda a cada task e num repo público
+que outra pessoa clona.
+
+*Isto reverte parcialmente a emenda anterior desta mesma data*, que descartou "hook de
+`module.register` em processo filho". Aquele descarte vale onde vale: no teste de **unidade**, onde
+existe assinatura para costurar (`opts.embutir`) e o hook seria maquinário maior para o mesmo efeito.
+Aqui não há assinatura — a fronteira de processo é justamente o que está sob teste —, então o hook
+deixa de ser maquinário excedente e passa a ser o único ponto de costura.
+
+*O que o stub NÃO enfraquece:* os vetores falsos são one-hot determinísticos, então o seguidor só
+acha o chunk novo **se** o `VectorIndex` dele recarregou — exatamente a propriedade do CA4. E o teste
+afirma sobre a **ausência** do rodapé `(busca semântica indisponível…)` de `tools.ts:108`, de modo que
+uma consulta que caiu para só-léxico reprova em vez de passar em silêncio. A *qualidade* da busca
+continua onde a spec já a pôs: `npm run eval` contra o índice real, no ship.
+
 ## File Change Summary
 
 | Arquivo | Mudança |
 |---|---|
 | `brain-mcp/src/lease.ts` | **novo** — classe `Lease`: aquisição atômica, renovação, liberação, tique de promoção |
-| `brain-mcp/src/db.ts` | tabelas `lider` e `meta`; `busy_timeout` 5s→30s; `versaoIndice`/`bumpVersaoIndice` |
+| `brain-mcp/src/db.ts` | tabelas `lider` e `meta`; `busy_timeout` 5s→30s; `versaoIndice`/`bumpVersaoIndice`; `ligarWal()` com retry (emenda task 3) |
 | `brain-mcp/src/config.ts` | `dbPath` respeita `BRAIN_DB` (padrão inalterado) |
 | `brain-mcp/src/vectors.ts` | `VectorIndex` invalida cache por `meta.versao_indice`; `preencherEmbeddings` reconfere liderança por lote; `BEGIN IMMEDIATE` |
 | `brain-mcp/src/indexer.ts` | `BEGIN` → `BEGIN IMMEDIATE` (linha 206) |
@@ -443,6 +491,8 @@ não esperar 60 s pela tomada de posse.
 | `brain-mcp/src/cli.ts` | disputa o lease com espera de 10 s; `--force`; libera ao fim |
 | `brain-mcp/src/tools.ts` | tool `reindex` exige lease, com parâmetro `forcar` |
 | `brain-mcp/scripts/concorrencia.mjs` | **novo** — teste dos 4 critérios com N servidores reais |
+| `brain-mcp/scripts/embeddings-falso.mjs` | **novo** (emenda task 3) — stub determinístico do modelo, só para teste |
+| `brain-mcp/scripts/embeddings-falso-hook.mjs` | **novo** (emenda task 3) — hook ESM que injeta o stub no servidor spawnado |
 | `brain-mcp/package.json` | script `concorrencia` |
 | `brain-mcp/README.md` | seção curta: escritor único, o que a CLI faz quando há sessões abertas, `--force` |
 | `docs/` ou `claude/mapas/` | atualizar o mapa do `brain-mcp` com o novo módulo (via `/mapear` no ship) |

@@ -4,15 +4,47 @@ import { dirname } from "node:path";
 
 export type Db = DatabaseSync;
 
+/** Espera síncrona: `openDb` é síncrona por contrato e não há `await` a usar aqui. */
+function dormirSincrono(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Liga o WAL tolerando a disputa da PRIMEIRA abertura de um banco novo.
+ *
+ * `PRAGMA journal_mode = WAL` precisa de trava exclusiva e — esta é a parte contra-intuitiva — o
+ * SQLite **não chama o busy handler** neste caminho: devolve SQLITE_BUSY na hora, então
+ * `busy_timeout`, esteja definido antes ou depois, não cobre. Medido em 2026-09-09 com N sessões
+ * subindo juntas contra um banco novo: o processo perdedor morria no boot com `database is locked`
+ * (stack em `openDb`), que é exatamente o que o CA1 proíbe.
+ *
+ * O retry é curto de propósito: o modo é persistente no arquivo, então a disputa só existe nas
+ * primeiras aberturas de um banco recém-criado. Depois disso o PRAGMA é no-op e nunca reentra aqui.
+ */
+function ligarWal(db: DatabaseSync): void {
+  const TENTATIVAS = 20;
+  for (let i = 0; ; i++) {
+    try {
+      db.exec("PRAGMA journal_mode = WAL");
+      return;
+    } catch (err) {
+      // Só a disputa de trava merece nova tentativa; qualquer outro erro é problema de verdade.
+      const busy = (err as { errcode?: number }).errcode === 5;
+      if (!busy || i >= TENTATIVAS) throw err;
+      dormirSincrono(25);
+    }
+  }
+}
+
 export function openDb(path: string): DatabaseSync {
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode = WAL");
   // Várias sessões compartilham o mesmo .db. 30 s, e não os 5 s de antes, porque a
   // reindexação completa é UMA transação de 9,3 s (medido em 2026-09-09 sobre o índice de
   // 137 MB): com 5 s, escrita concorrente durante um reindex falhava por construção, não
   // por azar. 30 s cobre a operação mais longa com folga de 3x.
   db.exec("PRAGMA busy_timeout = 30000");
+  ligarWal(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS files (
