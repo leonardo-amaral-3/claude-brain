@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: Entrada — `gm-triage`, `gm-card`, `gm-explore`
 
