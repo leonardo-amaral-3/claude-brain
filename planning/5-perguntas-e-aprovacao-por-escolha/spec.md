@@ -80,6 +80,14 @@ Verificável por T6.
 >    nunca remover sozinha.
 > **Dívida assumida:** o card #5 está sendo implementado no checkout principal, não em worktree —
 > ele nasceu antes da própria regra. O CA4 vale dos próximos cards em diante.
+> **Exceção ao teto de tasks, declarada:** o CA4 vira as tasks **8** (convenção nas 4 skills que
+> mexem em branch + `docs/`) e **9** (marcador de origem no `sync.ps1`/`sync.sh`), levando a
+> feature a **9 tasks** contra o teto de 6–8. Escolhido pelo humano depois de eu mostrar as três
+> saídas. A razão de caber: o teto governa o **planejamento**, e aqui não há mais planejamento a
+> governar — juntar as duas numa só respeitaria a letra do teto e enfraqueceria o que ele protege,
+> porque a unidade de revisão passaria a atravessar markdown, PowerShell e bash de uma vez.
+> Descartado devolver o CA4 a card próprio, que é o que a regra de fatiamento manda quando o teto
+> estoura.
 
 **Fora do escopo** (do card): mudar os gates em si — quantos são, onde ficam, quem aprova.
 Também fora, por decisão desta spec: `README.md` — as menções a "aprovação" em `:243` e `:245`
