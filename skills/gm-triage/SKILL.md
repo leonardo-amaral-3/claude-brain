@@ -52,7 +52,7 @@ and every `description` — is written in pt-BR.**
 - **Origin is mandatory.** Who reported, through which channel, on what date. Without it, the release notice ("seu chamado saiu na v2026.09.15") cannot exist and the requester never learns the fix shipped.
 - **No acceptance criteria here.** Triagem answers *what is this and how bad*; `gm-card` answers *what does pronto mean*. Writing criteria at the door skips the G1 conversation with the person who owns the direction.
 - **No solutioning.** Do not diagnose the cause or propose a fix — record the evidence. If the report is impossible to classify without reading code, do the minimum read-only check to type it, and say what you checked.
-- Team-visible: show the draft and publish only on explicit approval.
+- **Team-visible, so the human is the one who picks.** Every decision here — destino da demanda, publicar ou não — reaches the user through the choice mechanics of `## Como perguntar e como aprovar`, never as free text to type. The draft goes in the message; the *artefato* set decides what happens to it.
 - Answer in pt-BR.
 
 ## Board reference — vem do workspace, nunca deste arquivo
@@ -78,7 +78,23 @@ Decide **before** writing anything:
 | Pedido de operação (rodar script, consultar banco, reprocessar) | trabalho operacional, fora da esteira — faz e reporta, sem card |
 | Sistema faz o errado · falta capacidade · custo de mudar subiu | **demanda** → segue |
 
-Ambiguous → ask the user, don't guess. Report the decision explicitly ("isso é suporte, não demanda — respondi X") so the choice is visible.
+Ambiguous — it fits two rows, or none of them cleanly — → one `AskUserQuestion` call before
+anything is written; header `Destino`, question and options in pt-BR:
+
+> **O relato:** «<uma linha, na linguagem de quem trouxe>». Só o primeiro caminho abaixo vira card
+> e gasta fila do board; os outros três resolvem sem deixar nada nele.
+>
+> - **É demanda, segue** — nasce card em 📥 Triagem, tipado e com origem registrada; o que conta
+>   como "pronto" fica para o `/gm-card` decidir depois.
+> - **Respondo e encerra** — a resposta fecha o assunto e nada vai para o board. Card ❓ Dúvida só
+>   se ela precisar virar conhecimento consultável do time.
+> - **Roteio para quem opera** — incidente de infra: quem opera estabiliza agora. Card depois, e
+>   só para a causa estrutural, se ela existir.
+> - **Faço e reporto** — pedido de operação (rodar script, consultar banco, reprocessar): sai
+>   hoje, fora da esteira, e não deixa rastro no board.
+
+Then say the choice out loud in one line ("isso é suporte, não demanda — respondi X"), so it lives
+in the transcript and not only in the tool's answer.
 
 ## Step 2 — Deduplicate
 
@@ -162,7 +178,11 @@ Keep it under ~20 lines. Diagnosis, direction, acceptance criteria and technical
 
 ## Step 5 — Publish
 
-Show repo + title + body + the four fields, and publish only on explicit approval.
+The card is the artifact. Put repo, title, the whole body and the four field values in the message
+— the tool renders no long body, so whatever stays out of the message will not be read — and then
+run the *artefato* set from `## Como perguntar e como aprovar`. *Ajustar* comes back here with the
+correction and asks again; *Rejeitar* creates nothing, and the report says the demand was dropped
+at the door.
 
 ```
 gh issue create --repo <owner>/<repo> --title "..." --body-file <file> --assignee @me

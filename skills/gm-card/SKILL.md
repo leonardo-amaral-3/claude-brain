@@ -68,7 +68,15 @@ Both end with the same product: a card that satisfies G1.
 
 1. **Gather.** Promover → `gh issue view <n> --repo <owner>/<repo> --json title,body,url,comments` and keep everything the triage recorded (reprodução, severidade, **origem/solicitante** — the release notice depends on it). Criar → from the argument and conversation; reuse gm-explore evidence from this session (never re-explore). Unverified "estado atual" claims: verify quickly (read-only) or mark "(a confirmar)".
 
-2. **Check duplicates** (Criar only — a triaged issue was already deduplicated). `gh search issues --owner <owner> "<keywords>" --state open --limit 10`. Similar card exists → show it, ask whether to update instead.
+2. **Check duplicates** (Criar only — a triaged issue was already deduplicated). `gh search issues --owner <owner> "<keywords>" --state open --limit 10`. A similar card exists → show it (number, title, board status) and put the fork to the human in one `AskUserQuestion` call; header `Duplicata`, question and options in pt-BR:
+
+   > Já existe card cobrindo quase isso: «<título>» (#<n>, <status>). Duas demandas para o mesmo
+   > problema é o que faz duas pessoas consertarem a mesma coisa sem saber.
+   >
+   > - **Atualizar o card existente** — direção e critérios entram na issue que já está lá; o
+   >   histórico fica num lugar só e o board não cresce.
+   > - **Criar card separado** — são problemas diferentes apesar da semelhança. O novo cita o #<n>
+   >   no corpo, para o próximo leitor não tropeçar na mesma dúvida.
 
 3. **Draft in pt-BR, template by type.** Title short and imperative.
 
@@ -111,11 +119,21 @@ Both end with the same product: a card that satisfies G1.
    [curta | completa | hotfix se S1]
    ```
 
-   **Rota — sugira, humano decide.** Curta exige TODOS: não altera contrato de API/schema/regra de negócio; diff pequeno; trivialmente reversível. S1 em prod → hotfix. Todo o resto → completa.
+   **Rota — you suggest, the human picks.** Curta requires ALL of: no change to API contract, schema or business rule; small diff; trivially reversible. S1 in production → hotfix. Everything else → completa. Say in one sentence which one the criteria point at and why, then one `AskUserQuestion` call; header `Rota`, question and options in pt-BR:
+
+   > <por que os critérios apontam para X, em uma frase>. A rota decide quanto documento vem antes
+   > do código:
+   >
+   > - **Curta** — a spec vira um parágrafo e alimenta **uma** task; a crítica adversarial e o
+   >   portão humano continuam. Ganha dias, e aposta que a mudança é mesmo pequena e reversível.
+   > - **Completa** — spec inteira, requisitos e técnica, quebrada em 6–8 tasks independentes.
+   >   Custa dias, e é o que protege mudança que toca contrato de API, schema ou regra de negócio.
+   > - **Hotfix** — sai de `main` sem passar por `dev`, com verificação pós-deploy bloqueante. Só
+   >   com faturamento parado ou dado corrompendo em produção agora.
 
    Keep it under ~25 lines. Data models, file lists, step-by-step → stop, that's spec.
 
-4. **Confirm before publishing** (issue is team-visible): show repo + title + body, proceed only on explicit approval.
+4. **The body is the artifact**, and the issue is team-visible — nothing lands on it by inertia. Show repo, title and the full body in the message — the tool renders no long body — and then run the *artefato* set from `## Como perguntar e como aprovar`. *Ajustar* returns here with the correction; *Rejeitar* leaves the board untouched and says so.
 
 5. **Publish** (body via scratchpad file).
 

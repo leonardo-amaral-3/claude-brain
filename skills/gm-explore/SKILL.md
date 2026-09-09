@@ -89,7 +89,7 @@ A ❓ Dúvida card (or any issue whose whole content is the question you just an
 
 When the exploration was triggered by an existing issue — the argument was `#<n>`, or Step 1 found the card that asks exactly this:
 
-1. Show the user the comment you intend to post, and get explicit approval (issue is team-visible).
+1. The comment is the artifact, and the issue is team-visible: show it in full in the message — the tool renders no long body — and run the *artefato* set from `## Como perguntar e como aprovar`. *Rejeitar* leaves the card open and the answer stays in the chat, where nobody will find it later.
 2. Post the answer as a comment, first line exactly `<!-- gm:resposta -->`, body = the Step 3 report (with the `file:line` evidence intact — that is what makes it consultable later).
 3. Close it as answered and take it off the active queue:
 
