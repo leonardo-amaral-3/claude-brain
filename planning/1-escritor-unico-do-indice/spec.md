@@ -286,6 +286,17 @@ private garantirCarregado(): void {
   varredura do líder em vez de pela sua. Frequência inalterada, latência inalterada.
 - `preencherEmbeddings` ganha `opts.aindaSouLider?: () => boolean`; no topo do `while`, se a função
   existe e devolve `false`, sai do laço. O retorno ganha `interrompido: boolean`.
+
+  **Emenda 2026-09-09 (task 2):** `preencherEmbeddings` ganha um segundo opt, **`embutir?: (textos:
+  string[]) => Promise<Float32Array[]>`**, com padrão `embedPassagens` — nenhum chamador de produção
+  passa. Motivo: o caso `para-ao-perder-o-lease` do `## Plano de testes` exige que o **1º lote
+  complete** para provar que o recheque de liderança vem *antes* do 2º, e o `embedPassagens` real
+  carrega o modelo `Xenova/multilingual-e5-small`. O cache do modelo vive no `node_modules` da
+  **instalação**, não no do repo: rodar de verdade custaria download de ~120 MB na primeira execução
+  e ~15 s por rodada, numa suíte que roda a cada task. ESM não permite substituir o binding exportado
+  de fora, então a costura tem de estar na assinatura. *Descartados:* stub por cópia do
+  `dist/vectors.js` para junto de um `embeddings.js` falso (esperteza que depende do layout do build)
+  e hook de `module.register` em processo filho (maquinário maior para o mesmo efeito).
 - `db.exec("BEGIN")` → `db.exec("BEGIN IMMEDIATE")` (linha 140).
 
 ### Área 5 — `brain-mcp/src/indexer.ts` e `brain-mcp/src/grafo.ts`

@@ -53,11 +53,15 @@ process.env.BRAIN_CONFIG = configPath;
 
 const { openDb, versaoIndice, bumpVersaoIndice } = await import(modulo("db.js"));
 const { Lease, TTL_MS, TIQUE_MS } = await import(modulo("lease.js"));
+const { VectorIndex, preencherEmbeddings } = await import(modulo("vectors.js"));
+const { DIMS, paraBlob } = await import(modulo("embeddings.js"));
 
 // ---------------------------------------------------------------- runner
 const casos = [];
 const caso = (nome, fn) => casos.push({ nome, fn });
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+// Vetor one-hot: da para conferir identidade sem modelo nenhum.
+const vetorFake = (n) => Float32Array.from({ length: DIMS }, (_, i) => (i === n % DIMS ? 1 : 0));
 function ok(cond, msg) {
   if (!cond) throw new Error(msg);
 }
@@ -171,6 +175,100 @@ caso("versao-indice-conta", async () => {
     ok(versaoIndice(db) === "3", `após 3 bumps esperava '3', veio '${versaoIndice(db)}'`);
   } finally {
     db.close();
+  }
+});
+
+caso("para-ao-perder-o-lease", async () => {
+  // CA2, metade de unidade: ao perder o lease, o backfill para no lote corrente e diz que parou.
+  const db = openDb(join(fixture, "backfill.db"));
+  try {
+    db.exec(
+      "INSERT INTO docs (id, path, title, source, doc_type)" +
+        " VALUES (1, '/backfill.md', 'backfill', 'docs', 'doc')"
+    );
+    const ins = db.prepare(
+      "INSERT INTO chunks (doc_id, breadcrumb, ord, text, token_est) VALUES (1, 'b', ?, ?, 3)"
+    );
+    for (let i = 0; i < 70; i++) ins.run(i, `trecho ${i}`);
+
+    // Costura da emenda 2026-09-09 (opts.embutir): vetor determinístico, sem carregar o modelo.
+    let lotes = 0;
+    const embutir = async (textos) => {
+      lotes++;
+      return textos.map(() => vetorFake(1));
+    };
+
+    let recheques = 0;
+    const r = await preencherEmbeddings(db, { embutir, aindaSouLider: () => ++recheques === 1 });
+
+    ok(r.interrompido === true, "perder o lease devia devolver interrompido: true");
+    ok(r.feitos === 32, `esperava exatamente um lote (32) embutido, veio ${r.feitos}`);
+    // O que prova que o recheque vem ANTES do lote e não depois: o 2º lote nunca chegou a ser
+    // gerado. Se a ordem estivesse invertida, lotes seria 2 — CPU gasta por quem já não é líder.
+    ok(lotes === 1, `embedder chamado ${lotes}x; a 2ª chamada é trabalho de quem já perdeu o lease`);
+    ok(recheques === 2, `esperava 2 recheques (um por volta do while), veio ${recheques}`);
+    // Saída limpa: o lote só termina no COMMIT, então não existe chunk pela metade no banco.
+    const comVetor = Number(
+      db.prepare("SELECT COUNT(*) c FROM chunks WHERE embedding IS NOT NULL").get().c
+    );
+    ok(comVetor === 32, `esperava 32 chunks embutidos no banco, tem ${comVetor}`);
+    ok(r.restantes === 38, `restantes ${r.restantes}, esperava 38`);
+
+    // Retomável, e o padrão sem aindaSouLider é o comportamento de hoje: o sucessor continua
+    // de onde este parou, sem reembutir o que já tinha vetor.
+    const r2 = await preencherEmbeddings(db, { embutir });
+    ok(r2.interrompido === false, "sem aindaSouLider nada pode interromper o backfill");
+    ok(r2.feitos === 38, `o sucessor devia embutir os 38 restantes, embutiu ${r2.feitos}`);
+    ok(r2.restantes === 0, `sobraram ${r2.restantes} chunks sem vetor`);
+  } finally {
+    db.close();
+  }
+});
+
+caso("cache-vetorial-expira-por-versao", async () => {
+  // CA4, metade de unidade (a de ponta a ponta, com dois servidores, é da task 3). Um seguidor
+  // nunca varre e nunca chama marcarSujo(): sem a versão, o cache serviria para sempre o índice
+  // vetorial que ele carregou no boot.
+  const caminho = join(fixture, "versao-cache.db");
+  const seguidor = openDb(caminho);
+  const lider = openDb(caminho);
+  try {
+    lider.exec(
+      "INSERT INTO docs (id, path, title, source, doc_type) VALUES (1, '/v.md', 'v', 'docs', 'doc')"
+    );
+    const insChunk = lider.prepare(
+      "INSERT INTO chunks (doc_id, breadcrumb, ord, text, token_est, embedding)" +
+        " VALUES (1, 'b', ?, ?, 3, ?)"
+    );
+    insChunk.run(0, "chunk do boot", paraBlob(vetorFake(0)));
+    bumpVersaoIndice(lider);
+
+    const q = vetorFake(0);
+    const vec = new VectorIndex(seguidor, () => versaoIndice(seguidor));
+    const controle = new VectorIndex(seguidor); // padrão () => "": o comportamento de hoje
+    ok(vec.buscar(q, {}, 10).length === 1, "carga inicial devia enxergar 1 chunk");
+    ok(controle.buscar(q, {}, 10).length === 1, "carga inicial do controle devia enxergar 1 chunk");
+
+    // O líder indexa conteúdo novo, por outra conexão. Ninguém chama marcarSujo() no seguidor.
+    insChunk.run(1, "chunk que o lider indexou depois", paraBlob(vetorFake(1)));
+    bumpVersaoIndice(lider);
+
+    ok(vec.buscar(q, {}, 10).length === 2, "a busca semântica do seguidor envelheceu (CA4)");
+    ok(vec.tamanho === 2, `esperava 2 vetores em memória, tem ${vec.tamanho}`);
+
+    // Controle: sem versaoAtual o cache fica congelado — é exatamente o defeito que a correção
+    // do card criaria se esta task não existisse, e a prova de que o padrão não muda nada.
+    ok(controle.buscar(q, {}, 10).length === 1, "sem versaoAtual o cache não podia recarregar");
+    // E marcarSujo() segue sendo caminho válido de invalidação: a versão é 2º gatilho, não troca.
+    controle.marcarSujo();
+    ok(controle.buscar(q, {}, 10).length === 2, "marcarSujo() deixou de invalidar o cache");
+
+    // Não recarrega à toa: a checagem é um SELECT por consulta, não uma recarga por consulta.
+    insChunk.run(2, "chunk sem bump da versao", paraBlob(vetorFake(2)));
+    ok(vec.buscar(q, {}, 10).length === 2, "recarregou sem a versão ter mudado");
+  } finally {
+    seguidor.close();
+    lider.close();
   }
 });
 
