@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `index.ts` — eleição no boot, trabalho pesado só do líder, tique de posse e saída graciosa
 
