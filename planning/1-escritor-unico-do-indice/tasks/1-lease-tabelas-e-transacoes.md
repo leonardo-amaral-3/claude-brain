@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: Fundação — a classe `Lease`, as tabelas, as transações e o arnês de teste
 
