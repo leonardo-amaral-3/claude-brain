@@ -83,7 +83,7 @@ os passos seguintes a encontrem no GitHub.
 
 É **spec viva**: emenda aprovada durante a implementação (protocolo de desvio do `/gm-implement`)
 atualiza o `spec.md` *e* o comentário, com nota datada. A spec publicada nunca vira mentira
-histórica.
+histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a última task e a PR.
 
 **`/gm-plan-tasks [pasta-da-feature]`** — quebra a spec em tasks ordenadas e independentes. Cada
 arquivo de task é o **prompt completo** de um agente novo, que não viu a conversa. Propõe a
@@ -96,7 +96,9 @@ lista no card.
 nova. Branch certo no repo certo, criado ligado ao card pelo campo Development. O arquivo da task
 é o prompt. Testes rodam **antes** de apresentar. Resumo ordenado por risco. Commit só depois de
 aprovação explícita. Se a realidade contradiz a spec, entra o protocolo de desvio em vez de
-improviso silencioso.
+improviso silencioso. E se a decisão cair depois da última task, com a PR ainda por abrir, é aqui
+que a **emenda pós-tasks** nasce: nota datada aprovada pelo humano, uma task nova, e o `/gm-ship`
+retomado.
 
 **`/gm-ship [pasta-da-feature]`** — fecha o loop: confere que toda task está completa, roda a suíte
 inteira, faz push, abre o PR carregando o contrato de critérios de aceite e o checklist de
