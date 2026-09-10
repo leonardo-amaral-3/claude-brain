@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: Slash command deixa de ser descartado e entra pelo caminho léxico
 
