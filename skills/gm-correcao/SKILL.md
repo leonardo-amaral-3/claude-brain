@@ -14,6 +14,40 @@ promovido a card — e dito na PR.
 Um achado é **hipótese, não veredito**. A revisão declara a própria confiança e erra: corrigir um
 falso positivo é pior que ignorá-lo, porque entra no diff com ar de correção. Verifique antes.
 
+## Como perguntar e como aprovar
+
+This section is identical in all eleven `gm-*` skills that have an interaction point — it is
+copied, never rewritten, and any improvement to it lands in the eleven at once. The long version,
+for a human reading from outside the pipeline, is in `docs/esteira-gm.md`, section
+`## Como as skills perguntam`.
+
+1. **Context before jargon.** Open with what is at stake and what changes down each path, in
+   pt-BR. Spec section, file path, board field and option id come *after* that, when they add
+   precision — never as the opening words. Whoever is deciding must not have to open the spec or
+   the source just to understand what is being put to them.
+2. **Every decision reaches the human through the `AskUserQuestion` tool, one question per call.**
+   No batching, no `multiSelect`. Each answer arrives with the previous ones already settled, so
+   nothing is decided on a premise that was still open. Five decisions is five calls, in order.
+3. **Two standard sets, chosen by what is at stake.**
+   - *Artefato* (spec, card body, PR body) → **Aprovar · Ajustar · Rejeitar**. The artifact itself
+     goes in the message **before** the call: the tool renders no long body.
+   - *Ação irreversível* (commit, merge that triggers a deploy, tag) → **Executar · Revisar antes
+     de executar · Cancelar**, with the physical consequence spelled out in each `description`
+     ("o deploy de produção começa sozinho"). "Ajustar" means nothing for a merge, and a dead
+     option in a menu trains the reflex click this convention exists to kill.
+4. **A list longer than four never becomes a silently truncated menu.** The tool takes 2–4
+   options. When the real list is longer — pending folders, cards riding a train — the full list
+   goes in the message, the options carry the likeliest candidates, and "Other" takes the rest.
+   Never drop a candidate without saying that it was dropped.
+5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
+   not argue one option into being the obvious one. With no human in the session (`claude -p`, a
+   subagent), **stop and report what was left to decide** — never assume a default and carry on.
+
+Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
+up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
+Instructions in this file stay in English; **everything the human reads — the question, the labels
+and every `description` — is written in pt-BR.**
+
 ## Preconditions
 
 1. **Resolver PR e repo** — o workspace tem cinco repos (`modulo-processos`, `shd-rpa`,
@@ -22,8 +56,32 @@ falso positivo é pior que ignorá-lo, porque entra no diff com ar de correção
    - pasta de feature → leia `planning/<pasta>/spec.md` → `## Execution` (repo, branch) e ache a PR
      da branch: `gh pr list --repo <owner>/<repo> --head <branch>`;
    - só o número → resolva pelo repo do diretório corrente (`gh repo view --json nameWithOwner`) e
-     **confirme com o usuário** antes de agir, mostrando título e branch da PR;
-   - nada → liste as PRs abertas com comentário `<!-- gm:revisao-status -->` e pergunte.
+     **confirme antes de agir**, porque o mesmo número existe nos cinco repos e tratar parecer na PR
+     errada escreve resposta pública no lugar errado. Título, branch e autor vão na mensagem, e a
+     confirmação vem por uma chamada `AskUserQuestion` — header `PR alvo`, pergunta e opções em pt-BR:
+
+     > Você passou só o número, e o mesmo número existe nos cinco repos do workspace — tratar o
+     > parecer na PR errada publica resposta pública no lugar errado, e ela fica lá. Pelo diretório
+     > atual, o <n> é esta: «<título>», branch `<branch>`, em `<owner>/<repo>`, aberta por <autor>.
+     >
+     > - **É esta** — sigo com ela: leio o parecer, verifico cada achado, corrijo ou refuto, e cada
+     >   inline recebe resposta pública nesta PR.
+     > - **Escolher outra** — não toco nesta; mostro as PRs abertas com parecer publicado e você aponta.
+
+   - nada → **a lista inteira vai na mensagem** — uma linha por PR aberta com comentário
+     `<!-- gm:revisao-status -->`: número, título, repo e quantos achados o parecer trouxe — e a
+     escolha vem por uma chamada `AskUserQuestion`, header `Qual PR`, opções em pt-BR nomeando cada
+     candidata pelo que ela é, nunca só pelo número:
+
+     > Estas PRs têm parecer publicado esperando tratamento; esta sessão trata **uma**.
+     >
+     > - **#<n> <duas ou três palavras do título>** — «<título completo>», `<repo>`, <k> achados
+     >   inline, parecer de <data>.
+     > - … (as demais na mesma forma)
+
+     Mais de quatro PRs → as opções levam as de parecer mais recente, a lista **inteira** continua na
+     mensagem, e a mensagem diz em voz alta que as demais chegam por "Other". PR omitida em silêncio
+     é parecer que ninguém trata.
    Todo comando `gh` daqui em diante leva `--repo <owner>/<repo>` explícito.
 2. **Existe parecer?** Ler o comentário `<!-- gm:revisao-status -->`. Só o estado **"Revisada"**
    produz parecer. Qualquer outro (`Não revisei — …`) significa que **não há o que corrigir** —
@@ -33,7 +91,9 @@ falso positivo é pior que ignorá-lo, porque entra no diff com ar de correção
      Enquanto `main` e `dev` divergirem, **nenhuma** PR é revisada. Aponte e pare.
    - *"revisão foi interrompida"* → estado C. O teto é `vars.REVISAO_TIMEOUT_MINUTOS`, ajustável sem
      PR. Aponte e pare.
-3. Dentro do repo do módulo, na branch da PR, `git status` limpo. Responder inline exige escopo de
+3. Ler o parecer e responder inline não pede checkout nenhum — é tudo `gh`. Quem pede árvore é o
+   balde **Corrige**, e a árvore dele é uma worktree recriada no `## Corrigir`, não o checkout
+   principal: o `/gm-ship` removeu a do card quando abriu a PR. Responder inline exige escopo de
    escrita no `gh`; 403 → `! gh auth refresh -s repo`.
 
 ## Coletar
@@ -58,7 +118,7 @@ seção de lá, é anterior à PR e não se aplica aqui:
 | **Corrige** | Procede e cabe no escopo da spec | corrigir aqui, um commit por achado |
 | **Refuta** | Não procede — a revisão errou | **não** corrigir; responder o inline com a evidência que refuta |
 | **Achado** | Procede, mas é outro assunto (bug pré-existente, dívida vizinha) | protocolo de achado: card novo, **não** corrigir aqui |
-| **Desvio** | Contradiz uma decisão da spec | protocolo de desvio: parar, propor emenda, aprovação humana |
+| **Desvio** | Contradiz uma decisão da spec | protocolo de desvio do `gm-implement`: parar, propor a emenda e levá-la ao humano como escolha antes de escrever |
 
 Escopo extra é o que a revisão foi construída para pegar — **não o reintroduza corrigindo**. "Já que
 estou aqui" no tratamento do parecer é o mesmo defeito, uma estação depois.
@@ -67,6 +127,20 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
 
 ## Corrigir
 
+0. **A worktree primeiro, antes de tocar em arquivo.** O `/gm-ship` apagou a worktree do card ao
+   abrir a PR, e o checkout principal não é lugar de card — corrigir ali fura a mesma regra que o
+   `gm-implement` aplica. Recrie-a pela convenção, com `<n>` vindo do `**Card:** #<n>` da primeira
+   linha da PR e `<slug>` do nome da branch:
+
+   ```
+   git fetch origin
+   git worktree list                                          # já existe? entre nela e siga
+   git worktree add <workspace>/<repo>-<n>-<slug> <branch-da-pr>
+   ```
+
+   Daqui até o fim do tratamento todo `git` roda de dentro dela, e todo `gh` continua com
+   `--repo <owner>/<repo>` explícito. Card anterior à regra, ainda no checkout principal → siga
+   onde ele está, sem mover: card em voo não se muda de chão.
 1. Um commit por achado, mensagem dizendo qual achado fecha e por quê — não "corrige review".
 2. **Rodar a suíte completa** dos pacotes tocados (api/web + typecheck), como o `gm-ship` exige.
    Vermelho → parar e mostrar.
@@ -110,6 +184,9 @@ E um comentário-resumo, sticky por `<!-- gm:correcao -->` (create-or-update pel
   nota datada — a spec nunca pode virar ficção histórica.
 - Grave com `mcp__brain__lembrar` **na hora** todo achado refutado e todo desvio: por que não
   procedia, ou o que a spec passou a dizer. Achado refutado sem registro volta na próxima revisão.
+- **A worktree sai como entrou.** Commits empurrados e inlines respondidos, saia dela e rode
+  `git worktree remove <workspace>/<repo>-<n>-<slug>` mais `git worktree prune`. Recusa por arquivo
+  não commitado é para ser lida, nunca vencida com `--force` — é correção que não subiu.
 
 ## Report
 

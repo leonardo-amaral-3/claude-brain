@@ -7,6 +7,40 @@ argument-hint: [feature-folder]
 
 # Ship — PR + board
 
+## Como perguntar e como aprovar
+
+This section is identical in all eleven `gm-*` skills that have an interaction point — it is
+copied, never rewritten, and any improvement to it lands in the eleven at once. The long version,
+for a human reading from outside the pipeline, is in `docs/esteira-gm.md`, section
+`## Como as skills perguntam`.
+
+1. **Context before jargon.** Open with what is at stake and what changes down each path, in
+   pt-BR. Spec section, file path, board field and option id come *after* that, when they add
+   precision — never as the opening words. Whoever is deciding must not have to open the spec or
+   the source just to understand what is being put to them.
+2. **Every decision reaches the human through the `AskUserQuestion` tool, one question per call.**
+   No batching, no `multiSelect`. Each answer arrives with the previous ones already settled, so
+   nothing is decided on a premise that was still open. Five decisions is five calls, in order.
+3. **Two standard sets, chosen by what is at stake.**
+   - *Artefato* (spec, card body, PR body) → **Aprovar · Ajustar · Rejeitar**. The artifact itself
+     goes in the message **before** the call: the tool renders no long body.
+   - *Ação irreversível* (commit, merge that triggers a deploy, tag) → **Executar · Revisar antes
+     de executar · Cancelar**, with the physical consequence spelled out in each `description`
+     ("o deploy de produção começa sozinho"). "Ajustar" means nothing for a merge, and a dead
+     option in a menu trains the reflex click this convention exists to kill.
+4. **A list longer than four never becomes a silently truncated menu.** The tool takes 2–4
+   options. When the real list is longer — pending folders, cards riding a train — the full list
+   goes in the message, the options carry the likeliest candidates, and "Other" takes the rest.
+   Never drop a candidate without saying that it was dropped.
+5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
+   not argue one option into being the obvious one. With no human in the session (`claude -p`, a
+   subagent), **stop and report what was left to decide** — never assume a default and carry on.
+
+Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
+up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
+Instructions in this file stay in English; **everything the human reads — the question, the labels
+and every `description` — is written in pt-BR.**
+
 ## Preconditions
 
 1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
@@ -67,12 +101,34 @@ precondição 3 quando a task estiver `✅`.
    - [x] 1 — <título>
    ```
 
-3. Team-visible: show repo + title + body and only create after explicit approval. Title: short, imperative, close to the card title.
+3. Team-visible, and the PR body is an artifact, not a formality: repo, title and the **whole** body go in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → create it. *Ajustar* → rewrite the part the human named (a criterion described loosely, a validation step nobody could follow) and present it again. *Rejeitar* → nothing is created; the branch stays pushed, which the board does not show, and the card does not move. Title: short, imperative, close to the card title.
 4. `gh pr create --repo <owner>/<repo> --base <base> --title "..." --body-file <file>`
 
 ## Board
 
 Move the card to 👀 Revisão on the team board (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Revisao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`). Missing `project` scope → `! gh auth refresh -s project`.
+
+## Fechar a worktree
+
+The card's branch had a worktree of its own at `<workspace>/<repo>-<n>-<slug>` (`gm-implement`,
+`## Guarantee the branch`). With the PR open and the card in 👀 Revisão, this card has no more code
+to write in this session, so the folder goes — the branch does not, it is pushed and it carries the
+PR:
+
+```
+cd <checkout-principal>          # nunca remova a worktree de dentro dela
+git worktree remove <workspace>/<repo>-<n>-<slug>
+git worktree prune
+```
+
+`git worktree remove` refuses while the folder still holds uncommitted or untracked files, and that
+refusal is information, not an obstacle: something was left out of the PR. **Never `--force` past
+it** — show what is in there and leave the worktree standing. A folder sitting around is cheap; a
+diff nobody knew existed is not.
+
+If the parecer of the CI review later asks for code, `/gm-correcao` recreates the worktree by this
+same convention. And a card that started before the rule, working in the main checkout, has no
+worktree to remove: `git worktree list` says so, and nothing in this section applies to it.
 
 ## Report
 

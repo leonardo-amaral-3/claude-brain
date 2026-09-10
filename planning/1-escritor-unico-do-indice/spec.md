@@ -559,6 +559,30 @@ comportamento de hoje, de volta, por variável de ambiente.
 
 ## Verificação pós-deploy
 
+> **Emenda 2026-09-10 (durante o `/gm-release` que fecharia o trem).** O **passo 4 não pode passar
+> como está escrito**, e a causa não é o lease — é o card **#7**, anterior a este e declarado ali
+> mesmo como "não é regressão do card #1".
+> **O que a medição mostrou** (2026-09-10 13:31–13:38, contra a instalação): criei um `.md` novo numa
+> root de documento; a busca **léxica** o achou em segundos, a **semântica** não o achou de jeito
+> nenhum. No banco, o chunk existia com `embedding IS NULL` — e não era caso isolado: **1.687 dos
+> 14.566 chunks (11,6% do corpus) estavam sem vetor**, invisíveis a toda consulta em linguagem
+> natural. O passo 5 (matar o líder) disparou o backfill da promoção, que zerou a fila a
+> ~288 chunks/45 s; às 13:38:13 o chunk novo ganhou vetor e a busca semântica passou a devolvê-lo
+> **em primeiro lugar**.
+> **O que isso absolve e o que acusa:** absolve o código deste card — a invalidação de cache por
+> `meta.versao_indice` funcionou no instante em que houve vetor, que é exatamente o CA4. Acusa o
+> backfill, que só roda no boot do líder e na promoção de um seguidor, nunca num servidor vivo.
+> **O que o passo 4 passa a dizer:** a metade léxica fecha em segundos, como escrito. A metade
+> semântica **só fecha depois de uma promoção de líder ou de um restart** — não em ~5 s. Enquanto o
+> #7 não for corrigido, é este o comportamento real, e medi-lo aqui é o que impede de confundir o
+> defeito dele com um defeito deste card.
+> **Descartados:** dar o passo 4 por reprovado e tratar a v2026.09.10 como incidente (puniria o card
+> errado — o #7 é anterior e já está registrado); e dar o passo por aprovado sem ressalva, que
+> apagaria a medição dos 11,6% e deixaria o #7 sem a evidência de produção que ele não tinha.
+> **Passo 2 não executado:** exige os logs MCP das sessões, fora do alcance da sessão que rodou a
+> verificação. Coberto indiretamente pelo passo 1 (um só líder) e pelo passo 5 (a posse troca).
+> Decisão registrada no cérebro como #441.
+
 Obrigatória (a mudança governa quem escreve no índice — o dado do produto). Depois do
 `npm run build` na instalação e de reabrir **pelo menos 3** sessões do Claude Code:
 
