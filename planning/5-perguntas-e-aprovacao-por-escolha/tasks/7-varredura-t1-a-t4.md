@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 7: A varredura — T1 a T4 no repo inteiro
 
