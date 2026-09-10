@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 8: Worktree por card — a convenção nas 4 skills que mexem em branch
 
