@@ -50,7 +50,7 @@ and every `description` — is written in pt-BR.**
 - **Maximum 1 hotfix in the system.** Two simultaneous emergencies mean one of them is not S1, or production needs a rollback and not a fix.
 - **Merging into `main` deploys to production immediately** (`deploy.yml`, `yarn deploy -p`), and Prisma migrations run on container boot. A hotfix carrying a migration is a hotfix that can make the incident worse, so it is never a detail decided in passing: it goes to the human as a choice, and the question is written out in `## Phase 3 — Fix, minimally, with a test` — that is the only place this decision is taken.
 - **Verification is blocking.** The card cannot close without evidence in production that the fix worked. Failed → the incident is still open.
-- Nothing is committed, merged or tagged unless the human chose it, and every one of those choices arrives by the mechanics of `## Como perguntar e como aprovar`: the *ação irreversível* set for the commit and for the merge into `main`, the *artefato* set for the card body, hand-written options for the calls this rail takes under pressure (which emergency, whether to contain, what to do with a red verification). Never as free text to type — least of all here, where whoever is reading is in a hurry.
+- Nothing is committed, merged or tagged unless the human chose it, and every one of those choices arrives by the mechanics of `## Como perguntar e como aprovar`: the *ação irreversível* set for the commit, for the merge into `main` and for the tag, the *artefato* set for the card body and for the release notes, hand-written options for the calls this rail takes under pressure (which emergency, whether to contain, what to do with a red verification). Never as free text to type — least of all here, where whoever is reading is in a hurry.
 - Answer in pt-BR.
 
 ## Board reference — vem do workspace, nunca deste arquivo
@@ -256,6 +256,26 @@ Move the card to 👀 Revisão (`<opt:Status=Revisao>`). **Wait for a human revi
 
 Production is named, hotfixes included (a repository with zero tags is one of the measured failures this rail exists to end):
 
+1. **The notes are the artifact**, and here they carry an incident: the technical line plus one
+   sentence of "o que muda para você", written for whoever felt the bug. Both go **whole** in the
+   message, exactly as they will be published, and the decision comes back through the *artefato*
+   set from `## Como perguntar e como aprovar`. *Ajustar* → rewrite what the human named and show
+   them again. *Rejeitar* → nothing is tagged and nothing is published, and the report says the fix
+   is in production without a name.
+2. Then the tag and the publication go to the human by the *ação irreversível* set from
+   `## Como perguntar e como aprovar`: header `Tag`, options in pt-BR, and the physical consequence
+   written into each `description`.
+
+   > - **Publicar a release** — a tag `v<AAAA.MM.DD>` é empurrada para o GitHub e a release fica
+   >   pública com estas notas. É ela que responde "o que subiu quando" e o que o post-mortem vai
+   >   citar; quem reportou é avisado por este nome. Apagar depois exige mexer em tag pública.
+   > - **Revisar antes de publicar** — nada é empurrado; volto com o que você apontar (o texto para
+   >   quem reportou, o calver do dia) e pergunto de novo. O incidente já está estancado.
+   > - **Cancelar** — nada é publicado. A correção fica em produção sem nome: o campo **Release**
+   >   do card fica vazio e o post-mortem não tem o que citar.
+
+   Only *Publicar a release* runs the commands below.
+
 ```
 git checkout main && git pull
 git tag -l 'v*' | tail -5                       # calver do dia já existe? sufixe .1, .2
@@ -264,7 +284,7 @@ git push origin v<AAAA.MM.DD>
 gh release create v<AAAA.MM.DD> --repo <owner>/<repo> --title "..." --notes-file <file>
 ```
 
-Notes carry both audiences: the technical line and one sentence of "o que muda para você". Write the tag into the card's **Release** field (`<field:Release>`, `--text v<AAAA.MM.DD>`) and move the card to ✅ Produção (`<opt:Status=Producao>`).
+Write the tag into the card's **Release** field (`<field:Release>`, `--text v<AAAA.MM.DD>`) and move the card to ✅ Produção (`<opt:Status=Producao>`).
 
 ## Phase 7 — Back-merge into `dev` (never skipped)
 

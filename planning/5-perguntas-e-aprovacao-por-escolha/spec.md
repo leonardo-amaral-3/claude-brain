@@ -24,7 +24,7 @@ Rota **Curta**: o corpo técnico é um parágrafo. As seções machine-read (`##
 ## Requisitos & critérios de aceite
 
 **CA1 — nenhum ponto de aprovação pede texto livre.**
-Dado qualquer um dos **43 pontos de decisão** listados no `## File Change Summary`, quando a skill
+Dado qualquer um dos **47 pontos de decisão** listados no `## File Change Summary`, quando a skill
 precisa da decisão, então ela chama a tool `AskUserQuestion` com opções nomeadas e a consequência
 de cada uma no campo `description` — nunca pede a decisão como texto a digitar.
 Verificável por T1–T4 do `## Plano de testes`. **A prova é T4** (leitura dirigida ponto a ponto);
@@ -89,6 +89,27 @@ Verificável por T6.
 > Descartado devolver o CA4 a card próprio, que é o que a regra de fatiamento manda quando o teto
 > estoura.
 
+> **Emenda 2026-09-10 (durante a task 7).** A varredura T4 mediu que os dois trilhos que cortam
+> release — `gm-release` e `gm-hotfix` — declaram na regra geral que "nothing is merged, **tagged
+> or published** unless the human chose it" (`gm-release:52`, `gm-hotfix:53`, herdado de
+> `origin/dev:18` e `:19`), mas a **Fase 6 dos dois** roda `git tag` + `gh release create` num
+> bloco de código puro, sem chamada nenhuma. As release notes — que saem em linguagem de hospital
+> para quem pediu o card — são o único artefato público da esteira que nunca passou por portão,
+> enquanto corpo de card, de spec e de PR passam.
+> **O que ela derruba nesta spec:** a enumeração de **43 pontos** tratava tag e release notes como
+> não-pontos, e a linha "os 4 pontos **X**" das `## Technical Decisions` fixava o conjunto de ação
+> irreversível em quatro. Nenhuma das duas foi decisão medida — eram omissão da tabela, e converter
+> a regra geral em texto específico foi o que tornou a omissão visível.
+> **O que a spec passa a dizer:** **47 pontos** (22 **P** + 19 **A** + 6 **X**). `gm-release` e
+> `gm-hotfix` ganham cada um um **A** (as notes, mostradas inteiras antes de existirem) e um **X**
+> (a tag + `gh release create`, com a consequência física escrita). A regra geral **R** dos dois
+> passa a nomear qual conjunto cobre o quê, para não voltar a prometer portão que não existe.
+> **Descartados**, ambos apresentados ao humano: registrar como card novo pelo protocolo de achado
+> (default da skill; deixaria a regra mentindo até alguém puxar o card) e citar só no corpo da PR
+> (morre no merge).
+> **Custo aceito:** o fecho do trem ganha duas perguntas, e a task 7 — que nasceu declarando "sem
+> pontos novos" — entrega quatro.
+
 **Fora do escopo** (do card): mudar os gates em si — quantos são, onde ficam, quem aprova.
 Também fora, por decisão desta spec: `README.md` — as menções a "aprovação" em `:243` e `:245`
 continuam verdadeiras, aprovar por escolha ainda é aprovar (conferido: são as duas únicas do
@@ -141,8 +162,8 @@ Baldes: **A** = artefato (conjunto *aprovar · ajustar · rejeitar*, sem texto p
 | `skills/gm-plan-tasks/SKILL.md` (94L) | **A** `:18`, e reescrever o fecho "No question-by-question ceremony", que passa a contradizer a regra 2 · **template** `:72`–`:73`: estão **dentro** do bloco cercado `:40`–`:75`, então são conteúdo do arquivo de task, não instrução da skill |
 | `skills/gm-implement/SKILL.md` (136L) | **P** `:14` (sem argumento: escolher a pasta) · **P** `:17` (fechar · emendar) · **P** `:23` (working tree sujo) · **A** `:46` · **A** `:53` · **A** `:63` · **A** `:89` · **X** `:129` (commit) |
 | `skills/gm-ship/SKILL.md` (81L) | **A** `:70` |
-| `skills/gm-release/SKILL.md` (178L) | **R** `:18` · **P** `:15`+`:82`–`:88` (trem sensível — **um** ponto: `:15` é a regra dura que aponta para a Fase 3) · **P** `:58` (carona, item a item) · **P** `:124` (verificação vermelha: rollback vs `/gm-hotfix`) · **A** `:116` · **X** `:120` (merge → deploy de produção) |
-| `skills/gm-hotfix/SKILL.md` (192L) | **R** `:19` · **P** `:17`+`:108` (migration no hotfix — **um** ponto, citado nos dois lugares) · **P** `:51` (qual das duas emergências) · **P** `:53` (conter antes de consertar) · **P** `:147` (verificação vermelha) · **P** `:175` (conflito no back-merge) · **A** `:79` · **X** `:109` (commit) · **X** `:143` (merge em `main` → produção) |
+| `skills/gm-release/SKILL.md` (178L) | **R** `:18` · **P** `:15`+`:82`–`:88` (trem sensível — **um** ponto: `:15` é a regra dura que aponta para a Fase 3) · **P** `:58` (carona, item a item) · **P** `:124` (verificação vermelha: rollback vs `/gm-hotfix`) · **A** `:116` · **X** `:120` (merge → deploy de produção) · **A** Fase 6 (as release notes, antes de existirem) · **X** Fase 6 (tag + `gh release create`) |
+| `skills/gm-hotfix/SKILL.md` (192L) | **R** `:19` · **P** `:17`+`:108` (migration no hotfix — **um** ponto, citado nos dois lugares) · **P** `:51` (qual das duas emergências) · **P** `:53` (conter antes de consertar) · **P** `:147` (verificação vermelha) · **P** `:175` (conflito no back-merge) · **A** `:79` · **X** `:109` (commit) · **X** `:143` (merge em `main` → produção) · **A** Fase 6 (as release notes) · **X** Fase 6 (tag + `gh release create`) |
 | `skills/gm-correcao/SKILL.md` (120L) | **P** `:25` (confirmar a PR alvo) · **P** `:26` (escolher entre as PRs abertas) |
 | `skills/gm-tech-spec/SKILL.md` (12L) | **nada** — 12 linhas que só mandam usar `/gm-spec` |
 
@@ -159,7 +180,7 @@ G2 e o que entrou depois.
 | `sync.ps1` · `sync.sh` | gravam de qual worktree/branch veio a instalação e pedem confirmação antes de sobrescrever uma de origem diferente |
 | `docs/esteira-gm.md` | a convenção de worktree na versão longa, junto da de perguntas |
 
-Total: 12 arquivos alterados, 0 criados, 0 removidos. **43 pontos** (22 **P** + 17 **A** + 4 **X**),
+Total: 12 arquivos alterados, 0 criados, 0 removidos. **47 pontos** (22 **P** + 19 **A** + 6 **X**),
 4 regras gerais **R** (`gm-triage:21`, `gm-prd:43`, `gm-release:18`, `gm-hotfix:19`), 2 alinhamentos
 **=** (`gm-spec:41`, `gm-prd:39`), 1 fecho a reescrever (`gm-plan-tasks:18`) e 1 template
 (`gm-plan-tasks:72`–`:73`).
@@ -253,7 +274,7 @@ incluir `sync.ps1`/`sync.sh`, que são código e por isso ganham o T6. O que pro
   nenhum. Trocado por alternância `(ã|a)`, que independe de locale; descartado prefixar
   `LC_ALL=C.UTF-8` (também funciona, mas quem esquecer o prefixo volta ao verde falso, em
   silêncio). Conferidos os treze tokens: nenhum outro tem acento dentro de colchetes.
-- **T4 (CA1 + CA2) — a prova.** Leitura dirigida dos 43 pontos da tabela, um a um: cada um chega
+- **T4 (CA1 + CA2) — a prova.** Leitura dirigida dos 47 pontos da tabela, um a um: cada um chega
   como escolha, do balde certo (**A** artefato · **X** ação · **P** próprio), cada opção diz a
   consequência de escolhê-la, e nenhum abre citando identificador antes do contexto. É revisão, não
   script — o critério é sobre redação, e redação não tem grep.
@@ -283,7 +304,7 @@ incluir `sync.ps1`/`sync.sh`, que são código e por isso ganham o T6. O que pro
 | Bloco inline nas 11 skills + seção longa em `docs/` | Conteúdo de arquivo referenciado **não entra no contexto** — só entra se o modelo ler. Ponteiro custa uma leitura por invocação e degrada em silêncio, justo no gate que é o único controle que sobrou (a norma abre mão do 2º revisor no G2 e do revisor humano no G4). | Arquivo comum único com ponteiro (zero divergência, mas a regra some sem aviso); só inline sem `docs/` (perde a âncora de conferência). Custo aceito: 11 cópias a manter em sincronia. |
 | Tool `AskUserQuestion` | Opções clicáveis com a consequência de cada uma, e "Other" para texto livre sempre presente sem ser declarado — conferido **direto no schema da tool nesta sessão**. Mata o carimbo reflexo de digitar "aprovo". | Menu numerado em texto (cumpre a letra do CA1 e enfraquece o espírito — o usuário ainda digita); tool com fallback em texto quando não couber em 4 opções (exceção em regra de gate é por onde ela vaza). |
 | Uma pergunta por chamada, sempre | Escolha humana no Q&A, contra a recomendação de lotear até 4. Cada resposta chega com o contexto das anteriores na mesa e nunca se decide algo cuja premissa ainda estava aberta. Custo aceito: um Q&A de spec vira 5–10 rodadas, e `gm-release:58` (carona) vira N chamadas em vez de um `multiSelect`. | Lote quando independentes; lote sempre que couber (pergunta feita antes da hora é pergunta respondida no chute — o que este card existe para evitar); `multiSelect` para listas, que reabriria o lote pela porta dos fundos. |
-| Dois conjuntos: artefato e ação irreversível | "Ajustar" não quer dizer nada em "mergear `dev`→`main`", e opção morta num menu treina o clique automático. Os 4 pontos **X** (`gm-implement:129`, `gm-hotfix:109` e `:143`, `gm-release:120`) ganham *executar · revisar antes · cancelar*, com a consequência física escrita. | Um conjunto só, com "ajustar" = "volte e me mostre de novo" (mais fácil de manter idêntico, mas a opção do meio vira quase-sinônimo de rejeitar); opções à mão nesses 4 (fidelidade máxima, mas a regra perde a resposta para o próximo portão irreversível que alguém criar). |
+| Dois conjuntos: artefato e ação irreversível | "Ajustar" não quer dizer nada em "mergear `dev`→`main`", e opção morta num menu treina o clique automático. Os 6 pontos **X** (`gm-implement:129`, `gm-hotfix:109`, `:143` e a tag da Fase 6, `gm-release:120` e a tag da Fase 6) ganham *executar · revisar antes · cancelar*, com a consequência física escrita. | Um conjunto só, com "ajustar" = "volte e me mostre de novo" (mais fácil de manter idêntico, mas a opção do meio vira quase-sinônimo de rejeitar); opções à mão nesses 6 (fidelidade máxima, mas a regra perde a resposta para o próximo portão irreversível que alguém criar). |
 | Padrão no bloco, exceções à mão | Os 21 pontos **A**+**X** são dois gestos repetidos; escrevê-los 21 vezes é repetição que diverge na próxima edição. | Todos os 43 escritos à mão (nada implícito e grep trivial, ao custo de diff grande e mais superfície para divergir). |
 | Grep documentado + dogfood, com o grep rebaixado a rede | Proporcional à Rota Curta: markdown, sem infra nova. A crítica adversarial mediu que o grep cobria 11 dos 43 pontos, então ele **não** pode ser a prova — vira rede, e T4 vira a prova. | `scripts/lint-skills.mjs` — pegaria a divergência das 11 cópias para sempre, mas cria superfície nova num repo onde só `brain-mcp` tem `scripts/`. Vira candidato a card se as cópias divergirem de fato. |
 | `gm-tech-spec` fora | 12 linhas que só mandam usar `/gm-spec`; nenhum ponto de interação para converter. | Incluir por simetria — bloco numa skill deprecada que ninguém executa é ruído. |

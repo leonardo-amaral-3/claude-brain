@@ -193,8 +193,8 @@ This is the gate the rest of the chain leans on: everything downstream executes 
 
 **Sensitive change first.** When the spec touches data, faturamento rules or migrations, whether a
 second human reads it changes what clearing this gate means — so it is its own call, before the
-spec goes up; header `2º revisor`, question and options in pt-BR. A workspace whose `CLAUDE.md`
-declares there is no second human skips this call and says so in one line:
+spec goes up: one `AskUserQuestion` call, header `2º revisor`, question and options in pt-BR. A
+workspace whose `CLAUDE.md` declares there is no second human skips this call and says so in one line:
 
 > Esta spec mexe em <dado · regra de faturamento · migration>. A norma recomenda um segundo humano
 > com prazo de 24h, e quem decide se a espera vale é você.

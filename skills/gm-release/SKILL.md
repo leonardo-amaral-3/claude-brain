@@ -95,8 +95,9 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
      one `AskUserQuestion` call per item, header `Carona <k>/<N>` (`Carona 2/5` — the tool caps
      `header` at 12 characters, so keep the counter numeric), question and options in pt-BR:
 
-     > `<PR/commit>` — <o que é> — toca <o quê>. Não passou por 🧪 Validação em Dev: ninguém
-     > conferiu em ambiente nenhum que isto funciona, e mesmo assim já está na `dev`, dentro do payload.
+     > Isto entrou no payload sem ninguém ter conferido em ambiente nenhum que funciona: não passou
+     > por 🧪 Validação em Dev e mesmo assim já está na `dev`. É `<PR/commit>` — <o que é> — e toca
+     > <o quê>.
      >
      > - **Aceitar a carona** — sobe junto no trem de hoje e sai anunciada nas release notes, com o
      >   registro de que subiu sem validação. Se quebrar em produção, quebra sem ninguém ter conferido.
@@ -223,14 +224,6 @@ The body is the artifact, and it is the only place where what ships today is wri
 
 ## Phase 6 — Tag and notes
 
-```
-git checkout main && git pull
-git tag -l 'v*' | tail -5                      # tag do dia já existe? sufixe .1, .2
-git tag -a v<AAAA.MM.DD> -m "release v<AAAA.MM.DD>"
-git push origin v<AAAA.MM.DD>
-gh release create v<AAAA.MM.DD> --repo <owner>/<repo> --title "v<AAAA.MM.DD>" --notes-file <file>
-```
-
 Dual notes, both generated from the cards — one document, two audiences:
 
 ```markdown
@@ -242,6 +235,36 @@ Dual notes, both generated from the cards — one document, two audiences:
 - Migrations: <nomes ou "nenhuma">
 - Verificação: <resultado>
 - Ensaio: <resultado ou a decisão registrada>
+```
+
+1. **The notes are the artifact, and the only one on this rail that reaches outside the team** —
+   the "o que muda para você" half is what the hospital reads. They go **whole** in the message,
+   both halves as they will be published, and the decision comes back through the *artefato* set
+   from `## Como perguntar e como aprovar`. *Ajustar* → rewrite what the human named (a card
+   described in jargon, a migration called harmless, a carona missing from the list) and show them
+   again. *Rejeitar* → nothing is tagged and nothing is published; the merge already happened, so
+   say plainly that production is running code that has no release name yet.
+2. Then the tag and the publication — public, and the last irreversible step of the train — go to
+   the human by the *ação irreversível* set from `## Como perguntar e como aprovar`: header `Tag`,
+   options in pt-BR, and the physical consequence written into each `description`.
+
+   > - **Publicar a release** — a tag `v<AAAA.MM.DD>` é empurrada para o GitHub e a release fica
+   >   pública com estas notas. É ela que responde "o que subiu quando" daqui em diante, e quem
+   >   pediu cada card vai ser avisado citando este nome. Apagar depois exige mexer em tag pública.
+   > - **Revisar antes de publicar** — nada é empurrado; volto com o que você apontar (a lista de
+   >   cards, o texto de hospital, o calver do dia) e pergunto de novo.
+   > - **Cancelar** — nada é publicado. O código já está em produção sem nome: os cards ficam em
+   >   🚂 Release, ninguém é avisado, e a próxima release herda este payload sem registro de que
+   >   ele subiu hoje.
+
+   Only *Publicar a release* runs the commands below.
+
+```
+git checkout main && git pull
+git tag -l 'v*' | tail -5                      # tag do dia já existe? sufixe .1, .2
+git tag -a v<AAAA.MM.DD> -m "release v<AAAA.MM.DD>"
+git push origin v<AAAA.MM.DD>
+gh release create v<AAAA.MM.DD> --repo <owner>/<repo> --title "v<AAAA.MM.DD>" --notes-file <file>
 ```
 
 Use calver (`v<AAAA.MM.DD>`) from the real date — read it with `date +%Y.%m.%d`, never assume.
