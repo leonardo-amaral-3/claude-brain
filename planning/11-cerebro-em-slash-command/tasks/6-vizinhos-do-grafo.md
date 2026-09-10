@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 6: Vizinhos do grafo — o bloco que a feature existe para entregar
 
