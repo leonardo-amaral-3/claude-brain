@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 9: O `sync` para de sobrescrever a instalação em silêncio
 
