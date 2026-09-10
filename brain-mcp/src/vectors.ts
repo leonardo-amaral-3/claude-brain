@@ -30,7 +30,15 @@ export class VectorIndex {
   private carregado = false;
   private sujo = true;
 
-  constructor(private db: DatabaseSync) {}
+  private ultimaVersao = "";
+
+  // versaoAtual: o contador que o lider incrementa a cada mudanca de conteudo. Um seguidor nunca
+  // varre e nunca chama marcarSujo(), entao sem este segundo gatilho ele serviria para sempre o
+  // indice vetorial que carregou no boot. O padrao (() => "") mantem o comportamento de antes.
+  constructor(
+    private db: DatabaseSync,
+    private versaoAtual: () => string = () => ""
+  ) {}
 
   marcarSujo(): void {
     this.sujo = true;
@@ -42,7 +50,10 @@ export class VectorIndex {
   }
 
   private garantirCarregado(): void {
-    if (this.carregado && !this.sujo) return;
+    // Um SELECT numa tabela de uma linha por consulta (microssegundos); a recarga so acontece
+    // quando a versao mudou, e custa o mesmo que o marcarSujo() de hoje ja custa.
+    const v = this.versaoAtual();
+    if (this.carregado && !this.sujo && v === this.ultimaVersao) return;
     const rows = this.db
       .prepare(
         `SELECT c.id AS chunkId, c.embedding AS emb,
@@ -62,6 +73,7 @@ export class VectorIndex {
     }));
     this.carregado = true;
     this.sujo = false;
+    this.ultimaVersao = v;
   }
 
   private passaFiltro(l: Linha, f: FiltrosVec): boolean {
@@ -120,24 +132,45 @@ const LOTE = 32;
  */
 export async function preencherEmbeddings(
   db: DatabaseSync,
-  opts: { limite?: number; onProgresso?: (feitos: number, total: number) => void } = {}
-): Promise<{ feitos: number; restantes: number; ms: number }> {
+  opts: {
+    limite?: number;
+    onProgresso?: (feitos: number, total: number) => void;
+    /** Reconferido antes de cada lote: ao perder o lease o backfill para aqui, limpo. */
+    aindaSouLider?: () => boolean;
+    /**
+     * Costura de teste (emenda 2026-09-09). Em producao ninguem passa isto: o padrao e o
+     * embedPassagens real. Existe porque o caso `para-ao-perder-o-lease` precisa de um 1o lote
+     * completo para provar que o recheque vem ANTES do 2o, e carregar o modelo de verdade
+     * custaria download de ~120 MB e ~15 s por rodada num teste que roda a cada task.
+     */
+    embutir?: (textos: string[]) => Promise<Float32Array[]>;
+  } = {}
+): Promise<{ feitos: number; restantes: number; ms: number; interrompido: boolean }> {
   const t0 = Date.now();
   const totalPendente = (
     db.prepare("SELECT COUNT(*) n FROM chunks WHERE embedding IS NULL").get() as { n: number }
   ).n;
   const alvo = Math.min(opts.limite ?? Infinity, totalPendente);
   const upd = db.prepare("UPDATE chunks SET embedding = ? WHERE id = ?");
+  const embutir = opts.embutir ?? embedPassagens;
   let feitos = 0;
+  let interrompido = false;
 
   while (feitos < alvo) {
+    // Antes de gastar o lote, nao depois: perder o lease no meio do backfill nao pode custar uma
+    // chamada de embedding a mais. Como o lote so termina no COMMIT, sair aqui nunca deixa chunk
+    // pela metade — o proximo lider retoma de onde este parou.
+    if (opts.aindaSouLider && !opts.aindaSouLider()) {
+      interrompido = true;
+      break;
+    }
     const lote = db
       .prepare("SELECT id, text FROM chunks WHERE embedding IS NULL LIMIT ?")
       .all(Math.min(LOTE, alvo - feitos)) as unknown as { id: number; text: string }[];
     if (lote.length === 0) break;
 
-    const vetores = await embedPassagens(lote.map((c) => c.text));
-    db.exec("BEGIN");
+    const vetores = await embutir(lote.map((c) => c.text));
+    db.exec("BEGIN IMMEDIATE");
     try {
       for (let i = 0; i < lote.length; i++) upd.run(paraBlob(vetores[i]), lote[i].id);
       db.exec("COMMIT");
@@ -152,5 +185,5 @@ export async function preencherEmbeddings(
   const restantes = (
     db.prepare("SELECT COUNT(*) n FROM chunks WHERE embedding IS NULL").get() as { n: number }
   ).n;
-  return { feitos, restantes, ms: Date.now() - t0 };
+  return { feitos, restantes, ms: Date.now() - t0, interrompido };
 }

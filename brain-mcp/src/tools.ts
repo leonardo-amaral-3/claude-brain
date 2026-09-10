@@ -9,6 +9,7 @@ import type { Buscador } from "./search.js";
 import { matchExpr, normalizar as normalize } from "./search.js";
 import type { Grafo, Entidade } from "./grafo.js";
 import { registrarDecisao, decisoesRelacionadas } from "./memoria.js";
+import type { Lease } from "./lease.js";
 
 const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"] as const;
 
@@ -24,6 +25,14 @@ export function registerTools(
   buscador: Buscador,
   grafo: Grafo,
   vigia: { agendar(motivo: string): void },
+  lease: Lease,
+  /**
+   * Chamado quando o `reindex` PROMOVE este processo a líder. Sem isto ele viraria líder de nome:
+   * em `index.ts` o trabalho pesado só arranca no boot ou no `aoAssumir` do tique, e o tique só
+   * chama `aoAssumir` para quem era seguidor — um promovido por aqui cairia para sempre no ramo
+   * que apenas renova o lease, sem vigia e sem backfill (emenda 2026-09-09 da spec).
+   */
+  aoAssumirLideranca: () => void,
   produto: string
 ): void {
   // Toda chamada vira uma linha em `uso` — é o que transforma "acho que o Claude
@@ -370,9 +379,32 @@ export function registerTools(
       inputSchema: {
         full: z.boolean().optional().describe("true = reindexação completa"),
         github: z.boolean().optional().describe("true = sincronizar GitHub agora (síncrono)"),
+        forcar: z
+          .boolean()
+          .optional()
+          .describe("tomar a liderança do índice de outro processo que já o mantém"),
       },
     },
     async (args) => {
+      // Reindexar é escrita pesada, logo exige a liderança (TD-5). `tentarAdquirir` devolve true
+      // também para quem JÁ era o dono, então o caso comum — processo único, que é o líder —
+      // passa direto por aqui e de quebra renova o lease.
+      //
+      // Recusar é RESPOSTA, não erro de protocolo: quem chamou precisa LER o motivo e escolher, e
+      // um erro viraria só "a tool falhou" no cliente. Nada foi escrito até este ponto, e a
+      // tentativa que fracassa não muda uma linha da tabela — a recusa vem antes do 1º write.
+      if (!lease.tentarAdquirir(args.forcar === true)) {
+        const d = lease.dono();
+        return text(
+          `Não reindexei: o índice está sob outro processo (pid ${d?.pid ?? "?"} em ${d?.host ?? "?"}), ` +
+            `que é quem varre e mantém tudo atualizado — normalmente não há nada a fazer aqui.\n` +
+            `Se quiser reindexar assim mesmo, repita com forcar: true para tomar a liderança dele.`
+        );
+      }
+      // Ganhou o lease. Se isto foi uma PROMOÇÃO, é agora que o processo assume o trabalho de
+      // líder (vigia, grafo, backfill); se já era líder, a chamada é idempotente e não faz nada.
+      aoAssumirLideranca();
+
       let ghLine = "";
       if (args.github) {
         const gs = await syncer.syncNow();

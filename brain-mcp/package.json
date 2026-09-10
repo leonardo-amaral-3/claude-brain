@@ -10,6 +10,7 @@
     "index:full": "node dist/cli.js --full",
     "start": "node dist/index.js",
     "smoke": "node scripts/smoke.mjs",
+    "concorrencia": "node scripts/concorrencia.mjs",
     "eval": "node scripts/eval.mjs",
     "uso": "node scripts/uso.mjs",
     "embed": "node dist/cli.js --embed",
