@@ -54,9 +54,140 @@ const candidatosDe = (arg) => {
   return saida;
 };
 
+// Os passos 1 a 4 da precedencia: o argumento do slash command vira CHAVE do grafo. A query util
+// de um slash command nao e o nome do comando, e o ARGUMENTO — buscar "/gm-spec #11" por texto
+// devolve lixo (os tokens viram `gm`, `spec`, `11`), mas `#11` e a chave `card:claude-brain#11`.
+// Medido: 200 lookups por chave exata em 2 ms — o caminho de entidade sai mais barato que a busca
+// de hoje, porque nem chega a rodar o FTS.
+//
+// Por que NAO reaproveitar Grafo.resolver() (brain-mcp/src/grafo.ts): o regex dele e /(\d{3,5})/
+// e nao casa numero de 1-2 digitos. Para `#11` ele cai no ramo LIKE '%11%' e devolve 10 paths de
+// migration — verificado. Como todos os cards deste repo sao de 1-2 digitos, usa-lo quebraria
+// justamente o caso do card #11. Consertar mexeria em brain-mcp/src/ e viraria Rota Completa.
+const CAMPOS_ENT = 'tipo, chave, titulo, repo, status, data, doc_path';
+
+// O repo sai do CAMINHO, nunca de ws.repos: o workspace `notoria` nao tem essa chave, tem
+// `exceto`. Segmentos do cwd abaixo do prefixo do workspace, do mais FUNDO para o mais raso; o
+// primeiro que existir como repo de card no indice ganha.
+//   ~/pessoal/claude-brain                                 -> claude-brain
+//   ~/notoria/processos/modulo-processos                   -> modulo-processos
+//   ~/pessoal/operations-center/.claude-worktrees/feat-31-x -> operations-center
+//   ~/notoria/processos                                    -> null (`processos` nao e repo com card)
+//   ~/pessoal (raiz do workspace)                          -> null (nao sobra segmento)
+// Os dois `null` sao o comportamento certo, nao falha: sem repo, quem decide e a unicidade do
+// numero no workspace (passo 3), e se ele for ambiguo nao se adivinha. Medido: resolve o repo em
+// 84 de 94 casos (89%), e os 10 restantes cairam todos no passo 3.
+//
+// Custo: este laco faz WHERE tipo='card' AND repo=?, e NAO existe indice em `repo` — e varredura
+// sobre ~4k linhas, uma vez por prompt no pior caso. Barato em absoluto, mas nao o "gratis" dos
+// passos 1 e 2, e e por isso que a precedencia poe os caminhos indexados na frente.
+const repoDoCwd = (db, ws, cwd) => {
+  const segs = barras(cwd).slice(barras(ws.prefixo).length).split('/').filter(Boolean);
+  const ehRepo = db.prepare("SELECT 1 FROM entidades WHERE tipo='card' AND repo=? LIMIT 1");
+  for (let i = segs.length - 1; i >= 0; i--) if (ehRepo.get(segs[i])) return segs[i];
+  return null;
+};
+
+// Filtro de workspace dos passos 3 e 4. Defensivo de proposito: `repos` e `exceto` sao opcionais e
+// mutuamente exclusivas no brain-workspaces.json, e sem o terceiro ramo um arquivo sem NENHUMA das
+// duas faz `ws.repos.includes` estourar — e hook que estoura falha em silencio e nunca mais injeta.
+const daquiRepoDe = (ws) => {
+  const baixa = (a) => a.map((s) => String(s).toLowerCase());
+  const so = Array.isArray(ws.repos) ? baixa(ws.repos) : null;
+  const fora = Array.isArray(ws.exceto) ? baixa(ws.exceto) : null;
+  return (repo) => {
+    const r = String(repo || '').toLowerCase();
+    if (so) return so.includes(r);
+    if (fora) return !fora.includes(r);
+    return true; // workspace sem nenhuma das duas: nao filtra, nao explode
+  };
+};
+
+// A precedencia, parando no PRIMEIRO que casar. Devolve a entidade, ou null = cai para o passo 5.
+//
+// AMBIGUIDADE E TERMINAL: passo 3 com 2+ candidatos cai para o passo 5, NAO para o passo 4. O alvo
+// real no indice que torna isso concreto: `feature:11-fila-de-pedidos-pendentes` existe (e do
+// operations-center). Se o passo 3 ambiguo caisse no passo 4, `/gm-spec #11` dentro do claude-brain
+// injetaria uma feature sobre fila de pedidos — resposta confiante e errada, que e pior do que nao
+// injetar. O numero 11 e o caso patologico e esta no indice: e card em TRES repos
+// (processos-criticas, operations-center, claude-brain); filtrado para o workspace `pessoal` sobram
+// 2 -> ambiguo -> passo 5 -> `#11` tem 3 chars -> nao injeta. Quem carrega o caso do card #11 e o
+// passo 2 (repo do cwd), nao o passo 3.
+const resolverEntidade = (db, ws, arg, cwd) => {
+  const cands = candidatosDe(arg);
+  if (!cands.length) return null;
+  const porChave = db.prepare('SELECT ' + CAMPOS_ENT + ' FROM entidades WHERE chave = ?');
+
+  // 1. Slug exato de feature, na ordem dos candidatos. FEATURE ANTES DE CARD, e e medido:
+  //    `/gm-ship 982-setor-dashboard-inconsistencias` casa os dois (o numero prefixa o slug). Pela
+  //    feature os vizinhos sao a spec + as 5 tasks + o card + 2 decisoes (9, todos do assunto);
+  //    pelo card sao 30, incluindo 9 sessoes de diario e 3 cards citados de passagem.
+  for (const c of cands) {
+    const e = porChave.get('feature:' + c);
+    if (e) return e;
+  }
+
+  // `#*` e nao `#?`: o corpus tem `/gm-spec ##1086`.
+  let n = null;
+  for (const c of cands) {
+    const m = c.match(/^#*(\d{1,5})\b/);
+    if (m) {
+      n = m[1];
+      break;
+    }
+  }
+  if (!n) return null;
+
+  // 2. Numero -> card, desambiguado pelo repo do cwd. E este passo que carrega a feature.
+  const repo = repoDoCwd(db, ws, cwd);
+  if (repo) {
+    const e = porChave.get('card:' + repo + '#' + n);
+    if (e) return e;
+  }
+
+  const daquiRepo = daquiRepoDe(ws);
+  // 3. Numero -> card unico no workspace. So vale se sobrar EXATAMENTE 1; 2+ e terminal.
+  const cards = db
+    .prepare('SELECT ' + CAMPOS_ENT + " FROM entidades WHERE tipo='card' AND chave LIKE 'card:%#'||?")
+    .all(n)
+    .filter((e) => daquiRepo(e.repo));
+  if (cards.length) return cards.length === 1 ? cards[0] : null;
+
+  // 4. Numero -> feature `<n>-*` unica, com o MESMO filtro de workspace (entidades.repo esta
+  //    preenchido em 59/59 features). Sem ele, o `#11` do claude-brain pescaria a feature da
+  //    Notoria.
+  const feats = db
+    .prepare('SELECT ' + CAMPOS_ENT + " FROM entidades WHERE tipo='feature' AND chave LIKE 'feature:'||?||'-%'")
+    .all(n)
+    .filter((e) => daquiRepo(e.repo));
+  return feats.length === 1 ? feats[0] : null;
+};
+
+// Primeiro chunk do documento da entidade: e ele que vira o trecho do slot.
+const primeiroTrecho = (db, docPath) => {
+  const r = db
+    .prepare('SELECT c.text FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE d.path = ? ORDER BY c.ord LIMIT 1')
+    .get(docPath);
+  return r ? r.text : '';
+};
+
 const LIMITE_BRUTO = 24; // sobre-busca porque o filtro de workspace corta boa parte
 const LIMITE_FINAL = 5;
 const SNIP = 220;
+
+// A frase final e a MESMA nos dois caminhos (entidade e lexico) — constante, para nao derivarem.
+const RODAPE =
+  'Para a metade semantica, filtros por source/repo/feature, ou o documento inteiro, chame ' +
+  'mcp__brain__search_context / mcp__brain__read_doc — carregue-as com ToolSearch. Nao vale abrir ' +
+  'arquivo na mao antes disso.';
+
+// Um slot do bloco. Os dois caminhos passam por aqui pelo mesmo motivo do RODAPE.
+const linha = (i, titulo, meta, caminho, trecho) =>
+  `${i}. ${titulo}\n   [${meta.filter(Boolean).join(' · ')}]\n   ${caminho}\n   ` +
+  String(trecho || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, SNIP);
 
 // import() dinamico nao registra handle no libuv: sem isto o processo sai com codigo 0 antes de
 // a promise resolver, e o hook "funciona" sem nunca imprimir nada. Foi exatamente o que aconteceu.
@@ -124,8 +255,46 @@ const fim = (saida) => {
 
     const db = openDb(ws.db);
 
+    // Passos 1 a 4 — ENTIDADE. So para slash command: e o argumento de um comando que e chave de
+    // grafo; prompt normal e texto corrido e vai direto para o passo 5.
+    const ent = ehSlash ? resolverEntidade(db, ws, arg, String(h.cwd || '')) : null;
+    if (DEBUG) {
+      process.stderr.write(
+        '[brain-contexto] arg=' + JSON.stringify(arg) + ' candidatos=' + JSON.stringify(candidatosDe(arg)) +
+          ' entidade=' + (ent ? ent.chave : '(nenhuma)') + String.fromCharCode(10)
+      );
+    }
+
+    // O que a entidade resolvida injeta. NESTA TASK, so ela mesma — os vizinhos das `arestas` sao
+    // a task 6, e e la que o teto de 5 slots passa a ter mais de um ocupante.
+    //
+    // Entidade SEM doc_path — o caso de TODA `feature` (65/65), e tambem de `commit` (585/585) —
+    // nao tem trecho a injetar e NAO ocupa slot: emitir o slot assim poe `null` no lugar do
+    // caminho e trecho vazio, que foi o que o prototipo mostrou. Sem conteudo nenhum o bloco cairia
+    // vazio, entao cai para o passo 5 em vez de emitir cabecalho sozinho.
+    //
+    // Este caminho NAO passa pelo daqui() nem pelo relevante() la embaixo, e e o ponto que decide
+    // se a feature entrega alguma coisa: `entidades` nao tem coluna `source`, entao daqui() cairia
+    // no ramo do repo, onde `decisao` tem repo NULL em 415/415 e `sessao` em 388/388 — o filtro
+    // apagaria toda decisao e toda sessao. E relevante() mataria a entidade pelo motivo de sempre:
+    // tokensDe("11") e ["11"]. A procedencia aqui vem da CHAVE que o usuario nomeou no argumento,
+    // nao de busca aberta, e nao precisa do filtro que existe para busca aberta.
+    if (ent && ent.doc_path) {
+      const texto =
+        'Cerebro (o argumento do comando resolveu `' + ent.chave + '` no grafo do indice — voce nao ' +
+        'gastou tool call nenhuma):\n\n' +
+        linha(1, ent.titulo || ent.chave, [ent.tipo, ent.repo, ent.status, ent.data], ent.doc_path, primeiroTrecho(db, ent.doc_path)) +
+        '\n\nIsto e so a entidade resolvida. ' +
+        RODAPE;
+      return fim(
+        JSON.stringify({
+          hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: texto },
+          suppressOutput: true,
+        })
+      );
+    }
+
     // Passo 5 da precedencia — TEXTO. Argumento curto demais nao da busca: `#5` acha o mundo.
-    // (Os passos 1-4, que resolvem o argumento contra o grafo, entram antes desta linha.)
     if (ehSlash && arg.length < 12) return fim();
 
     // vec=null: a metade semantica exige carregar o transformer, caro demais por prompt.
@@ -156,20 +325,21 @@ const fim = (saida) => {
     const achados = resultados.filter(daqui).filter(relevante).slice(0, LIMITE_FINAL);
     if (!achados.length) return fim();
 
-    const linhas = achados.map((r, i) => {
-      const meta = [r.source, r.repo, r.feature, r.doc_type !== 'doc' ? r.doc_type : null, r.status, r.data]
-        .filter(Boolean)
-        .join(' · ');
-      const snip = String(r.snip || '').replace(/\s+/g, ' ').trim().slice(0, SNIP);
-      return `${i + 1}. ${r.breadcrumb}\n   [${meta}]\n   ${r.path}\n   ${snip}`;
-    });
+    const linhas = achados.map((r, i) =>
+      linha(
+        i + 1,
+        r.breadcrumb,
+        [r.source, r.repo, r.feature, r.doc_type !== 'doc' ? r.doc_type : null, r.status, r.data],
+        r.path,
+        r.snip
+      )
+    );
 
     const texto =
       'Cerebro (busca lexica automatica sobre este prompt — voce nao gastou tool call nenhuma):\n\n' +
       linhas.join('\n\n') +
-      '\n\nIsto e so a metade lexica e os 5 primeiros. Para a metade semantica, filtros por ' +
-      'source/repo/feature, ou o documento inteiro, chame mcp__brain__search_context / ' +
-      'mcp__brain__read_doc — carregue-as com ToolSearch. Nao vale abrir arquivo na mao antes disso.';
+      '\n\nIsto e so a metade lexica e os 5 primeiros. ' +
+      RODAPE;
 
     fim(
       JSON.stringify({
