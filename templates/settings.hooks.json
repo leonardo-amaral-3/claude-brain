@@ -23,6 +23,18 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <CLAUDE_HOME>/hooks/brain-contexto.js",
+            "timeout": 10,
+            "statusMessage": "Perguntando ao cérebro..."
+          }
+        ]
+      }
     ]
   }
 }
