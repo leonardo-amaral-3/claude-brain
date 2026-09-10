@@ -13,6 +13,7 @@
     "concorrencia": "node scripts/concorrencia.mjs",
     "eval": "node scripts/eval.mjs",
     "uso": "node scripts/uso.mjs",
+    "injecao": "node scripts/injecao.mjs",
     "embed": "node dist/cli.js --embed",
     "grafo": "node dist/cli.js --grafo"
   },

@@ -2,8 +2,8 @@
 
 Setup de Claude Code que dá memória e método a um time: um **servidor MCP local** que indexa todo
 o contexto do produto, uma **esteira de skills** que leva demanda de "chegou uma mensagem do
-cliente" até "está em produção", e **hooks** que fazem a sessão começar situada e terminar
-registrada.
+cliente" até "está em produção", e **hooks** que situam a sessão no início, alimentam cada turno
+com o contexto que ele pede e registram o que foi feito no fim.
 
 As três peças resolvem o mesmo problema — o de sempre começar do zero:
 
@@ -11,7 +11,7 @@ As três peças resolvem o mesmo problema — o de sempre começar do zero:
 |---|---|
 | **[brain-mcp](brain-mcp/)** | O Claude não sabe por que aquele código existe. Indexa specs, docs, decisões, cards, PRs, commits e código-fonte num índice híbrido (BM25 + embeddings) e devolve isso em uma busca, em vez de dez `Grep`. |
 | **[skills `gm-*`](docs/esteira-gm.md)** | Cada dev conduz uma feature de um jeito. A esteira dá uma estação por vez, com portão explícito entre elas e o board do GitHub como fonte da verdade. |
-| **[hooks](hooks/)** | O que se decide numa sessão morre com ela. O `SessionStart` injeta o briefing do que mudou; o `SessionEnd` escreve a nota da sessão no cofre Obsidian. |
+| **[hooks](hooks/)** | O que se decide numa sessão morre com ela, e o que já está no índice só chega ao modelo se alguém lembrar de perguntar. O `SessionStart` injeta o briefing do que mudou; o `UserPromptSubmit` responde cada prompt com o contexto que ele pede, sem gastar chamada de ferramenta; o `SessionEnd` escreve a nota da sessão no cofre Obsidian. |
 
 Tudo roda **local**. O índice é um SQLite na sua máquina; os embeddings são gerados na CPU por um
 modelo que roda offline. Nada é enviado para lugar nenhum além do que você já manda para o Claude.
@@ -308,9 +308,10 @@ claude-brain/
 │   ├── scripts/                smoke, eval (golden set), uso
 │   └── brain.config.example.json
 ├── skills/                     15 skills → ~/.claude/skills/
-├── hooks/                      4 arquivos → ~/.claude/hooks/
+├── hooks/                      5 arquivos → ~/.claude/hooks/
 │   ├── brain-config.js         lê o brain-workspaces.json (compartilhado pelos outros)
 │   ├── brain-briefing.js       SessionStart: injeta o briefing
+│   ├── brain-contexto.js       UserPromptSubmit: injeta o contexto do prompt
 │   ├── obsidian-diario.js      SessionEnd: escreve a nota (em milissegundos)
 │   └── obsidian-diario-titulo.js   processo destacado que enriquece a nota depois
 ├── templates/                  para copiar no seu workspace
