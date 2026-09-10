@@ -131,8 +131,12 @@ $pares = @()
 foreach ($s in Get-ChildItem (Join-Path $repo 'skills') -Directory) {
   $pares += @{ nome = "skill $($s.Name)"; repo = $s.FullName; vivo = Join-Path $claudeHome "skills\$($s.Name)" }
 }
+# Lista fixa, e nao a pasta inteira: a instalacao guarda copia de seguranca (.bak, .pre-detach)
+# e pode ter hook de terceiro. A mesma lista e o gabarito do relato de orfao la embaixo.
+$hooksVersionados = @('brain-config.js', 'brain-briefing.js', 'brain-contexto.js',
+                      'obsidian-diario.js', 'obsidian-diario-titulo.js')
 $pares += @{ nome = 'hooks'; repo = Join-Path $repo 'hooks'; vivo = Join-Path $claudeHome 'hooks'
-             arquivos = @('brain-config.js', 'brain-briefing.js', 'obsidian-diario.js', 'obsidian-diario-titulo.js') }
+             arquivos = $hooksVersionados }
 
 if ($mesmoLugar) {
   Write-Host "brain-mcp: o registrado E o deste repo - nada a sincronizar nele." -ForegroundColor DarkGray
@@ -191,6 +195,19 @@ if (Test-Path $skillsVivas) {
   }
 }
 
+# Hook vivo fora da lista fixa e invisivel ao laco acima - foi assim que o brain-contexto.js
+# ficou dois dias fora do git sem ninguem notar. So *.js: a instalacao guarda copias de
+# seguranca (.bak, .pre-detach) que nao sao hook e virariam falso positivo permanente.
+$orfaos = @()
+$hooksVivos = Join-Path $claudeHome 'hooks'
+if (Test-Path $hooksVivos) {
+  # Extension, e nao -Filter '*.js': o filtro do provider casa tambem pelo nome curto 8.3 e
+  # deixaria um obsidian-diario.js.bak entrar como se fosse hook.
+  foreach ($h in Get-ChildItem $hooksVivos -File | Where-Object { $_.Extension -eq '.js' }) {
+    if ($hooksVersionados -notcontains $h.Name) { $orfaos += $h.Name }
+  }
+}
+
 # ---------------------------------------------------------------- acao
 if ($Acao -eq 'status') {
   if ($difs.Count -eq 0) { Write-Host 'Tudo igual entre repo e maquina.' -ForegroundColor Green }
@@ -205,6 +222,12 @@ if ($Acao -eq 'status') {
     Write-Host "Skills em ~/.claude/skills que nao estao no repo:" -ForegroundColor Cyan
     foreach ($n in $novas) { Write-Host "  - $n" }
     Write-Host '  (para versionar uma delas: copie a pasta para .\skills\ e rode git add)'
+  }
+  if ($orfaos.Count) {
+    Write-Host ''
+    Write-Host "Hooks em ~/.claude/hooks que nao estao no repo:" -ForegroundColor Cyan
+    foreach ($n in $orfaos) { Write-Host "  - $n" }
+    Write-Host '  (para versionar um deles: copie para .\hooks\ e acrescente-o a $hooksVersionados)'
   }
   return
 }
