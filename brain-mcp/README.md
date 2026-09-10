@@ -94,7 +94,7 @@ grafo incremental dessincronizado.
 - `vizinhanca(alvo, limite?)` — o que está ligado a um card, PR, feature ou arquivo.
 - `lembrar(fato, tipo?, escopo?, porque?, alternativas?, refs?, supersede?)` — grava decisão no cofre e no grafo.
 - `recent_activity(dias?, incluir_codigo?)` — briefing do que mudou.
-- `reindex(full?, github?)` — re-varredura manual + reconstrução do grafo.
+- `reindex(full?, github?, forcar?)` — re-varredura manual + reconstrução do grafo; exige a liderança do índice (ver *Escritor único*).
 
 ## Memória ativa
 
@@ -115,6 +115,38 @@ rotatividade — e varredura periódica de 5 minutos para o resto. Código não 
 `fs.watch` recursivo num repo com `node_modules` é caro e o ganho é nulo, já que código muda em
 rajada. **Nenhuma varredura acontece no caminho da consulta** (antes, uma busca podia pagar a
 varredura inteira de todos os repos).
+
+## Escritor único do índice
+
+Várias sessões do Claude Code abertas ao mesmo tempo são vários servidores `brain` contra o **mesmo**
+`brain.db`. Antes, todos varriam os mesmos arquivos, reconstruíam o mesmo grafo e calculavam os
+mesmos vetores simultaneamente: trabalho multiplicado por N e tempestade de lock, com
+`database is locked` chegando ao usuário no meio de um `lembrar`.
+
+Agora um **lease** gravado no próprio banco (tabela `lider`, TTL de 60 s, renovado a cada ⅓ dele)
+elege um escritor. Só o líder varre, reconstrói o grafo, gera embeddings e sincroniza GitHub/git. Os
+seguidores **respondem consulta exatamente como o líder** e seguem gravando `uso` e `lembrar` — o
+lease governa o trabalho pesado, não o atendimento.
+
+Não há nada a administrar: se o líder morre, o lease vence e outro assume sozinho no tique seguinte;
+se ele se despede direito (a sessão fecha o stdin), solta o lease na hora e a troca é imediata.
+
+**A CLI e a tool `reindex` são a exceção, e de propósito.** As duas são ação humana explícita de
+reindexação, então em vez de esperar caladas elas **recusam com aviso**:
+
+```
+$ npm run index
+O índice está sob o servidor pid 24180 (LEO-DESK), lease até 15:42:07.
+Feche as sessões do Claude Code, ou rode de novo com --force para tomar a liderança.
+```
+
+Antes de recusar, a CLI tenta a cada segundo por 10 s — isso cobre o caso comum, que é um servidor
+justamente de saída. `--force` na CLI (ou `forcar: true` na tool `reindex`) toma a liderança de quem
+estiver com ela; o servidor que a perde se rebaixa a seguidor no tique seguinte, sem morrer e sem
+parar de atender.
+
+Para desligar o mecanismo a quente, sem deploy: `BRAIN_LEASE_TTL_MS=0` faz todo lease nascer vencido,
+todo processo se eleger líder e o comportamento anterior voltar.
 
 ## Qualidade da busca
 
@@ -149,10 +181,12 @@ npm run uso                # quantas vezes o Claude chamou cada tool
 npm run smoke              # sobe o servidor por stdio e testa as tools
 node dist/cli.js --git     # relê o histórico de git dos repos
 node dist/cli.js --github  # força sync de cards/PRs
+node dist/cli.js --force   # toma a liderança de um servidor vivo em vez de recusar
 ```
 
-Variáveis de ambiente: `BRAIN_CONFIG` aponta para outro `brain.config.json` (útil para testar uma
-configuração sem mexer na sua).
+Variáveis de ambiente: `BRAIN_CONFIG` aponta para outro `brain.config.json` e `BRAIN_DB` para outro
+banco (úteis para testar sem mexer no seu índice); `BRAIN_LEASE_TTL_MS` ajusta o TTL do lease.
+`BRAIN_CLI_ESPERA_MS` muda os 10 s que a CLI espera antes de recusar (0 = recusa na hora).
 
 ## Registro no Claude Code
 

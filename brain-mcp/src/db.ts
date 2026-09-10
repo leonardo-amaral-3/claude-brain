@@ -4,11 +4,47 @@ import { dirname } from "node:path";
 
 export type Db = DatabaseSync;
 
+/** Espera síncrona: `openDb` é síncrona por contrato e não há `await` a usar aqui. */
+function dormirSincrono(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Liga o WAL tolerando a disputa da PRIMEIRA abertura de um banco novo.
+ *
+ * `PRAGMA journal_mode = WAL` precisa de trava exclusiva e — esta é a parte contra-intuitiva — o
+ * SQLite **não chama o busy handler** neste caminho: devolve SQLITE_BUSY na hora, então
+ * `busy_timeout`, esteja definido antes ou depois, não cobre. Medido em 2026-09-09 com N sessões
+ * subindo juntas contra um banco novo: o processo perdedor morria no boot com `database is locked`
+ * (stack em `openDb`), que é exatamente o que o CA1 proíbe.
+ *
+ * O retry é curto de propósito: o modo é persistente no arquivo, então a disputa só existe nas
+ * primeiras aberturas de um banco recém-criado. Depois disso o PRAGMA é no-op e nunca reentra aqui.
+ */
+function ligarWal(db: DatabaseSync): void {
+  const TENTATIVAS = 20;
+  for (let i = 0; ; i++) {
+    try {
+      db.exec("PRAGMA journal_mode = WAL");
+      return;
+    } catch (err) {
+      // Só a disputa de trava merece nova tentativa; qualquer outro erro é problema de verdade.
+      const busy = (err as { errcode?: number }).errcode === 5;
+      if (!busy || i >= TENTATIVAS) throw err;
+      dormirSincrono(25);
+    }
+  }
+}
+
 export function openDb(path: string): DatabaseSync {
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA busy_timeout = 5000"); // várias sessões compartilham o mesmo .db
+  // Várias sessões compartilham o mesmo .db. 30 s, e não os 5 s de antes, porque a
+  // reindexação completa é UMA transação de 9,3 s (medido em 2026-09-09 sobre o índice de
+  // 137 MB): com 5 s, escrita concorrente durante um reindex falhava por construção, não
+  // por azar. 30 s cobre a operação mais longa com folga de 3x.
+  db.exec("PRAGMA busy_timeout = 30000");
+  ligarWal(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS files (
@@ -93,6 +129,22 @@ export function openDb(path: string): DatabaseSync {
       text, breadcrumb, title,
       tokenize='unicode61 remove_diacritics 2'
     );
+    -- Quem detém o direito de fazer o trabalho pesado do índice (ver lease.ts). Uma linha só,
+    -- garantida pelo CHECK. Aditiva: banco antigo abre e ganha a tabela vazia, sem backfill.
+    CREATE TABLE IF NOT EXISTS lider (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      instancia TEXT NOT NULL,
+      pid INTEGER NOT NULL,
+      host TEXT NOT NULL,
+      inicio INTEGER NOT NULL,
+      expira_em INTEGER NOT NULL
+    );
+    -- Chave/valor do índice. Hoje guarda só versao_indice, o contador que diz a um processo
+    -- seguidor que o cache vetorial dele envelheceu.
+    CREATE TABLE IF NOT EXISTS meta (
+      chave TEXT PRIMARY KEY,
+      valor TEXT NOT NULL
+    );
   `);
   return db;
 }
@@ -111,4 +163,24 @@ export function removeDoc(db: DatabaseSync, path: string): void {
 
 export function clearAll(db: DatabaseSync): void {
   db.exec("DELETE FROM chunks_fts; DELETE FROM chunks; DELETE FROM docs; DELETE FROM files;");
+}
+
+/**
+ * Contador de versão do conteúdo do índice. Existe para o VectorIndex de um processo SEGUIDOR
+ * saber que o cache em memória dele ficou velho: ele nunca varre, então nada mais o avisaria.
+ * String, e não número, porque é o valor cru da tabela e só se compara por igualdade.
+ */
+export function versaoIndice(db: DatabaseSync): string {
+  const r = db.prepare("SELECT valor FROM meta WHERE chave = 'versao_indice'").get() as unknown as
+    | { valor: string }
+    | undefined;
+  return r ? String(r.valor) : "";
+}
+
+/** Só o líder chama: é ele quem muda o conteúdo do índice. */
+export function bumpVersaoIndice(db: DatabaseSync): void {
+  db.exec(
+    "INSERT INTO meta (chave, valor) VALUES ('versao_indice', '1') " +
+      "ON CONFLICT(chave) DO UPDATE SET valor = CAST(valor AS INTEGER) + 1"
+  );
 }

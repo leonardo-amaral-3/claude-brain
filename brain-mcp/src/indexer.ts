@@ -203,7 +203,7 @@ export class Indexer {
 
     let indexed = 0;
     let removed = 0;
-    this.db.exec("BEGIN");
+    this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const [path, { file, root }] of seen) {
         const prev = known.get(path);
