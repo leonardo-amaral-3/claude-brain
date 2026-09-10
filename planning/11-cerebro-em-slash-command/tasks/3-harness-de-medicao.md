@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: O harness de medição — `injecao.mjs` e a linha de base
 
