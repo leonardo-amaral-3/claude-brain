@@ -93,7 +93,8 @@ pergunta por task —, respeita o teto de 6–8 tasks e espelha a lista no card.
 ### Implementação
 
 **`/gm-implement [pasta-da-feature]`** — executa **uma** task pendente, de preferência em sessão
-nova. Branch certo no repo certo, criado ligado ao card pelo campo Development. O arquivo da task
+nova. Branch certo no repo certo, criado ligado ao card pelo campo Development e aberto numa
+worktree só dele (`## Uma worktree por card`, abaixo). O arquivo da task
 é o prompt. Testes rodam **antes** de apresentar. Resumo ordenado por risco. Commit só depois de
 você escolher *Executar*. Se a realidade contradiz a spec, entra o protocolo de desvio em vez de
 improviso silencioso. E se a decisão cair depois da última task, com a PR ainda por abrir, é aqui
@@ -176,6 +177,40 @@ ao lado, obriga a comparar antes de clicar.
 
 **O que isto não muda.** Os gates continuam os mesmos — quantos são, onde ficam e quem responde.
 Mudou o gesto de responder, não quem manda.
+
+## Uma worktree por card
+
+Todo card em voo trabalha numa pasta só dele: `<workspace>/<repo>-<n>-<slug>` — irmã do repo,
+dentro do workspace. O checkout principal deixa de ser lugar de card.
+
+**Por que irmã, e não em qualquer canto do disco.** O `CLAUDE.md` do workspace e o
+`brain-workspaces.json` resolvem **por prefixo de caminho**. Uma worktree fora do prefixo — solta
+em `~/`, por exemplo — não tem nenhum `CLAUDE.md` de workspace acima dela: fica sem `## Board`,
+sem as duas regras do cérebro, e fora de qualquer workspace do brain. A pasta funciona, o git
+funciona, e a sessão que roda lá dentro perde as coordenadas sem receber aviso nenhum.
+
+**Por que uma por card.** Vários cards em voo ao mesmo tempo, às vezes no mesmo repo: cada um com a
+sua árvore, ninguém troca de branch por cima do trabalho do outro, e `git worktree list` responde
+de uma olhada o que está aberto.
+
+**Quem cria e quem apaga.** O `/gm-implement` cria ao garantir a branch — a mesma branch ligada ao
+card pelo campo Development, agora dentro da worktree. O `/gm-ship` apaga assim que a PR abre e o
+card vai para 👀 Revisão: some a pasta, não a branch, que segue no GitHub com a PR. Se depois disso
+o parecer da revisão pedir código, o `/gm-correcao` recria pela mesma convenção — corrigir no
+checkout principal fura a regra uma estação adiante. O `/gm-hotfix` usa a mesma convenção na
+`release/hotfix-*` e apaga quando o back-merge entra: a pressa não compra exceção.
+
+**A `planning/` mora dentro do repo**, então cada worktree carrega a sua cópia da spec e dos
+arquivos de task. A que vale é a da worktree do card: é ela que está na branch e é ela que a PR vai
+carregar. A cópia do checkout principal é o que a `dev` tinha no último merge — da segunda task em
+diante ela ainda mostra as anteriores como pendentes e não sabe de emenda nenhuma. Na dúvida,
+`git branch --show-current` dentro da pasta diz qual cópia você está lendo.
+
+**Apagar não é forçar.** `git worktree remove` recusa quando sobrou arquivo não commitado na pasta,
+e a recusa é informação: alguma coisa ficou de fora da PR. A pasta fica de pé até alguém olhar.
+
+**Os cards que nasceram antes da regra terminam onde estão.** Mover worktree de card em voo troca o
+chão debaixo de uma sessão que pode estar aberta; a regra vale dos próximos cards em diante.
 
 ## A regra que sustenta tudo
 

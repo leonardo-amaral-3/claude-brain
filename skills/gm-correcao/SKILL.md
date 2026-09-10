@@ -91,7 +91,9 @@ and every `description` — is written in pt-BR.**
      Enquanto `main` e `dev` divergirem, **nenhuma** PR é revisada. Aponte e pare.
    - *"revisão foi interrompida"* → estado C. O teto é `vars.REVISAO_TIMEOUT_MINUTOS`, ajustável sem
      PR. Aponte e pare.
-3. Dentro do repo do módulo, na branch da PR, `git status` limpo. Responder inline exige escopo de
+3. Ler o parecer e responder inline não pede checkout nenhum — é tudo `gh`. Quem pede árvore é o
+   balde **Corrige**, e a árvore dele é uma worktree recriada no `## Corrigir`, não o checkout
+   principal: o `/gm-ship` removeu a do card quando abriu a PR. Responder inline exige escopo de
    escrita no `gh`; 403 → `! gh auth refresh -s repo`.
 
 ## Coletar
@@ -125,6 +127,20 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
 
 ## Corrigir
 
+0. **A worktree primeiro, antes de tocar em arquivo.** O `/gm-ship` apagou a worktree do card ao
+   abrir a PR, e o checkout principal não é lugar de card — corrigir ali fura a mesma regra que o
+   `gm-implement` aplica. Recrie-a pela convenção, com `<n>` vindo do `**Card:** #<n>` da primeira
+   linha da PR e `<slug>` do nome da branch:
+
+   ```
+   git fetch origin
+   git worktree list                                          # já existe? entre nela e siga
+   git worktree add <workspace>/<repo>-<n>-<slug> <branch-da-pr>
+   ```
+
+   Daqui até o fim do tratamento todo `git` roda de dentro dela, e todo `gh` continua com
+   `--repo <owner>/<repo>` explícito. Card anterior à regra, ainda no checkout principal → siga
+   onde ele está, sem mover: card em voo não se muda de chão.
 1. Um commit por achado, mensagem dizendo qual achado fecha e por quê — não "corrige review".
 2. **Rodar a suíte completa** dos pacotes tocados (api/web + typecheck), como o `gm-ship` exige.
    Vermelho → parar e mostrar.
@@ -168,6 +184,9 @@ E um comentário-resumo, sticky por `<!-- gm:correcao -->` (create-or-update pel
   nota datada — a spec nunca pode virar ficção histórica.
 - Grave com `mcp__brain__lembrar` **na hora** todo achado refutado e todo desvio: por que não
   procedia, ou o que a spec passou a dizer. Achado refutado sem registro volta na próxima revisão.
+- **A worktree sai como entrou.** Commits empurrados e inlines respondidos, saia dela e rode
+  `git worktree remove <workspace>/<repo>-<n>-<slug>` mais `git worktree prune`. Recusa por arquivo
+  não commitado é para ser lida, nunca vencida com `--force` — é correção que não subiu.
 
 ## Report
 

@@ -75,31 +75,63 @@ and every `description` — is written in pt-BR.**
 
 ## Guarantee the branch
 
-Git runs **inside the module repo directory** (nested git repository — never from the workspace root).
+**The card's branch lives in a worktree of its own, never in the main checkout.** The path is
+`<workspace>/<repo>-<n>-<slug>` — sibling to the repo directory and **inside the workspace
+prefix**, because the workspace `CLAUDE.md` (the `## Board`, the brain rules) and
+`brain-workspaces.json` both resolve **by path prefix**: a worktree parked anywhere else belongs
+to no workspace and reads no board, and nothing warns you. `<n>` is the card number and `<slug>`
+the branch slug, so the folder name says which card is in flight without opening anything.
 
-1. `git status` — unrelated uncommitted changes → stop before touching any branch, name the exact
-   files in the message, and put the fork to the human in one `AskUserQuestion` call; header
-   `Árvore suja`, question and options in pt-BR:
+1. `git status` **in the main checkout**. Changes that are not this task's no longer block the
+   branch — the worktree is born clean from `origin/<base>` and they simply stay where they are.
+   That is the risk worth naming before the session walks away: uncommitted work in a checkout
+   nobody opens again is work lost in silence. Name the exact files in the message, then one
+   `AskUserQuestion` call; header `Árvore suja`, question and options in pt-BR:
 
-   > A árvore tem alteração que não é desta task: <arquivos>. Trocar de branch por cima disso é
-   > como se perde trabalho que ninguém sabia que estava aberto.
+   > O checkout principal tem alteração que não é desta task: <arquivos>. A worktree desta task
+   > nasce limpa da `origin/<base>`, então esses arquivos ficam para trás — fora da branch, fora da
+   > PR, e fora do que esta sessão vai olhar de novo.
    >
-   > - **Levar junto** — as alterações vão para a branch da task e entram na PR dela; a revisão vai
-   >   ver código que a spec não pediu.
-   > - **Guardar em stash** — `git stash` tira do caminho agora; recuperar depende de alguém
-   >   lembrar do `git stash pop`, e stash esquecido é trabalho perdido em silêncio.
-   > - **Parar aqui** — nada é mexido, nem branch nem arquivo. A task espera a árvore ser resolvida
-   >   à mão.
-2. Branch exists (local or origin) → check out (fast-forward to origin if there).
-3. Branch does not exist → create it REMOTELY, linked to the card, so it appears in the issue's **Development** field and the future PR attaches to the card automatically:
+   > - **Levar junto** — `git stash` aqui e `git stash pop` dentro da worktree: as alterações vão
+   >   para a branch da task e entram na PR dela; a revisão vai ver código que a spec não pediu.
+   > - **Deixar onde estão** — nada é mexido; seguem no checkout principal, sem commit, e esta
+   >   sessão trabalha só dentro da worktree. Quem retomar depois precisa lembrar que elas existem.
+   > - **Parar aqui** — nem worktree nem branch. A task espera a árvore ser resolvida à mão.
+2. `git fetch origin`, then `git worktree list` — the branch may already have a home:
+   - **A worktree already at `<workspace>/<repo>-<n>-<slug>`** → that is the one; continue inside
+     it, fast-forwarding to origin if the branch is there.
+   - **The branch checked out in the main checkout** — a card that started before this rule, like
+     the one that wrote it. **Do not move it.** Migrating a card in flight swaps the ground under a
+     session that may still be open; say out loud that this card finishes where it is and that the
+     rule holds from the next card on, then carry on in the main checkout.
+   - **The branch exists (local or origin), with no worktree** →
+     `git worktree add <workspace>/<repo>-<n>-<slug> feat/<n>-<slug>`. A branch that lives only on
+     origin gets a local one tracking it, same as a checkout would.
+   - **The branch does not exist** → create it REMOTELY first, linked to the card, so it appears in
+     the issue's **Development** field and the future PR attaches to the card automatically:
 
-   ```
-   gh api graphql -f query='{repository(owner:"<owner>",name:"<repo>"){id issue(number:<n>){id} ref(qualifiedName:"refs/heads/<base>"){target{oid}}}}'
-   gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:"<issue-node-id>",repositoryId:"<repo-node-id>",oid:"<oid-da-base>",name:"feat/<n>-<slug>"}){linkedBranch{ref{name}}}}'
-   git fetch origin && git checkout feat/<n>-<slug>
-   ```
+     ```
+     gh api graphql -f query='{repository(owner:"<owner>",name:"<repo>"){id issue(number:<n>){id} ref(qualifiedName:"refs/heads/<base>"){target{oid}}}}'
+     gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:"<issue-node-id>",repositoryId:"<repo-node-id>",oid:"<oid-da-base>",name:"feat/<n>-<slug>"}){linkedBranch{ref{name}}}}'
+     git fetch origin && git worktree add <workspace>/<repo>-<n>-<slug> feat/<n>-<slug>
+     ```
 
-   If the mutation fails (scope/permission), fall back to plain local creation from `origin/<base>` and tell the user the Development link takes 2 clicks in the UI (issue → Development → Link a branch).
+     If the mutation fails (scope/permission), fall back to
+     `git worktree add -b feat/<n>-<slug> <workspace>/<repo>-<n>-<slug> origin/<base>` and tell the
+     user the Development link takes 2 clicks in the UI (issue → Development → Link a branch).
+3. **From here on the working directory is the worktree, and saying so once is what keeps the rest
+   of the session honest.** Print the path, then run every `git` and `gh` command of this task from
+   inside it (`cd` once, or `git -C <path>`). `gh` reads the repo from the remote of the current
+   directory, so keep `--repo <owner>/<repo>` explicit and the question never arises. The main
+   checkout is not touched again by this task.
+4. **`planning/` lives inside the repo, so the worktree carries its own copy of the spec and of the
+   task files — and that copy is the authoritative one.** It sits on the card's branch; it is what
+   the commits and the PR will carry. The copy in the main checkout is whatever `<base>` had at the
+   last merge: from task 2 on it still shows the earlier tasks as `❌` and knows nothing about any
+   emenda. So the reading done in `## Setup` is provisional — **re-read `spec.md` and re-pick the
+   lowest-numbered `❌` task from inside the worktree** before implementing anything. Which copy is
+   under you is one command away: `git rev-parse --show-toplevel` plus `git branch --show-current`,
+   and the card's branch means the right copy.
 
 ## Board (task 1 only)
 
@@ -151,9 +183,12 @@ parecer aquela skill para na precondição 2, e o assunto continua sendo desta s
 Aqui não se reabre a spec em modo autoria (`/gm-spec` é para especificar, não para emendar) nem se
 re-roda o `/gm-plan-tasks`, que propõe a quebra inteira de uma vez e re-proporia as tasks já feitas.
 
-1. **Garanta a branch antes de escrever qualquer coisa.** Volte ao `## Guarantee the branch` acima:
-   a sessão pode ter chegado vinda do `/gm-ship`, e a pasta `planning/` mora no repo — escrever a
-   emenda antes do checkout faz o passo 1 de lá parar por "unrelated uncommitted changes".
+1. **Garanta a worktree antes de escrever qualquer coisa.** Volte ao `## Guarantee the branch`
+   acima: a pasta `planning/` mora dentro do repo, então escrever a emenda antes de a worktree
+   existir grava a nota no **checkout principal**, fora da branch do card — ela não entra na PR e
+   ainda reaparece como árvore suja no passo 1 de lá. A sessão pode ter chegado vinda do
+   `/gm-ship`, que para **antes** de abrir a PR quando uma decisão cai: a worktree do card
+   continua de pé, e é dentro dela que a nota é escrita.
 2. **A emenda antes do código.** Rode os passos 2–3 do protocolo de desvio: a contradição e a
    emenda proposta vão na mensagem e a decisão chega pelo conjunto *artefato* do
    `## Como perguntar e como aprovar` — o artefato é a nota que vai ser escrita. Só com *Aprovar*
@@ -212,7 +247,8 @@ Só *Executar o commit* abre o `## Close the task`.
 
 ## Close the task
 
-1. Commit from inside the module repo, message ending with the trailer `Card: #<n>`.
+1. Commit from inside the card's worktree — the one from `## Guarantee the branch`, never the
+   main checkout — message ending with the trailer `Card: #<n>`.
 2. Flip the task file's first line to `✅ Status: Complete`.
 3. Tick the task's checkbox in the card's `<!-- gm:tasks -->` comment (edit the comment in place).
 4. Pending tasks remain → "próxima: `/gm-implement <folder>` (sessão nova)". All `✅` → offer `/gm-ship <folder>`.

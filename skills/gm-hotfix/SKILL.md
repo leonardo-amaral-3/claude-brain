@@ -146,17 +146,21 @@ gh project item-edit --project-id <project-id> --id <item-id> \
 
 The hotfix goes straight to 🔨 Implementação — it skips 📋 Backlog and 🎯 Especificação by design.
 
-## Phase 2 — Branch from `main`
+## Phase 2 — Branch from `main`, in a worktree of its own
 
-Git runs **inside the module repo directory** (nested git repository — never from the workspace root).
+Urgency buys priority, never a bypass: the hotfix branch lives in a worktree at
+`<workspace>/<repo>-<n>-<slug>` — sibling to the repo, inside the workspace prefix — exactly like a
+feature card (`gm-implement`, `## Guarantee the branch`). Under pressure it earns its keep twice:
+whatever was open in the main checkout is neither disturbed nor dragged into the fix.
 
 ```
 git fetch origin
-git status                       # árvore suja → pare e mostre
-git checkout -b release/hotfix-<n>-<slug> origin/main
+git status                       # no checkout principal: o que estiver aberto ali fica ali, e você diz isso em voz alta
+git worktree add <workspace>/<repo>-<n>-<slug> -b release/hotfix-<n>-<slug> origin/main
+cd <workspace>/<repo>-<n>-<slug>
 ```
 
-Confirm out loud that the base is `origin/main` and show how far ahead `dev` is (`git log --oneline origin/main..origin/dev | wc -l`) — that number is the reason this branch does not come from `dev`.
+Confirm out loud that the base is `origin/main` and show how far ahead `dev` is (`git log --oneline origin/main..origin/dev | wc -l`) — that number is the reason this branch does not come from `dev`. **Every `git` command from here to the end of Phase 5 runs inside the worktree**, and every `gh` keeps `--repo <owner>/<repo>` explicit.
 
 ## Phase 3 — Fix, minimally, with a test
 
@@ -276,7 +280,13 @@ Production is named, hotfixes included (a repository with zero tags is one of th
 
    Only *Publicar a release* runs the commands below.
 
+Os comandos abaixo rodam **no checkout principal**, não na worktree do hotfix — e a troca de
+diretório é justamente o que passa despercebido às pressas. Dentro da worktree, `git checkout main`
+ou é recusado (se `main` já estiver aberta no checkout principal) ou troca a branch por baixo do
+hotfix que você acabou de subir.
+
 ```
+cd <checkout-principal>
 git checkout main && git pull
 git tag -l 'v*' | tail -5                       # calver do dia já existe? sufixe .1, .2
 git tag -a v<AAAA.MM.DD> -m "hotfix #<n>: <título>"
@@ -288,7 +298,8 @@ Write the tag into the card's **Release** field (`<field:Release>`, `--text v<AA
 
 ## Phase 7 — Back-merge into `dev` (never skipped)
 
-Without this, the next release re-deploys the bug over the fix.
+Without this, the next release re-deploys the bug over the fix. Still in the main checkout — the
+back-merge is another branch, and it never belonged to the hotfix worktree.
 
 ```
 git checkout -b chore/backmerge-hotfix-<n> origin/main
@@ -310,6 +321,11 @@ Conflicts with work in flight on `dev` are the normal case here, not the excepti
 > - **Abrir a PR conflitante** — a PR do back-merge sobe marcada como conflitante, para quem escreveu
 >   o outro lado resolver. Só cabe se essa pessoa existe e vai olhar hoje; senão, é o back-merge que
 >   nunca acontece.
+
+With the back-merge PR open, the incident has no more code to write, so the hotfix worktree goes —
+from outside it, `git worktree remove <workspace>/<repo>-<n>-<slug>` plus `git worktree prune`.
+A refusal means uncommitted or untracked files are still in there: read it, never `--force` past
+it. Under pressure is exactly where a diff nobody remembered to push gets thrown away.
 
 ## Phase 8 — Post-mortem card
 

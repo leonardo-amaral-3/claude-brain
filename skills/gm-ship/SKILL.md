@@ -108,6 +108,28 @@ precondição 3 quando a task estiver `✅`.
 
 Move the card to 👀 Revisão on the team board (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Revisao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`). Missing `project` scope → `! gh auth refresh -s project`.
 
+## Fechar a worktree
+
+The card's branch had a worktree of its own at `<workspace>/<repo>-<n>-<slug>` (`gm-implement`,
+`## Guarantee the branch`). With the PR open and the card in 👀 Revisão, this card has no more code
+to write in this session, so the folder goes — the branch does not, it is pushed and it carries the
+PR:
+
+```
+cd <checkout-principal>          # nunca remova a worktree de dentro dela
+git worktree remove <workspace>/<repo>-<n>-<slug>
+git worktree prune
+```
+
+`git worktree remove` refuses while the folder still holds uncommitted or untracked files, and that
+refusal is information, not an obstacle: something was left out of the PR. **Never `--force` past
+it** — show what is in there and leave the worktree standing. A folder sitting around is cheap; a
+diff nobody knew existed is not.
+
+If the parecer of the CI review later asks for code, `/gm-correcao` recreates the worktree by this
+same convention. And a card that started before the rule, working in the main checkout, has no
+worktree to remove: `git worktree list` says so, and nothing in this section applies to it.
+
 ## Report
 
 PR URL + board move. If the CI review workflow is active in the repo, mention it will comment using the card's spec; if not, the "Validação em dev" checklist is the reviewer's guide.
