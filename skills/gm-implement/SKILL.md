@@ -45,16 +45,51 @@ and every `description` — is written in pt-BR.**
 
 ## Setup
 
-1. Folder: `planning/$ARGUMENTS/`. No argument → list folders with pending (`❌`) tasks and ask.
+1. Folder: `planning/$ARGUMENTS/`. No argument → put **every** folder that still has a pending
+   (`❌`) task in the message — how many are left in each, and the title of the one that would run
+   — then one `AskUserQuestion` call; header `Pasta`, question and options in pt-BR:
+
+   > Cada pasta abaixo tem task esperando; esta sessão executa **uma**, a próxima da pasta que você
+   > escolher.
+   >
+   > - **<pasta>** — faltam <n>; a próxima é «<título da task>».
+   > - … (as demais na mesma forma)
+
+   More than four folders → the options carry the ones with the most recent work, the **full** list
+   stays in the message, and the message says out loud that the rest arrive through "Other". A
+   folder dropped in silence is a task nobody remembers exists.
 2. Read the spec (`spec.md`; older folders: `tech-spec.md`) → `## Execution` (repo, base, feature branch), `## Requisitos & critérios de aceite`, `## Plano de testes`, and the card reference.
 3. Pick the lowest-numbered task whose first line is `❌ Status: Not Started`. A lower-numbered task not `✅` → stop and report; never guess. (Sub-tasks born from a split carry letter suffixes — `3a`, `3b` — and sort in place, before `4`.)
-4. Todas as tasks `✅` → **pergunte por qual das duas o humano veio, nunca assuma**: fechar (`/gm-ship <folder>`) ou uma **emenda pós-tasks** — decisão da spec caiu depois da última task e antes de existir PR. Só a segunda continua aqui, pela seção `## Emenda pós-tasks` abaixo.
+4. Todas as tasks `✅` → o humano veio por um de dois motivos e assumir errado custa caro nos dois
+   sentidos: uma chamada `AskUserQuestion`, header `Fim da fila`, pergunta e opções em pt-BR:
+
+   > As tasks desta feature estão todas fechadas e ainda não existe PR. Duas coisas cabem nesta
+   > janela:
+   >
+   > - **Fechar e abrir a PR** — nada muda no código; a sessão termina apontando para
+   >   `/gm-ship <pasta>`, que abre a PR e leva o card para 👀 Revisão.
+   > - **Emendar a spec** — uma decisão da spec caiu depois da última task. Vira nota datada na
+   >   spec e no card, mais **uma** task nova, escrita e executada aqui, antes de a PR existir.
+
+   Só a segunda continua nesta skill, pela seção `## Emenda pós-tasks` abaixo.
 
 ## Guarantee the branch
 
 Git runs **inside the module repo directory** (nested git repository — never from the workspace root).
 
-1. `git status` — unrelated uncommitted changes → stop, show, let the user decide.
+1. `git status` — unrelated uncommitted changes → stop before touching any branch, name the exact
+   files in the message, and put the fork to the human in one `AskUserQuestion` call; header
+   `Árvore suja`, question and options in pt-BR:
+
+   > A árvore tem alteração que não é desta task: <arquivos>. Trocar de branch por cima disso é
+   > como se perde trabalho que ninguém sabia que estava aberto.
+   >
+   > - **Levar junto** — as alterações vão para a branch da task e entram na PR dela; a revisão vai
+   >   ver código que a spec não pediu.
+   > - **Guardar em stash** — `git stash` tira do caminho agora; recuperar depende de alguém
+   >   lembrar do `git stash pop`, e stash esquecido é trabalho perdido em silêncio.
+   > - **Parar aqui** — nada é mexido, nem branch nem arquivo. A task espera a árvore ser resolvida
+   >   à mão.
 2. Branch exists (local or origin) → check out (fast-forward to origin if there).
 3. Branch does not exist → create it REMOTELY, linked to the card, so it appears in the issue's **Development** field and the future PR attaches to the card automatically:
 
@@ -77,14 +112,14 @@ The task file is your prompt: implement only its Scope, following the spec stric
 Three protocols cover what goes wrong mid-task. Pick by **what changed**: the decision (desvio), the slicing (fatiamento), or nothing in this task at all (achado).
 
 **Deviation protocol — the spec's decision was wrong.** Reality in the code contradicts it (wrong assumption, missing case, better path that changes a decision):
-1. STOP implementing that part. 2. Present the contradiction + proposed amendment to the user. 3. On approval, update `spec.md` AND the `<!-- gm:spec -->` comment on the card with a dated note ("Emenda AAAA-MM-DD: …"). 4. Continue under the amended spec. Never deviate silently — the spec must never become historical fiction.
+1. STOP implementing that part. 2. The amended wording is the artifact: put in the message what the spec decided, what the code showed, and the exact note you propose to write — then run the *artefato* set from `## Como perguntar e como aprovar`. 3. *Aprovar* → write the dated note ("Emenda AAAA-MM-DD: …") in `spec.md` **and** in the `<!-- gm:spec -->` comment on the card, and continue under the amended spec. *Rejeitar* → the spec stands as written and the task stops here rather than being bent to fit. Never deviate silently — the spec must never become historical fiction.
 
 **Slicing protocol — the spec is right, the task is too big.** The scope holds 2+ independent parts, each with its own test; or the diff is growing into something nobody can review as one unit; or you are about to commit something you would not want to review yourself. The spec did **not** change — only its slicing did, so this is not an emenda.
 
 1. **STOP before writing more code.** A task noticed to be oversized at 80% is a task that gets rubber-stamped.
 2. Propose the split: N sub-tasks, each with title + one-line scope + the test that closes it, keeping the two invariants — **code compiles after each**, and **no sub-task depends on a later one**. The first sub-task absorbs whatever is already implemented.
 3. **The ceiling decides who owns it:** if the split pushes the feature past **6–8 tasks total**, this is not a task problem — the card is an epic in disguise. Stop and send it back to `/gm-card` + `/gm-spec` for slicing into cards; do not paper over it with a longer list. (A task da **emenda pós-tasks** é exceção nomeada a este teto — ver a seção homônima abaixo.)
-4. On approval, write the sub-tasks as **suffixed files** — `3-x.md` becomes `3a-….md`, `3b-….md`, `3c-….md` — so later tasks keep their numbers and nothing has to be renamed. Delete the original file only after its scope is fully covered by the sub-tasks.
+4. The split proposal is the artifact — the N sub-tasks go in the message whole, then the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → write them as **suffixed files**: `3-x.md` becomes `3a-….md`, `3b-….md`, `3c-….md`, so later tasks keep their numbers and nothing has to be renamed. Delete the original file only after its scope is fully covered by the sub-tasks.
 5. Mirror the new lines in the card's `<!-- gm:tasks -->` comment (`- [ ] 3a — título`) and continue with the first sub-task in this session.
 
 **Findings protocol — it is real, and it is not this task.** A pre-existing bug, adjacent debt, an unforeseen dependency, a second front the spec never saw. You have the context in your hands right now; ten minutes from now nobody does.
@@ -94,7 +129,7 @@ Three protocols cover what goes wrong mid-task. Pick by **what changed**: the de
    - **Blocks this task** → it is not a finding, it is a dependency the spec must decide → deviation protocol.
    - **S1 live in production** (faturamento parado or corrupted data) → stop everything and tell the user to run `/gm-hotfix`; the feature waits.
    - **Everything else** → register it before continuing.
-3. Registering costs two lines, not an investigation — it is a triage entry, and it carries the `file:line` evidence *because you have it now*. Show it, get approval (issue is team-visible), then:
+3. Registering costs two lines, not an investigation — it is a triage entry, and it carries the `file:line` evidence *because you have it now*. The entry is the artifact and the issue is team-visible: it goes whole in the message, then the *artefato* set from `## Como perguntar e como aprovar`. *Rejeitar* → nothing is created, and the finding still goes in the closing summary, so it dies on the record instead of in silence. *Aprovar* →
 
    ```
    gh issue create --repo <owner>/<repo> --title "..." --body-file <file> --assignee @me
@@ -119,8 +154,10 @@ re-roda o `/gm-plan-tasks`, que propõe a quebra inteira de uma vez e re-propori
 1. **Garanta a branch antes de escrever qualquer coisa.** Volte ao `## Guarantee the branch` acima:
    a sessão pode ter chegado vinda do `/gm-ship`, e a pasta `planning/` mora no repo — escrever a
    emenda antes do checkout faz o passo 1 de lá parar por "unrelated uncommitted changes".
-2. **A emenda antes do código.** Rode os passos 2–3 do protocolo de desvio: apresente a contradição
-   e a emenda proposta, obtenha **aprovação humana explícita**, e só então escreva a nota datada
+2. **A emenda antes do código.** Rode os passos 2–3 do protocolo de desvio: a contradição e a
+   emenda proposta vão na mensagem e a decisão chega pelo conjunto *artefato* do
+   `## Como perguntar e como aprovar` — o artefato é a nota que vai ser escrita. Só com *Aprovar*
+   se escreve a nota datada
    ("Emenda AAAA-MM-DD: …") em `spec.md` **e** no comentário `<!-- gm:spec -->` do card. Os dois,
    sempre — o caminho curto não compra velocidade com rastro. **Épico:** o `gm:spec` mora no **pai**;
    o card em voo só tem `gm:spec-ref`, então é no pai que a nota entra.
@@ -160,7 +197,18 @@ Run the task's **Verification commands first** (tests + typecheck/lint as applic
 - Result of the verification (green/red — never present with red unless asking for help).
 - **A risk-ranked review script**, not a changelog: "confira X (decisão delicada), Y (mexe em Z compartilhado); o restante é mecânico" — the antidote to rubber-stamp approvals.
 
-Iterate until the user approves explicitly.
+Then the commit — the one step of the task that leaves a mark outside this session — goes to the
+human by the *ação irreversível* set from `## Como perguntar e como aprovar`: header `Commit`,
+options in pt-BR, and the physical consequence written into each `description`, never a bare verb.
+
+> - **Executar o commit** — <n> arquivos entram na branch `<branch>` com o trailer `Card: #<n>`, a
+>   task vira `✅` e o checkbox é marcado no card, onde o board mostra o progresso.
+> - **Revisar antes de executar** — nada é gravado; volto com o diff do trecho que você apontar e
+>   pergunto de novo.
+> - **Cancelar** — nada é gravado e a task segue `❌`; o código continua na árvore de trabalho, sem
+>   commit, e a próxima sessão encontra tudo em aberto.
+
+Só *Executar o commit* abre o `## Close the task`.
 
 ## Close the task
 

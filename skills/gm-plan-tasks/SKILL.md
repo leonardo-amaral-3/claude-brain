@@ -49,7 +49,16 @@ Read `planning/$ARGUMENTS/spec.md` (older folders: `tech-spec.md` + `PRD.md`). N
 
 ## Phase 1: Propose the breakdown — whole, at once
 
-Present the **entire** proposed breakdown in one shot (numbered list: title + one-line scope + the test that closes it) and let the user veto or adjust. No question-by-question ceremony.
+Present the **entire** proposed breakdown in one message — numbered list, each task with title +
+one-line scope + the test that closes it — because a division cannot be judged without both sides
+of every cut on the table. Then run the *artefato* set from `## Como perguntar e como aprovar`
+**once**, over the whole list: *Ajustar* comes back here with the correction and re-presents the
+list entire; *Rejeitar* writes no task file at all and closes by saying what would have to change
+first — the spec, or the size of the card.
+
+What stays banned is the drip: proposing task 1, closing it with the human, and only then
+inventing task 2. That is not the "one question per call" of rule 2 — that is asking N times what
+a single choice closes, and it hides the shape of the whole from the only person who can judge it.
 
 Rules of division:
 
@@ -103,8 +112,8 @@ This is task [N] of [total]. Tasks 1..[N-1] are already in the codebase.
 ## Workflow
 
 1. Implement; run the checklist.
-2. Present the summary and wait for the user's review; iterate until approved.
-3. After approval: commit from inside `[repo]/` with a clear message ending with the trailer `Card: #[issue]`.
+2. Present the summary: the verification result first, then a risk-ranked reading order — what deserves a careful look and why, not a changelog.
+3. Commit from inside `[repo]/`, message ending with the trailer `Card: #[issue]` — and put that commit to the human as a choice (*ação irreversível*), never as consent to be typed.
 4. Flip the first line of this file to `✅ Status: Complete`.
 ```
 
