@@ -103,7 +103,7 @@ feito "$(find "$REPO/skills" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' '
 # ------------------------------------------------------------------ 5. settings.json
 passo 'Ligando os hooks no settings.json'
 if [ "$DRY" = 1 ]; then
-  diz "SessionStart -> brain-briefing.js ; SessionEnd -> obsidian-diario.js"
+  diz "SessionStart -> brain-briefing.js ; SessionEnd -> obsidian-diario.js ; UserPromptSubmit -> brain-contexto.js"
 else
   # A fusao e feita em node porque jq nao e pre-requisito e node ja e.
   CLAUDE_HOME="$(nativo "$CLAUDE_HOME")" node - <<'JS'
@@ -115,6 +115,8 @@ s.hooks = s.hooks || {};
 const desejados = [
   { evento: 'SessionStart', arquivo: 'brain-briefing.js', timeout: 15, statusMessage: 'Lendo o cerebro do produto...' },
   { evento: 'SessionEnd', arquivo: 'obsidian-diario.js', timeout: 10 },
+  { evento: 'UserPromptSubmit', arquivo: 'brain-contexto.js', timeout: 10,
+    statusMessage: 'Perguntando ao cerebro...' },
 ];
 let mudou = false;
 for (const d of desejados) {

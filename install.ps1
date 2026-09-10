@@ -137,7 +137,8 @@ Passo 'Ligando os hooks no settings.json'
 $settingsPath = Join-Path $claudeHome 'settings.json'
 $desejados = @(
   @{ evento = 'SessionStart'; arquivo = 'brain-briefing.js';  timeout = 15; status = 'Lendo o cerebro do produto...' },
-  @{ evento = 'SessionEnd';   arquivo = 'obsidian-diario.js'; timeout = 10; status = $null }
+  @{ evento = 'SessionEnd';   arquivo = 'obsidian-diario.js'; timeout = 10; status = $null },
+  @{ evento = 'UserPromptSubmit'; arquivo = 'brain-contexto.js'; timeout = 10; status = 'Perguntando ao cerebro...' }
 )
 
 if (Test-Path $settingsPath) { $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json }

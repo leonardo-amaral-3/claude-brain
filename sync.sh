@@ -82,7 +82,10 @@ for d in "$REPO"/skills/*/; do
   nome="$(basename "$d")"
   pares+=("$REPO/skills/$nome::$CLAUDE_HOME/skills/$nome::")
 done
-pares+=("$REPO/hooks::$CLAUDE_HOME/hooks::brain-config.js brain-briefing.js obsidian-diario.js obsidian-diario-titulo.js")
+# Lista fixa, e nao a pasta inteira: a instalacao guarda copia de seguranca (.bak, .pre-detach)
+# e pode ter hook de terceiro. A mesma lista e o gabarito do relato de orfao la embaixo.
+HOOKS_VERSIONADOS='brain-config.js brain-briefing.js brain-contexto.js obsidian-diario.js obsidian-diario-titulo.js'
+pares+=("$REPO/hooks::$CLAUDE_HOME/hooks::$HOOKS_VERSIONADOS")
 
 if [ "$(cd "$REPO/brain-mcp" && pwd)" = "$(cd "$BRAIN_DIR" 2>/dev/null && pwd || echo x)" ]; then
   echo "brain-mcp: o registrado E o deste repo - nada a sincronizar nele."
@@ -133,6 +136,19 @@ if [ "$ACAO" = status ]; then
       n="$(basename "$s")"; [ -d "$REPO/skills/$n" ] || novas="$novas  - $n"$'\n'
     done
     [ -n "$novas" ] && printf '\nSkills em ~/.claude/skills fora do repo:\n%s' "$novas"
+  fi
+  # Hook vivo fora da lista fixa e invisivel ao laco acima - foi assim que o brain-contexto.js
+  # ficou dois dias fora do git sem ninguem notar. So *.js: a instalacao guarda copias de
+  # seguranca (.bak, .pre-detach) que nao sao hook e virariam falso positivo permanente.
+  if [ -d "$CLAUDE_HOME/hooks" ]; then
+    orfaos=""
+    for h in "$CLAUDE_HOME"/hooks/*.js; do
+      [ -f "$h" ] || continue
+      nome="$(basename "$h")"
+      case " $HOOKS_VERSIONADOS " in *" $nome "*) continue ;; esac
+      orfaos="$orfaos  - $nome"$'\n'
+    done
+    [ -n "$orfaos" ] && printf '\nHooks em ~/.claude/hooks fora do repo:\n%s' "$orfaos"
   fi
   exit 0
 fi
