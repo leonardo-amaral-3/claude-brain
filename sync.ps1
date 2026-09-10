@@ -9,6 +9,7 @@
     .\sync.ps1 status   # o que esta diferente, sem escrever nada
     .\sync.ps1 pull     # ~/.claude + brain-mcp  ->  repo    (antes de commitar)
     .\sync.ps1 push     # repo -> ~/.claude + brain-mcp      (depois de um git pull)
+    .\sync.ps1 push -Sobrescrever   # nao pergunta ao trocar a origem da instalacao
 
   O que entra na sincronia:
     skills/<nome>/**              <->  ~/.claude/skills/<nome>/**
@@ -16,8 +17,12 @@
     brain-mcp/{src,scripts}/**    <->  <brain-mcp instalado>/{src,scripts}/**
     brain-mcp/{package.json, package-lock.json, tsconfig.json, README.md, brain.config.example.json}
 
-  O que NUNCA entra: brain.config.json e ~/.claude/brain-workspaces.json (sao pessoais, de
-  cada maquina) e a pasta data/ (o indice, que se reconstroi).
+  O que NUNCA entra: brain.config.json, ~/.claude/brain-workspaces.json e o proprio
+  ~/.claude/brain-sync-origem.txt (sao pessoais, de cada maquina) e a pasta data/ (o indice,
+  que se reconstroi).
+
+  A instalacao e uma so e as worktrees sao varias. O push anota em brain-sync-origem.txt de qual
+  pasta e branch ele veio, e pergunta antes de sobrescrever a instalacao de outra origem.
 
 .PARAMETER Acao
   status (padrao), pull ou push.
@@ -27,19 +32,79 @@
 
 .PARAMETER DryRun
   Em pull/push, lista o que copiaria sem copiar.
+
+.PARAMETER Sobrescrever
+  Em push, assume a troca de origem sem perguntar (para quando a decisao ja esta tomada).
 #>
 [CmdletBinding()]
 param(
   [ValidateSet('status', 'pull', 'push')]
   [string]$Acao = 'status',
   [string]$BrainDir,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$Sobrescrever
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = $PSScriptRoot
 $claudeHome = $env:CLAUDE_CONFIG_DIR
 if (-not $claudeHome) { $claudeHome = Join-Path $HOME '.claude' }
+
+# ------------------------------------------------ de qual worktree veio a instalacao viva
+# O destino e unico e global (~/.claude) e as worktrees sao varias: sem marcador, a ultima que
+# rodar `push` enterra o dogfood da outra em silencio. Este arquivo fica fora do git de
+# proposito - descreve esta maquina, nao o repo -, e por morar na raiz de ~/.claude nao cai em
+# nenhum dos pares abaixo (que sao skills\<nome> e uma lista fixa em hooks\).
+$marcador = Join-Path $claudeHome 'brain-sync-origem.txt'
+
+# Windows escreve o mesmo caminho de dois jeitos (C:\x aqui, /c/x no sync.sh). Minusculas,
+# barras normais e sem o dois-pontos do drive fazem os dois scripts baterem no mesmo texto.
+function NormalizaCaminho($caminho) {
+  if (-not $caminho) { return '' }
+  return $caminho.Replace('\', '/').Replace(':', '').ToLowerInvariant().Trim('/')
+}
+
+function CampoMarcador($chave) {
+  if (-not (Test-Path $marcador)) { return '' }
+  $linhas = @(Get-Content -LiteralPath $marcador | Where-Object { $_ -like "$chave=*" })
+  if ($linhas.Count -eq 0) { return '' }
+  return $linhas[-1].Substring($chave.Length + 1).TrimEnd()
+}
+
+function BranchAtual {
+  # 2>$null com ErrorActionPreference='Stop' vira erro terminante no PS 5.1, entao o Continue
+  # aqui nao e detalhe: e o que faz uma pasta sem git devolver '' em vez de derrubar o script.
+  $antes = $ErrorActionPreference
+  $codigoAntes = $global:LASTEXITCODE
+  $ErrorActionPreference = 'Continue'
+  try {
+    $b = & git -C $repo rev-parse --abbrev-ref HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $b) { return ("$b").Trim() }
+  } catch { } finally {
+    $ErrorActionPreference = $antes
+    # Pasta sem git faz o git sair 128, e sem isto o 128 vira o codigo de saida do proprio
+    # script: um push que copiou tudo direito reportando falha para quem o chamou.
+    $global:LASTEXITCODE = $codigoAntes
+  }
+  return ''
+}
+
+function RegistraOrigem($branch) {
+  $pai = Split-Path $marcador -Parent
+  if (-not (Test-Path $pai)) { New-Item -ItemType Directory -Force $pai | Out-Null }
+  $linhas = @(
+    '# De qual pasta veio a instalacao viva em ~/.claude. Escrito pelo `sync push`.',
+    '# Fora do git de proposito: descreve esta maquina, nao o repo. Apagar so faz o',
+    '# proximo push nao ter com o que comparar - ele se reescreve no push seguinte.',
+    "worktree=$repo",
+    "branch=$branch",
+    "data=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+  )
+  # LF e sem BOM de proposito: o sync.sh le este mesmo arquivo, e um \r no fim do valor faria
+  # o caminho gravado aqui nunca bater com o que ele calcula la.
+  [IO.File]::WriteAllText($marcador, (($linhas -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding $false))
+  Write-Host "Origem registrada: $marcador" -ForegroundColor DarkGray
+}
 
 # ---------------------------------------------------------------- onde esta o brain instalado
 if (-not $BrainDir) {
@@ -146,6 +211,63 @@ if ($Acao -eq 'status') {
 
 if ($difs.Count -eq 0) { Write-Host 'Nada a copiar: ja esta tudo igual.' -ForegroundColor Green; return }
 
+# O push sobrescreve a instalacao inteira. Se ela veio de outra pasta ou de outra branch, seguir
+# apaga o dogfood de outro card em voo - e apagar em silencio e o que esta pergunta impede.
+# Instalacao sem marcador nao tem origem registrada: ai o push grava sem perguntar, porque
+# perguntar seria pedir confirmacao contra um dado que nao existe.
+$branchAgora = BranchAtual
+if ($Acao -eq 'push') {
+  $origemAntiga = CampoMarcador 'worktree'
+  $branchAntiga = CampoMarcador 'branch'
+  $outraPasta = $false
+  $outraBranch = $false
+  if ($origemAntiga) {
+    $outraPasta = (NormalizaCaminho $origemAntiga) -ne (NormalizaCaminho $repo)
+    $outraBranch = $branchAntiga -cne $branchAgora
+  }
+  if ($outraPasta -or $outraBranch) {
+    $dataAntiga = CampoMarcador 'data'
+    if (-not $dataAntiga) { $dataAntiga = '(sem data)' }
+    $bAntiga = if ($branchAntiga) { $branchAntiga } else { '(nao registrada)' }
+    $bAgora = if ($branchAgora) { $branchAgora } else { '(nenhuma)' }
+    $titulo = if ($outraPasta) { 'A instalacao viva nao veio desta pasta.' }
+              else { 'A instalacao viva veio desta pasta, mas de outra branch.' }
+    Write-Host ''
+    Write-Host $titulo -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host "  instalada a partir de: $origemAntiga"
+    Write-Host "             na branch:  $bAntiga   em $dataAntiga"
+    Write-Host "  este push vem de:      $repo"
+    Write-Host "             na branch:  $bAgora"
+    Write-Host ''
+    Write-Host "Cada worktree tem a sua versao das skills e dos hooks. Seguir agora troca $($difs.Count) arquivo(s) da"
+    Write-Host 'instalacao pelos desta pasta: a sessao que estiver rodando com a outra passa a ler o texto desta'
+    Write-Host 'aqui, sem aviso nenhum.'
+    Write-Host ''
+    Write-Host '  [s] sobrescrever - a instalacao viva passa a ser a desta pasta'
+    Write-Host '  [n] cancelar     - nada e copiado, a instalacao continua como esta (padrao)'
+    Write-Host ''
+    if ($DryRun) {
+      Write-Host 'DRY-RUN: nada sera copiado; num push de verdade a pergunta apareceria aqui.' -ForegroundColor Magenta
+    } elseif ($Sobrescrever) {
+      Write-Host 'Escolhido em -Sobrescrever: seguindo sem perguntar.' -ForegroundColor Yellow
+    } else {
+      $temTerminal = $false
+      try { $temTerminal = -not [Console]::IsInputRedirected } catch { $temTerminal = $false }
+      if (-not $temTerminal) {
+        Write-Host 'Sem terminal para perguntar, e silencio nao e aprovacao: nada foi copiado.' -ForegroundColor Yellow
+        Write-Host 'Rode num terminal, ou passe -Sobrescrever se a decisao ja esta tomada.'
+        exit 1
+      }
+      $resposta = Read-Host 'Sobrescrever? [s/N]'
+      if ("$resposta".Trim() -notmatch '^(s|sim|y|yes)$') {
+        Write-Host 'Cancelado: nada foi copiado.' -ForegroundColor Yellow
+        exit 1
+      }
+    }
+  }
+}
+
 $copiados = 0
 foreach ($d in $difs) {
   if ($Acao -eq 'pull') { $de = $d.Vivo; $para = $d.Repo } else { $de = $d.Repo; $para = $d.Vivo }
@@ -169,6 +291,7 @@ if ($Acao -eq 'pull') {
   Write-Host ''
   Write-Host 'Agora: git -C "' -NoNewline; Write-Host $repo -NoNewline; Write-Host '" add -A ; git commit ; git push'
 } else {
+  if ($copiados -gt 0) { RegistraOrigem $branchAgora }
   Write-Host ''
   Write-Host 'Se mudou algo em brain-mcp/src, recompile:'
   Write-Host "  cd `"$BrainDir`"; npm install; npm run build"

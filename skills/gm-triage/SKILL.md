@@ -11,6 +11,40 @@ Mission: **the board is born clean at the door.** Everything that gets in is typ
 
 Station 📥 Triagem, SLA 2 days. This skill does not decide *what done means* — that is G1, one station later, in `gm-card`.
 
+## Como perguntar e como aprovar
+
+This section is identical in all eleven `gm-*` skills that have an interaction point — it is
+copied, never rewritten, and any improvement to it lands in the eleven at once. The long version,
+for a human reading from outside the pipeline, is in `docs/esteira-gm.md`, section
+`## Como as skills perguntam`.
+
+1. **Context before jargon.** Open with what is at stake and what changes down each path, in
+   pt-BR. Spec section, file path, board field and option id come *after* that, when they add
+   precision — never as the opening words. Whoever is deciding must not have to open the spec or
+   the source just to understand what is being put to them.
+2. **Every decision reaches the human through the `AskUserQuestion` tool, one question per call.**
+   No batching, no `multiSelect`. Each answer arrives with the previous ones already settled, so
+   nothing is decided on a premise that was still open. Five decisions is five calls, in order.
+3. **Two standard sets, chosen by what is at stake.**
+   - *Artefato* (spec, card body, PR body) → **Aprovar · Ajustar · Rejeitar**. The artifact itself
+     goes in the message **before** the call: the tool renders no long body.
+   - *Ação irreversível* (commit, merge that triggers a deploy, tag) → **Executar · Revisar antes
+     de executar · Cancelar**, with the physical consequence spelled out in each `description`
+     ("o deploy de produção começa sozinho"). "Ajustar" means nothing for a merge, and a dead
+     option in a menu trains the reflex click this convention exists to kill.
+4. **A list longer than four never becomes a silently truncated menu.** The tool takes 2–4
+   options. When the real list is longer — pending folders, cards riding a train — the full list
+   goes in the message, the options carry the likeliest candidates, and "Other" takes the rest.
+   Never drop a candidate without saying that it was dropped.
+5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
+   not argue one option into being the obvious one. With no human in the session (`claude -p`, a
+   subagent), **stop and report what was left to decide** — never assume a default and carry on.
+
+Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
+up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
+Instructions in this file stay in English; **everything the human reads — the question, the labels
+and every `description` — is written in pt-BR.**
+
 ## Hard rules
 
 - **Dedup before create.** Never a second issue for a demand that already exists. Duplicate → comment on the existing issue with the new evidence and requester, then stop.
@@ -18,7 +52,7 @@ Station 📥 Triagem, SLA 2 days. This skill does not decide *what done means* �
 - **Origin is mandatory.** Who reported, through which channel, on what date. Without it, the release notice ("seu chamado saiu na v2026.09.15") cannot exist and the requester never learns the fix shipped.
 - **No acceptance criteria here.** Triagem answers *what is this and how bad*; `gm-card` answers *what does pronto mean*. Writing criteria at the door skips the G1 conversation with the person who owns the direction.
 - **No solutioning.** Do not diagnose the cause or propose a fix — record the evidence. If the report is impossible to classify without reading code, do the minimum read-only check to type it, and say what you checked.
-- Team-visible: show the draft and publish only on explicit approval.
+- **Team-visible, so the human is the one who picks.** Every decision here — destino da demanda, publicar ou não — reaches the user through the choice mechanics of `## Como perguntar e como aprovar`, never as free text to type. The draft goes in the message; the *artefato* set decides what happens to it.
 - Answer in pt-BR.
 
 ## Board reference — vem do workspace, nunca deste arquivo
@@ -44,7 +78,23 @@ Decide **before** writing anything:
 | Pedido de operação (rodar script, consultar banco, reprocessar) | trabalho operacional, fora da esteira — faz e reporta, sem card |
 | Sistema faz o errado · falta capacidade · custo de mudar subiu | **demanda** → segue |
 
-Ambiguous → ask the user, don't guess. Report the decision explicitly ("isso é suporte, não demanda — respondi X") so the choice is visible.
+Ambiguous — it fits two rows, or none of them cleanly — → one `AskUserQuestion` call before
+anything is written; header `Destino`, question and options in pt-BR:
+
+> **O relato:** «<uma linha, na linguagem de quem trouxe>». Só o primeiro caminho abaixo vira card
+> e gasta fila do board; os outros três resolvem sem deixar nada nele.
+>
+> - **É demanda, segue** — nasce card em 📥 Triagem, tipado e com origem registrada; o que conta
+>   como "pronto" fica para o `/gm-card` decidir depois.
+> - **Respondo e encerra** — a resposta fecha o assunto e nada vai para o board. Card ❓ Dúvida só
+>   se ela precisar virar conhecimento consultável do time.
+> - **Roteio para quem opera** — incidente de infra: quem opera estabiliza agora. Card depois, e
+>   só para a causa estrutural, se ela existir.
+> - **Faço e reporto** — pedido de operação (rodar script, consultar banco, reprocessar): sai
+>   hoje, fora da esteira, e não deixa rastro no board.
+
+Then say the choice out loud in one line ("isso é suporte, não demanda — respondi X"), so it lives
+in the transcript and not only in the tool's answer.
 
 ## Step 2 — Deduplicate
 
@@ -128,7 +178,11 @@ Keep it under ~20 lines. Diagnosis, direction, acceptance criteria and technical
 
 ## Step 5 — Publish
 
-Show repo + title + body + the four fields, and publish only on explicit approval.
+The card is the artifact. Put repo, title, the whole body and the four field values in the message
+— the tool renders no long body, so whatever stays out of the message will not be read — and then
+run the *artefato* set from `## Como perguntar e como aprovar`. *Ajustar* comes back here with the
+correction and asks again; *Rejeitar* creates nothing, and the report says the demand was dropped
+at the door.
 
 ```
 gh issue create --repo <owner>/<repo> --title "..." --body-file <file> --assignee @me

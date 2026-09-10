@@ -9,6 +9,40 @@ argument-hint: [pergunta ou tema]
 
 You are helping a team lead understand how something **currently works**, so they can decide whether it should change. This is reconnaissance, not planning.
 
+## Como perguntar e como aprovar
+
+This section is identical in all eleven `gm-*` skills that have an interaction point — it is
+copied, never rewritten, and any improvement to it lands in the eleven at once. The long version,
+for a human reading from outside the pipeline, is in `docs/esteira-gm.md`, section
+`## Como as skills perguntam`.
+
+1. **Context before jargon.** Open with what is at stake and what changes down each path, in
+   pt-BR. Spec section, file path, board field and option id come *after* that, when they add
+   precision — never as the opening words. Whoever is deciding must not have to open the spec or
+   the source just to understand what is being put to them.
+2. **Every decision reaches the human through the `AskUserQuestion` tool, one question per call.**
+   No batching, no `multiSelect`. Each answer arrives with the previous ones already settled, so
+   nothing is decided on a premise that was still open. Five decisions is five calls, in order.
+3. **Two standard sets, chosen by what is at stake.**
+   - *Artefato* (spec, card body, PR body) → **Aprovar · Ajustar · Rejeitar**. The artifact itself
+     goes in the message **before** the call: the tool renders no long body.
+   - *Ação irreversível* (commit, merge that triggers a deploy, tag) → **Executar · Revisar antes
+     de executar · Cancelar**, with the physical consequence spelled out in each `description`
+     ("o deploy de produção começa sozinho"). "Ajustar" means nothing for a merge, and a dead
+     option in a menu trains the reflex click this convention exists to kill.
+4. **A list longer than four never becomes a silently truncated menu.** The tool takes 2–4
+   options. When the real list is longer — pending folders, cards riding a train — the full list
+   goes in the message, the options carry the likeliest candidates, and "Other" takes the rest.
+   Never drop a candidate without saying that it was dropped.
+5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
+   not argue one option into being the obvious one. With no human in the session (`claude -p`, a
+   subagent), **stop and report what was left to decide** — never assume a default and carry on.
+
+Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
+up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
+Instructions in this file stay in English; **everything the human reads — the question, the labels
+and every `description` — is written in pt-BR.**
+
 ## Hard rules
 
 - **Read-only.** Never edit, create, or delete project files.
@@ -55,7 +89,7 @@ A ❓ Dúvida card (or any issue whose whole content is the question you just an
 
 When the exploration was triggered by an existing issue — the argument was `#<n>`, or Step 1 found the card that asks exactly this:
 
-1. Show the user the comment you intend to post, and get explicit approval (issue is team-visible).
+1. The comment is the artifact, and the issue is team-visible: show it in full in the message — the tool renders no long body — and run the *artefato* set from `## Como perguntar e como aprovar`. *Rejeitar* leaves the card open and the answer stays in the chat, where nobody will find it later.
 2. Post the answer as a comment, first line exactly `<!-- gm:resposta -->`, body = the Step 3 report (with the `file:line` evidence intact — that is what makes it consultable later).
 3. Close it as answered and take it off the active queue:
 

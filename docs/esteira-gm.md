@@ -24,14 +24,14 @@ relato bruto
      │  📋 Backlog          + sugere a rota (completa | curta | hotfix)
      ▼
 /gm-spec ────── spec única (requisitos + técnica), crítica adversarial,
-     │  🎯 Especificação    aprovação humana explícita, publicada no card
+     │  🎯 Especificação    liberada por escolha do humano, publicada no card
      ▼
 /gm-plan-tasks  6–8 tasks independentes; cada arquivo de task é o prompt
      │  🎯                  completo de um agente novo
      ▼
 /gm-implement   uma task por vez, de preferência em sessão nova:
      │  🔨 Implementação    branch certo, testes ANTES de apresentar,
-     │                      commit só após aprovação
+     │                      commit só depois de Executar escolhido
      ▼
 /gm-ship ────── suíte completa, PR com o contrato de aceite + checklist
      │  👀 Revisão          de validação em dev
@@ -78,7 +78,7 @@ que a triagem deixou em 📥 — editando o corpo da issue no lugar, nunca abrin
 
 **`/gm-spec [#issue]`** — a especificação única: requisitos e técnica no mesmo documento, semeada
 pelo card, construída com exploração do código e perguntas focadas, endurecida por uma crítica
-adversarial e liberada por aprovação humana explícita. Publicada como comentário no card, para que
+adversarial e liberada por uma escolha sua no portão. Publicada como comentário no card, para que
 os passos seguintes a encontrem no GitHub.
 
 É **spec viva**: emenda aprovada durante a implementação (protocolo de desvio do `/gm-implement`)
@@ -86,16 +86,17 @@ atualiza o `spec.md` *e* o comentário, com nota datada. A spec publicada nunca 
 histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a última task e a PR.
 
 **`/gm-plan-tasks [pasta-da-feature]`** — quebra a spec em tasks ordenadas e independentes. Cada
-arquivo de task é o **prompt completo** de um agente novo, que não viu a conversa. Propõe a
-quebra inteira de uma vez para você vetar ou ajustar, respeita o teto de 6–8 tasks e espelha a
-lista no card.
+arquivo de task é o **prompt completo** de um agente novo, que não viu a conversa. Apresenta a
+quebra inteira como **um** artefato — você responde *Aprovar*, *Ajustar* ou *Rejeitar*, e não uma
+pergunta por task —, respeita o teto de 6–8 tasks e espelha a lista no card.
 
 ### Implementação
 
 **`/gm-implement [pasta-da-feature]`** — executa **uma** task pendente, de preferência em sessão
-nova. Branch certo no repo certo, criado ligado ao card pelo campo Development. O arquivo da task
+nova. Branch certo no repo certo, criado ligado ao card pelo campo Development e aberto numa
+worktree só dele (`## Uma worktree por card`, abaixo). O arquivo da task
 é o prompt. Testes rodam **antes** de apresentar. Resumo ordenado por risco. Commit só depois de
-aprovação explícita. Se a realidade contradiz a spec, entra o protocolo de desvio em vez de
+você escolher *Executar*. Se a realidade contradiz a spec, entra o protocolo de desvio em vez de
 improviso silencioso. E se a decisão cair depois da última task, com a PR ainda por abrir, é aqui
 que a **emenda pós-tasks** nasce: nota datada aprovada pelo humano, uma task nova, e o `/gm-ship`
 retomado.
@@ -134,6 +135,82 @@ para consertar uma nota que ficou pela metade.
 
 **`/defuddle <url>`** — lê uma página web já limpa de navegação e anúncio, gastando bem menos
 token que o `WebFetch`. Precisa de `npm install -g defuddle`.
+
+## Como as skills perguntam
+
+Toda skill `gm-*` com ponto de interação carrega, logo depois da prosa de missão, um bloco
+`## Como perguntar e como aprovar` — idêntico ao caractere nas onze que têm um. Esta é a versão
+longa dele, para ler de fora da esteira; se as duas divergirem, a das skills é a que roda.
+
+**O problema que isto resolve.** Um portão que se atravessa digitando "aprovo" não é portão, é
+carimbo. Esta esteira já abre mão de dois controles que a norma completa tem — o segundo humano no
+G2 e o revisor humano no G4 —, então o que sobra é você lendo antes de decidir. Pedir a decisão
+como texto livre convida o reflexo; oferecer caminhos nomeados, cada um com a consequência escrita
+ao lado, obriga a comparar antes de clicar.
+
+1. **Contexto antes do jargão.** A pergunta abre com o que está em jogo e o que muda em cada
+   caminho, em português. Seção da spec, caminho de arquivo, campo do board e id de opção vêm
+   depois, quando acrescentam precisão. O teste é simples: dá para decidir sem abrir a spec nem o
+   código? Se não dá, a pergunta está mal feita.
+
+2. **Uma pergunta por vez.** Toda decisão chega pela tool `AskUserQuestion`, uma por chamada — sem
+   lote e sem múltipla escolha. Custa mais rodadas (um Q&A de spec vira cinco ou dez), e é de
+   propósito: pergunta feita antes da hora é pergunta respondida no chute, porque a premissa dela
+   ainda estava aberta. Assim cada resposta chega com as anteriores já na mesa.
+
+3. **Dois conjuntos padrão.** Quando o que está em jogo é um **artefato** — a spec, o corpo de um
+   card, o corpo de um PR — as opções são *Aprovar · Ajustar · Rejeitar*, e o artefato vem na
+   mensagem anterior, porque o menu não exibe texto longo. Quando é uma **ação irreversível** — um
+   commit, um merge que dispara deploy, uma tag — são *Executar · Revisar antes de executar ·
+   Cancelar*, cada uma dizendo o que acontece no mundo físico ("o deploy de produção começa
+   sozinho"). Os dois existem separados porque "ajustar" não quer dizer nada num merge, e opção
+   morta em menu ensina exatamente o clique automático que queremos matar.
+
+4. **Lista longa não vira menu truncado.** O menu comporta quatro opções. Quando os candidatos
+   reais são mais — pastas com task pendente, cards pegando carona no trem —, a lista inteira vai
+   na mensagem, o menu leva os mais prováveis e "Other" recebe o resto. O que não pode é sumir
+   candidato em silêncio.
+
+5. **Silêncio não é sim.** "Other" está sempre disponível, então escrever à mão nunca é proibido, e
+   nenhuma opção é vendida como a óbvia. Numa sessão sem humano (`claude -p`, subagente), a skill
+   **para e diz o que ficou por decidir** em vez de assumir um padrão e seguir.
+
+**O que isto não muda.** Os gates continuam os mesmos — quantos são, onde ficam e quem responde.
+Mudou o gesto de responder, não quem manda.
+
+## Uma worktree por card
+
+Todo card em voo trabalha numa pasta só dele: `<workspace>/<repo>-<n>-<slug>` — irmã do repo,
+dentro do workspace. O checkout principal deixa de ser lugar de card.
+
+**Por que irmã, e não em qualquer canto do disco.** O `CLAUDE.md` do workspace e o
+`brain-workspaces.json` resolvem **por prefixo de caminho**. Uma worktree fora do prefixo — solta
+em `~/`, por exemplo — não tem nenhum `CLAUDE.md` de workspace acima dela: fica sem `## Board`,
+sem as duas regras do cérebro, e fora de qualquer workspace do brain. A pasta funciona, o git
+funciona, e a sessão que roda lá dentro perde as coordenadas sem receber aviso nenhum.
+
+**Por que uma por card.** Vários cards em voo ao mesmo tempo, às vezes no mesmo repo: cada um com a
+sua árvore, ninguém troca de branch por cima do trabalho do outro, e `git worktree list` responde
+de uma olhada o que está aberto.
+
+**Quem cria e quem apaga.** O `/gm-implement` cria ao garantir a branch — a mesma branch ligada ao
+card pelo campo Development, agora dentro da worktree. O `/gm-ship` apaga assim que a PR abre e o
+card vai para 👀 Revisão: some a pasta, não a branch, que segue no GitHub com a PR. Se depois disso
+o parecer da revisão pedir código, o `/gm-correcao` recria pela mesma convenção — corrigir no
+checkout principal fura a regra uma estação adiante. O `/gm-hotfix` usa a mesma convenção na
+`release/hotfix-*` e apaga quando o back-merge entra: a pressa não compra exceção.
+
+**A `planning/` mora dentro do repo**, então cada worktree carrega a sua cópia da spec e dos
+arquivos de task. A que vale é a da worktree do card: é ela que está na branch e é ela que a PR vai
+carregar. A cópia do checkout principal é o que a `dev` tinha no último merge — da segunda task em
+diante ela ainda mostra as anteriores como pendentes e não sabe de emenda nenhuma. Na dúvida,
+`git branch --show-current` dentro da pasta diz qual cópia você está lendo.
+
+**Apagar não é forçar.** `git worktree remove` recusa quando sobrou arquivo não commitado na pasta,
+e a recusa é informação: alguma coisa ficou de fora da PR. A pasta fica de pé até alguém olhar.
+
+**Os cards que nasceram antes da regra terminam onde estão.** Mover worktree de card em voo troca o
+chão debaixo de uma sessão que pode estar aberta; a regra vale dos próximos cards em diante.
 
 ## A regra que sustenta tudo
 
