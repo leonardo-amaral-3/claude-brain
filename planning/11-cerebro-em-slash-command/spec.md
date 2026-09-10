@@ -283,6 +283,20 @@ chars de saída, a mesma ordem de grandeza do caminho léxico atual.
     sugerindo um comportamento que não existe.
   - **Dentro de cada grupo, `ORDER BY data DESC, chave ASC`** — determinístico. Sem `ORDER BY`
     explícito, qual das 5 tasks da feature 982 aparece é sorteio.
+  - **Emenda 2026-09-10 — dentro do grupo `doc`, a spec vem antes das tasks.** A regra acima,
+    como estava escrita, reprova o próprio CA-1. `entidades.tipo` vale `doc` tanto para a spec
+    quanto para as tasks de uma feature: elas caem no **mesmo grupo**, e a spec é sempre o
+    documento mais **antigo** dele — com `data DESC` a spec da feature 982 fica em 5º de 6 e nunca
+    pega slot. Medido na task 6: o bloco de `/gm-implement 982-setor-dashboard-inconsistencias`
+    saía `task 4 · decisão 233 · card 982 · task 5 · decisão 253`, **sem a spec**, contra o CA-1,
+    que exige "a spec, o card e pelo menos uma task".
+    A lista de grupos **não muda**. O que muda é o `ORDER BY` de dentro do grupo `doc`, que passa
+    a ser **`doc_type IN ('spec','tech-spec','prd') DESC, data DESC, chave ASC`**. Custa um
+    `LEFT JOIN docs ON docs.path = entidades.doc_path` (`docs.path` é UNIQUE, indexado). Com a
+    emenda o mesmo bloco sai `spec · decisão 233 · card 982 · task 4 · decisão 253`.
+    **O que a emenda não promete**: o teto de 5 continua mandando. Uma entidade cujos vizinhos
+    cubram os 6 grupos gasta os 5 slots na primeira rodada e leva a spec sem task nenhuma. O caso
+    do CA-1 tem 3 grupos e sobra folga para a rodada 2 — é ele que o critério nomeia.
   - O princípio é o de `search.ts:229-255` (`colapsar`), mas **o mecanismo não é**: lá o
     agrupamento é por documento e a deduplicação é por texto do chunk, e não existe noção de
     `tipo`. Inspiração, não implementação a copiar.
@@ -290,6 +304,18 @@ chars de saída, a mesma ordem de grandeza do caminho léxico atual.
 **Limitação conhecida, aceita**: o grafo liga `#422` do corpo do card #11 (que era a *decisão* 422)
 ao *card* 422 de `modulo-processos`. Vizinho falso, no máximo 1 slot dos 5. É comportamento
 pré-existente do grafo, não desta feature.
+
+**Emenda 2026-09-10 (fato, não decisão)**: os dois números acima envelheceram entre a escrita da
+spec e a task 6, e a spec não pode virar ficção histórica. `card:claude-brain#11` **não tem 3
+vizinhos, tem 18**: 5 cards e 1 PR de `modulo-processos` (todos falsos, do mesmo defeito do
+`resolver()`), 10 arquivos e 2 decisões. E o vizinho falso **não ocupa "no máximo 1 slot dos 5"**:
+no bloco medido ocupa **2** — `pr #380` e `card #1086` —, e é ele que empurra a segunda decisão
+para fora do teto. A ordenação por diversidade, que existe para proteger o card das tasks, aqui
+**promove** o falso, porque `pr` e `card` são grupos pequenos e altos na lista.
+O que **não** mudou é a decisão: não aplicar `daqui()` continua de pé e continua demonstrável —
+`decisao` tem `repo NULL` em **438/438** e `sessao` em **389/389** (eram 415 e 388), então o filtro
+ainda apagaria toda decisão e toda sessão. Caiu a estimativa do estrago, não a regra. Conserto de
+verdade é o card de Triagem do `Grafo.resolver()`, já declarado fora do escopo desta feature.
 
 ### `hooks/brain-contexto.js` — o texto do cabeçalho
 

@@ -64,7 +64,10 @@ const candidatosDe = (arg) => {
 // e nao casa numero de 1-2 digitos. Para `#11` ele cai no ramo LIKE '%11%' e devolve 10 paths de
 // migration — verificado. Como todos os cards deste repo sao de 1-2 digitos, usa-lo quebraria
 // justamente o caso do card #11. Consertar mexeria em brain-mcp/src/ e viraria Rota Completa.
-const CAMPOS_ENT = 'tipo, chave, titulo, repo, status, data, doc_path';
+// `id` entra porque as `arestas` ligam por id, nao por chave — e o passo dos vizinhos precisa dele.
+const COLS_ENT = ['id', 'tipo', 'chave', 'titulo', 'repo', 'status', 'data', 'doc_path'];
+const CAMPOS_ENT = COLS_ENT.join(', ');
+const CAMPOS_VIZ = COLS_ENT.map((c) => 'e.' + c).join(', '); // as mesmas colunas, qualificadas
 
 // O repo sai do CAMINHO, nunca de ws.repos: o workspace `notoria` nao tem essa chave, tem
 // `exceto`. Segmentos do cwd abaixo do prefixo do workspace, do mais FUNDO para o mais raso; o
@@ -171,6 +174,62 @@ const primeiroTrecho = (db, docPath) => {
   return r ? r.text : '';
 };
 
+// Os vizinhos da entidade resolvida: uniao das `arestas` nos DOIS sentidos, descartando quem nao
+// tem `doc_path` — sem documento nao ha trecho a injetar.
+//
+// Diversidade antes de profundidade: agrupa por `tipo`, ordena os grupos pela lista abaixo e pega
+// 1 de cada grupo por rodada ate encher. Sem isto, uma feature com 5 tasks enche os slots de task
+// e derruba o card — que e justamente o que /gm-implement precisa ver.
+//
+// `feature` e `commit` ficam FORA da lista de proposito: tem doc_path NULL em 65/65 e 585/585,
+// entao o descarte acima ja os elimina. Deixa-los aqui seria codigo morto sugerindo um
+// comportamento que nao existe.
+//
+// Dentro de cada grupo, ORDER BY data DESC, chave ASC — deterministico. Sem ORDER BY explicito
+// qual das 5 tasks de uma feature aparece e sorteio, e duas rodadas iguais dao saidas diferentes.
+//
+// EMENDA 2026-09-10 — a chave que vem ANTES de data DESC dentro do grupo `doc`. `entidades.tipo`
+// vale `doc` tanto para a spec quanto para as tasks de uma feature: elas disputam o MESMO grupo, e
+// a spec e sempre o documento mais ANTIGO dele. Com data DESC sozinho, a spec da feature 982 fica
+// em 5o de 6 e nunca pega slot — medido, o bloco saia com duas tasks e nenhuma spec, contra o CA-1,
+// que exige "a spec, o card e pelo menos uma task". O rank de doc_type poe spec/tech-spec/prd na
+// frente; para todo o resto ele vale 0 e o desempate continua sendo data DESC, chave ASC.
+const ORDEM_TIPO = ['doc', 'decisao', 'pr', 'card', 'arquivo', 'sessao'];
+
+const vizinhosDe = (db, ent, limite) => {
+  if (limite <= 0) return [];
+  // O LEFT JOIN existe so pelo doc_type: `entidades` nao o tem, e `docs.path` e UNIQUE (indexado).
+  const lado = (a, b) =>
+    'SELECT ' + CAMPOS_VIZ + ', d.doc_type FROM arestas a JOIN entidades e ON e.id = a.' + b +
+    ' LEFT JOIN docs d ON d.path = e.doc_path' +
+    ' WHERE a.' + a + ' = ? AND e.doc_path IS NOT NULL';
+  // O UNION vai DENTRO de uma subconsulta porque o ORDER BY de um compound SELECT so aceita nome
+  // de coluna do resultado, nunca expressao: com o rank solto, o SQLite responde "1st ORDER BY term
+  // does not match any column in the result set" — e como o hook falha em silencio, o sintoma seria
+  // simplesmente parar de injetar. Foi assim que apareceu, sob BRAIN_HOOK_DEBUG=1.
+  const brutos = db
+    .prepare(
+      'SELECT * FROM (' + lado('de', 'para') + ' UNION ' + lado('para', 'de') + ')' +
+        " ORDER BY (doc_type IN ('spec','tech-spec','prd')) DESC, data DESC, chave ASC"
+    )
+    .all(ent.id, ent.id)
+    .filter((v) => v.id !== ent.id); // aresta reflexiva nao se injeta a si mesma duas vezes
+
+  const grupos = ORDEM_TIPO.map((t) => brutos.filter((v) => v.tipo === t)).filter((g) => g.length);
+  const saida = [];
+  for (let rodada = 0; saida.length < limite; rodada++) {
+    let rendeu = false;
+    for (const g of grupos) {
+      if (rodada >= g.length) continue;
+      saida.push(g[rodada]);
+      rendeu = true;
+      if (saida.length >= limite) break;
+    }
+    if (!rendeu) break; // todos os grupos esgotados antes de o teto encher
+  }
+  return saida;
+};
+
 const LIMITE_BRUTO = 24; // sobre-busca porque o filtro de workspace corta boa parte
 const LIMITE_FINAL = 5;
 const SNIP = 220;
@@ -265,33 +324,58 @@ const fim = (saida) => {
       );
     }
 
-    // O que a entidade resolvida injeta. NESTA TASK, so ela mesma — os vizinhos das `arestas` sao
-    // a task 6, e e la que o teto de 5 slots passa a ter mais de um ocupante.
+    // O que a entidade resolvida injeta: ela mesma no slot 1 e os vizinhos das `arestas` nos
+    // demais. O teto de 5 e do BLOCO INTEIRO, entidade incluida.
     //
     // Entidade SEM doc_path — o caso de TODA `feature` (65/65), e tambem de `commit` (585/585) —
     // nao tem trecho a injetar e NAO ocupa slot: emitir o slot assim poe `null` no lugar do
-    // caminho e trecho vazio, que foi o que o prototipo mostrou. Sem conteudo nenhum o bloco cairia
-    // vazio, entao cai para o passo 5 em vez de emitir cabecalho sozinho.
+    // caminho e trecho vazio, que foi o que o prototipo mostrou. Ela vira so o cabecalho, e os 5
+    // slots vao todos para os vizinhos.
+    //
+    // Se, depois de tudo, o bloco ficaria VAZIO — entidade sem doc_path e nenhum vizinho com
+    // documento, que e o caso de um indice sem grafo construido — cai para o passo 5 em vez de
+    // emitir cabecalho sem conteudo nenhum.
     //
     // Este caminho NAO passa pelo daqui() nem pelo relevante() la embaixo, e e o ponto que decide
     // se a feature entrega alguma coisa: `entidades` nao tem coluna `source`, entao daqui() cairia
-    // no ramo do repo, onde `decisao` tem repo NULL em 415/415 e `sessao` em 388/388 — o filtro
-    // apagaria toda decisao e toda sessao. E relevante() mataria a entidade pelo motivo de sempre:
-    // tokensDe("11") e ["11"]. A procedencia aqui vem da CHAVE que o usuario nomeou no argumento,
-    // nao de busca aberta, e nao precisa do filtro que existe para busca aberta.
-    if (ent && ent.doc_path) {
-      const texto =
-        'Cerebro (o argumento do comando resolveu `' + ent.chave + '` no grafo do indice — voce nao ' +
-        'gastou tool call nenhuma):\n\n' +
-        linha(1, ent.titulo || ent.chave, [ent.tipo, ent.repo, ent.status, ent.data], ent.doc_path, primeiroTrecho(db, ent.doc_path)) +
-        '\n\nIsto e so a entidade resolvida. ' +
-        RODAPE;
-      return fim(
-        JSON.stringify({
-          hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: texto },
-          suppressOutput: true,
-        })
-      );
+    // no ramo do repo, onde `decisao` tem repo NULL em 438/438 e `sessao` em 389/389 — o filtro
+    // apagaria toda decisao e toda sessao, que sao justamente o que a esteira quer ler. Medido no
+    // alvo do proprio CA-1: com daqui(), o bloco do card #11 perde as duas decisoes e sobra o
+    // vizinho falso. E relevante() mataria ate a entidade, pelo motivo de sempre: tokensDe("11")
+    // e ["11"]. A procedencia aqui vem da ARESTA explicita a partir de uma chave que o usuario
+    // nomeou no argumento — nao e resultado de busca aberta, e nao precisa do filtro que existe
+    // para busca aberta.
+    if (ent) {
+      const itens = ent.doc_path ? [ent] : [];
+      for (const v of vizinhosDe(db, ent, LIMITE_FINAL - itens.length)) itens.push(v);
+
+      if (itens.length) {
+        const slots = itens.map((e, i) =>
+          linha(i + 1, e.titulo || e.chave, [e.tipo, e.repo, e.status, e.data], e.doc_path, primeiroTrecho(db, e.doc_path))
+        );
+        // O cabecalho diz de onde veio E o que exatamente esta abaixo. Prometer "os vizinhos"
+        // quando o grafo nao deu nenhum e mentira barata, e o caso existe: indice sem grafo
+        // construido devolve a entidade sozinha.
+        const nViz = itens.length - (ent.doc_path ? 1 : 0);
+        const quantos = nViz === 1 ? '1 vizinho direto' : nViz + ' vizinhos diretos';
+        const oQue = !nViz
+          ? 'abaixo, so ela — o grafo nao tem vizinho com documento'
+          : ent.doc_path
+            ? 'abaixo, ela e ' + quantos
+            : 'ela nao tem documento proprio; abaixo, ' + quantos;
+        const texto =
+          'Cerebro (o argumento do comando resolveu `' + ent.chave + '` no grafo do indice; ' +
+          oQue + ' — voce nao gastou tool call nenhuma):\n\n' +
+          slots.join('\n\n') +
+          '\n\nIsto e a vizinhanca de UMA entidade, nao uma busca. ' +
+          RODAPE;
+        return fim(
+          JSON.stringify({
+            hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: texto },
+            suppressOutput: true,
+          })
+        );
+      }
     }
 
     // Passo 5 da precedencia — TEXTO. Argumento curto demais nao da busca: `#5` acha o mundo.
