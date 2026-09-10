@@ -56,8 +56,32 @@ and every `description` — is written in pt-BR.**
    - pasta de feature → leia `planning/<pasta>/spec.md` → `## Execution` (repo, branch) e ache a PR
      da branch: `gh pr list --repo <owner>/<repo> --head <branch>`;
    - só o número → resolva pelo repo do diretório corrente (`gh repo view --json nameWithOwner`) e
-     **confirme com o usuário** antes de agir, mostrando título e branch da PR;
-   - nada → liste as PRs abertas com comentário `<!-- gm:revisao-status -->` e pergunte.
+     **confirme antes de agir**, porque o mesmo número existe nos cinco repos e tratar parecer na PR
+     errada escreve resposta pública no lugar errado. Título, branch e autor vão na mensagem, e a
+     confirmação vem por uma chamada `AskUserQuestion` — header `PR alvo`, pergunta e opções em pt-BR:
+
+     > Você passou só o número, e o mesmo número existe nos cinco repos do workspace — tratar o
+     > parecer na PR errada publica resposta pública no lugar errado, e ela fica lá. Pelo diretório
+     > atual, o <n> é esta: «<título>», branch `<branch>`, em `<owner>/<repo>`, aberta por <autor>.
+     >
+     > - **É esta** — sigo com ela: leio o parecer, verifico cada achado, corrijo ou refuto, e cada
+     >   inline recebe resposta pública nesta PR.
+     > - **Escolher outra** — não toco nesta; mostro as PRs abertas com parecer publicado e você aponta.
+
+   - nada → **a lista inteira vai na mensagem** — uma linha por PR aberta com comentário
+     `<!-- gm:revisao-status -->`: número, título, repo e quantos achados o parecer trouxe — e a
+     escolha vem por uma chamada `AskUserQuestion`, header `Qual PR`, opções em pt-BR nomeando cada
+     candidata pelo que ela é, nunca só pelo número:
+
+     > Estas PRs têm parecer publicado esperando tratamento; esta sessão trata **uma**.
+     >
+     > - **#<n> <duas ou três palavras do título>** — «<título completo>», `<repo>`, <k> achados
+     >   inline, parecer de <data>.
+     > - … (as demais na mesma forma)
+
+     Mais de quatro PRs → as opções levam as de parecer mais recente, a lista **inteira** continua na
+     mensagem, e a mensagem diz em voz alta que as demais chegam por "Other". PR omitida em silêncio
+     é parecer que ninguém trata.
    Todo comando `gh` daqui em diante leva `--repo <owner>/<repo>` explícito.
 2. **Existe parecer?** Ler o comentário `<!-- gm:revisao-status -->`. Só o estado **"Revisada"**
    produz parecer. Qualquer outro (`Não revisei — …`) significa que **não há o que corrigir** —
@@ -92,7 +116,7 @@ seção de lá, é anterior à PR e não se aplica aqui:
 | **Corrige** | Procede e cabe no escopo da spec | corrigir aqui, um commit por achado |
 | **Refuta** | Não procede — a revisão errou | **não** corrigir; responder o inline com a evidência que refuta |
 | **Achado** | Procede, mas é outro assunto (bug pré-existente, dívida vizinha) | protocolo de achado: card novo, **não** corrigir aqui |
-| **Desvio** | Contradiz uma decisão da spec | protocolo de desvio: parar, propor emenda, aprovação humana |
+| **Desvio** | Contradiz uma decisão da spec | protocolo de desvio do `gm-implement`: parar, propor a emenda e levá-la ao humano como escolha antes de escrever |
 
 Escopo extra é o que a revisão foi construída para pegar — **não o reintroduza corrigindo**. "Já que
 estou aqui" no tratamento do parecer é o mesmo defeito, uma estação depois.

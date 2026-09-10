@@ -101,7 +101,7 @@ precondição 3 quando a task estiver `✅`.
    - [x] 1 — <título>
    ```
 
-3. Team-visible: show repo + title + body and only create after explicit approval. Title: short, imperative, close to the card title.
+3. Team-visible, and the PR body is an artifact, not a formality: repo, title and the **whole** body go in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → create it. *Ajustar* → rewrite the part the human named (a criterion described loosely, a validation step nobody could follow) and present it again. *Rejeitar* → nothing is created; the branch stays pushed, which the board does not show, and the card does not move. Title: short, imperative, close to the card title.
 4. `gh pr create --repo <owner>/<repo> --base <base> --title "..." --body-file <file>`
 
 ## Board

@@ -46,10 +46,10 @@ and every `description` — is written in pt-BR.**
 ## Hard rules
 
 - **The queue is what was validated; the diff is what actually ships.** Reconcile the two before anything else. Work merged into `dev` that never passed 🧪 Validação em Dev rides the same train — surface it, never let it board silently.
-- **A sensitive train does not promote on hope.** Migration or data treatment → it needs the release environment (clone of prod). That environment does not exist yet (Fase 3). No pretending: stop, present the options, let the human decide, and **record the decision in the release notes**.
+- **A sensitive train does not promote on hope.** Migration or data treatment → it needs the release environment (clone of prod). That environment does not exist yet (Fase 3). No pretending: stop and put the three ways out to the human as a choice — the question is written out in `## Phase 3 — Ensaio`, and that is the only place this decision is taken — then **record the chosen one in the release notes**.
 - **Verification is blocking** for every card whose spec has a `## Verificação pós-deploy`. Red → the release is not done; it is an incident.
 - Merging into `main` deploys production immediately (`deploy.yml`, `yarn deploy -p`) and applies Prisma migrations on container boot. There is no manual step between merge and production.
-- Nothing is merged, tagged or published without explicit human approval.
+- Nothing is merged, tagged or published unless the human chose it, and every one of those choices arrives by the mechanics of `## Como perguntar e como aprovar`: the *ação irreversível* set for the merge and the tag, the *artefato* set for the PR body and the release notes, hand-written options for everything else. Never as free text for the human to type.
 - `dry-run` argument → run every read-only step, print the whole plan (payload, notes, notification list), change nothing.
 - Answer in pt-BR.
 
@@ -89,7 +89,26 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
 3. **Reconcile and report the three sets, explicitly:**
    - cards in 🚂 Release **and** in the diff → the intended train;
    - cards in 🚂 Release **without** code in the diff → not ready, take them off the column;
-   - code in the diff **without** a validated card → *carona*: unvalidated work riding along. List it card by card (or commit by commit when there is no card) and ask the user to decide: hold the train, or accept and record it in the notes.
+   - code in the diff **without** a validated card → *carona*: unvalidated work riding along. The
+     **full** list goes in the message first — card by card, or commit by commit when there is no
+     card, saying what each one touches — and then the decision is taken **one carona at a time**:
+     one `AskUserQuestion` call per item, header `Carona <k>/<N>` (`Carona 2/5` — the tool caps
+     `header` at 12 characters, so keep the counter numeric), question and options in pt-BR:
+
+     > `<PR/commit>` — <o que é> — toca <o quê>. Não passou por 🧪 Validação em Dev: ninguém
+     > conferiu em ambiente nenhum que isto funciona, e mesmo assim já está na `dev`, dentro do payload.
+     >
+     > - **Aceitar a carona** — sobe junto no trem de hoje e sai anunciada nas release notes, com o
+     >   registro de que subiu sem validação. Se quebrar em produção, quebra sem ninguém ter conferido.
+     > - **Segurar o trem** — nada sobe hoje, nem os cards validados: eles esperam esta carona ser
+     >   validada ou revertida da `dev`.
+     > - **Reverter da `dev`** — a carona sai do payload (`git revert` na `dev`) e o resto do trem
+     >   parte hoje. O trabalho revertido volta para quem o escreveu; não se perde.
+
+     This is what rule 4 of `## Como perguntar e como aprovar` exists for: N caronas never get cut
+     down to fit one menu of four. The list stays whole in the message, the loop gets longer instead
+     of wider, and `multiSelect` is out by rule 2 — a batch would settle the fifth carona while
+     nobody had yet looked at the first.
 
    With production far behind `dev`, the third set is the normal case, not the exception. Never omit it.
 
@@ -113,13 +132,29 @@ For a sensitive train, list every migration by name and say what each does — a
 
 The design calls for a **release environment**: prod snapshot restored into a `release` stack, accumulated migrations plus the data treatment run there, and acceptance queries comparing faturamento before and after. Only what passes gets promoted.
 
-**That environment does not exist yet** (Fase 3 of the rollout: CDK stack with `ENVIRONMENT=release` + RDS snapshot). Do not pretend it happened. Stop and present the options:
+**That environment does not exist yet** (Fase 3 of the rollout: CDK stack with `ENVIRONMENT=release` + RDS snapshot). Do not pretend it happened. Stop: name every migration and data treatment in the payload in the message — what each one does, against which table, how much data — and then one `AskUserQuestion` call, header `Ensaio` (the tool caps `header` at 12 characters), question and options in pt-BR:
 
-1. **Segurar o trem** até a stack release existir — correct for anything touching faturamento or rewriting data.
-2. **Partir o trem** — promote the trivial part now through a `release/*` branch (cherry-pick onto `release/<data>` from `origin/main`; `pr-branch-check` accepts `release/*` into `main`) and hold the sensitive cards in 🚂 Release.
-3. **Promover assumindo o risco** — only with an explicit human decision, a rehearsed rollback, and the sentence recorded verbatim in the release notes and in each affected card: `promovido sem ensaio em ambiente release — decisão de <nome> em <data>`.
+> Este trem carrega <as migrations/tratamentos, pelo nome>, e o ambiente de ensaio — a cópia de
+> produção onde isto rodaria antes de valer — ainda não existe. Não há como provar hoje como a
+> migration se comporta contra o dado real; o que você escolhe aqui é o que fazer sem essa prova.
+>
+> - **Segurar o trem** — nada sobe; os cards ficam em 🚂 Release até a stack de ensaio existir.
+>   É o caminho correto quando o trem toca faturamento ou reescreve dado.
+> - **Partir o trem** — a parte trivial sobe hoje por uma branch `release/<data>` (cherry-pick a
+>   partir de `origin/main`; o `pr-branch-check` aceita `release/*` em `main`) e os cards sensíveis
+>   ficam parados. Sobe menos, e o que sobe não carrega migration.
+> - **Promover assumindo o risco** — a migration roda direto em produção, sobre dado que ninguém
+>   testou antes. Exige rollback ensaiado de antemão, e fica registrado por escrito que subiu assim.
 
-Never choose for the user. Recommend (1) or (2) when the train touches data or faturamento.
+*Promover assumindo o risco* → the sentence goes verbatim into the release notes and into every
+affected card: `promovido sem ensaio em ambiente release — decisão registrada na PR do trem #<pr> em
+<AAAA-MM-DD>`. It names the PR and the date, not a person: a choice hands back a label and no
+identity, and the train PR carries the identity better anyway — whoever approved and merged it is
+recorded by GitHub, checkable months later, which a name typed into release notes never is.
+
+Never argue one option into being the obvious one. When the train touches data or faturamento, say
+in the message that holding or splitting is what the design recommends — as information, before the
+call, never as pressure inside it.
 
 ## Phase 4 — Open the train PR
 
@@ -134,7 +169,7 @@ gh pr create --repo <owner>/<repo> --base main --head dev --title "release v<AAA
 - #<n> — <título> (<módulo>)
 
 ### Carona (sem card validado)
-- <PR/commit> — <o que é> — decisão: <segurar | aceito por <nome>>
+- <PR/commit> — <o que é> — decisão: <segurar | reverter da dev | aceito, sem validação>
 
 ### Migrations
 - <nome-da-migration> — <o que faz> — <destrutiva? janela de risco?>
@@ -147,15 +182,44 @@ gh pr create --repo <owner>/<repo> --base main --head dev --title "release v<AAA
 - #<n> — <query/checagem tirada da spec do card>
 ```
 
-Show it and create only on approval. Check CI green (`gh pr checks`) before proposing the merge — and remember that a red check does not physically block the merge in these repos, so a green CI is **your** responsibility to confirm.
+The body is the artifact, and it is the only place where what ships today is written down: it goes **whole** in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → open the PR with that body, exactly as shown. *Ajustar* → fix what the human named (a carona missing from the list, a migration described as harmless when it is not) and present it again. *Rejeitar* → no PR, and the train does not leave the station today. Check CI green (`gh pr checks`) before proposing the merge — and remember that a red check does not physically block the merge in these repos, so a green CI is **your** responsibility to confirm.
 
 ## Phase 5 — Merge, deploy, verify
 
-1. Merge on explicit approval → production deploy starts automatically.
+1. The merge is this skill's point of no return, so it goes to the human by the *ação irreversível* set from `## Como perguntar e como aprovar`: header `Merge` (12-character cap), options in pt-BR, and the physical consequence written into each `description` — never a bare verb.
+
+   > - **Mergear e subir** — o faturamento passa a rodar este código em minutos: o merge em `main`
+   >   dispara o `deploy.yml` sozinho e as migrations rodam no boot do contêiner. **Não existe passo
+   >   manual entre o merge e produção**, e desfazer é outro deploy, não um botão.
+   > - **Revisar antes de mergear** — nada é mergeado agora; volto com o que você apontar (o diff de
+   >   uma migration, o payload, o resultado do CI) e pergunto de novo.
+   > - **Cancelar** — nada sobe. A PR do trem fica aberta, os cards seguem em 🚂 Release, e o
+   >   trem parte outro dia.
+
+   Only *Mergear e subir* continues to step 2.
 2. Follow it: `gh run list --repo <owner>/<repo> --branch main --limit 3` and the deploy job's logs.
 3. **Smoke, always:** the API answers, the web loads, migrations applied (compare the latest `prisma/migrations` folder against `_prisma_migrations` in the prod database).
 4. **Blocking verification, for every sensitive card:** run the `## Verificação pós-deploy` query from its spec against production and paste the output as a comment on the card.
-   - Red → **stop the closing ritual.** Assess rollback (revert the merge commit → redeploy) versus `/gm-hotfix`. A red verification is an incident, never a card silently reopened.
+   - Red → **stop the closing ritual**: no tag, no notes, no card moved to ✅ Produção. The code is
+     already in production by now, so the question is not whether to act but which way out — what the
+     query returned goes in the message, against what the spec expected, and then one
+     `AskUserQuestion` call, header `Verificação`, question and options in pt-BR:
+
+     > A verificação pós-deploy do card #<n> voltou vermelha: <o que a query devolveu> contra <o que
+     > a spec esperava>. O código já está em produção e <o dado está sendo afetado agora / o estrago
+     > está parado>.
+     >
+     > - **Reverter o merge** — produção volta ao código anterior em minutos (`git revert` do merge
+     >   commit + redeploy). Migration já aplicada **não** volta com ele: se ela reescreveu dado,
+     >   reverter o código deixa o dado como está.
+     > - **Consertar para frente** — o código fica no ar e a correção sobe por cima, por
+     >   `/gm-hotfix` (branch `release/hotfix-*` direto em `main`). Mais lento que reverter, e é o
+     >   único caminho quando o estrago está no dado.
+     > - **Medir antes de escolher** — nada é feito ainda; sigo investigando e volto com o
+     >   diagnóstico. Só cabe se o dado não está sendo corrompido enquanto você espera.
+
+     A red verification is an incident, never a card silently reopened: whatever is chosen goes as a
+     comment on the card, with the query output, before this session ends.
 
 ## Phase 6 — Tag and notes
 
