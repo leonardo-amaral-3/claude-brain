@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 5: Da PR à produção — `gm-ship`, `gm-correcao`, `gm-release`
 
