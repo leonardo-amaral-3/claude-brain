@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 5: Resolução de entidade — o argumento vira chave do grafo
 
