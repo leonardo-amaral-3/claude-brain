@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readFileSync } from "node:fs";
+import { SOMENTE_CONSULTA } from "./config.js";
 import { isAbsolute, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DatabaseSync } from "node:sqlite";
@@ -410,6 +411,20 @@ export function registerTools(
       },
     },
     async (args) => {
+      // Antes de tudo, inclusive do `forcar`: em modo somente-consulta não existe reindexação
+      // que se possa forçar. A escapatória do TD-5 é para DISPUTAR a liderança com outro
+      // processo; aqui a questão não é de quem é o índice, é que este servidor foi subido para
+      // não escrever nele. Um `forcar: true` que passasse daqui varreria o snapshot que o
+      // `--base` do eval congelou e faria a comparação medir outra coisa.
+      if (SOMENTE_CONSULTA) {
+        return text(
+          "Não reindexei: este servidor está em modo somente-consulta (BRAIN_SOMENTE_CONSULTA=1) — ele " +
+            "responde consulta e não escreve no índice, nem com forcar: true. É o modo que o " +
+            "`npm run eval --base` usa para comparar dois servidores contra um snapshot congelado " +
+            "do índice, e indexar aqui invalidaria a \"queda\" que ele fosse medir depois.\n" +
+            "Para reindexar de verdade, use um servidor sem a variável (o do dia a dia) ou a CLI."
+        );
+      }
       // Reindexar é escrita pesada, logo exige a liderança (TD-5). `tentarAdquirir` devolve true
       // também para quem JÁ era o dono, então o caso comum — processo único, que é o líder —
       // passa direto por aqui e de quebra renova o lease.

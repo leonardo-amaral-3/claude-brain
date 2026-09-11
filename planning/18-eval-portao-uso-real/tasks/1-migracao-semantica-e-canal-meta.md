@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: Migração da coluna `semantica` e o canal `_meta.brain`
 

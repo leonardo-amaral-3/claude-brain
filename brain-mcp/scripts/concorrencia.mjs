@@ -131,7 +131,7 @@ function criarFixture(nome, docs = {}, opts = {}) {
  * capturado (e não herdado) porque é nele que o servidor diz se nasceu líder ou seguidor — os
  * logs SÃO a asserção de metade destes casos.
  */
-function subirServidor(fx, rotulo) {
+function subirServidor(fx, rotulo, envExtra = {}) {
   const child = spawn(process.execPath, ["--import", hookStub, join(root, "dist", "index.js")], {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
@@ -141,6 +141,7 @@ function subirServidor(fx, rotulo) {
       BRAIN_CONFIG: fx.config,
       BRAIN_LEASE_TTL_MS: String(TTL_SERVIDOR_MS),
       BRAIN_STUB_REGISTRO: fx.registro,
+      ...envExtra,
     },
   });
 
@@ -232,7 +233,7 @@ function subirServidor(fx, rotulo) {
   /** Despedida real de uma sessão MCP: o cliente fecha o stdin e o transporte stdio termina. */
   s.fecharStdin = () => child.stdin.end();
 
-  s.bootou = () => /boot \((líder|seguidor)\)/.test(s.err);
+  s.bootou = () => /boot \((líder|seguidor|somente-consulta)\)/.test(s.err);
 
   /** Um servidor que não bootou tem sempre um porquê no stderr; sem isto o teste só diz "timeout". */
   s.diagnostico = () => {
@@ -1373,6 +1374,108 @@ caso("query-vazia-deixa-semantica-nula", async () => {
     linha.semantica === null,
     `'Query vazia' devia gravar semantica NULL, veio ${JSON.stringify(linha.semantica)}`
   );
+});
+
+// ---------------------------------------------------------------- modo somente-consulta
+caso("somente-consulta-nao-varre", async () => {
+  // (card #18) A flag de que o `--base` do eval depende: ele sobe DOIS servidores contra um
+  // snapshot congelado do índice, e se qualquer um deles indexasse, base e head mediriam corpora
+  // diferentes — deriva de índice vestida de regressão de ranking. O `ttl-zero-desliga-o-lease`
+  // acima é o caso que prova por que BRAIN_LEASE_TTL_MS=0 não serviria: lá os DOIS processos se
+  // elegem líder, que é o oposto do que se precisa aqui.
+  const fx = criarFixture("somente-consulta", {
+    "alfa.md": "# Alfa\n\nDocumento sobre alfa, indexado antes do snapshot.\n",
+  });
+
+  // 1) Um servidor NORMAL popula o índice e sai pela porta da frente. A saída graciosa esvazia a
+  //    tabela `lider` (ver posse-apos-saida-graciosa) — é isso que permite afirmar depois que a
+  //    tabela vazia é obra da flag, e não herança de um lease que ficou órfão.
+  const normal = subirServidor(fx, "normal");
+  await ate(
+    () => contar(fx.db, "SELECT COUNT(*) c FROM docs") > 0,
+    30000,
+    () => `o servidor normal indexar a fixture -> ${normal.diagnostico()}`
+  );
+  normal.fecharStdin();
+  await ate(() => lerLider(fx.db) === null, TTL_SERVIDOR_MS + 10000, "o lease sair da tabela");
+  normal.matar();
+  await ate(() => !normal.vivo, 15000, "o servidor normal morrer de vez");
+  const docsNoSnapshot = contar(fx.db, "SELECT COUNT(*) c FROM docs");
+
+  // 2) Um arquivo que só existe em disco. É a evidência POSITIVA de "não varre": sem ele o caso
+  //    provaria apenas que nada mudou num índice que já estava completo.
+  writeFileSync(
+    join(fx.docsDir, "depois.md"),
+    "# Depois\n\nArquivo criado depois do snapshot, sobre depois.\n"
+  );
+
+  const s = subirServidor(fx, "so-consulta", { BRAIN_SOMENTE_CONSULTA: "1" });
+  await ate(
+    () => s.err.includes("boot (somente-consulta)"),
+    30000,
+    () => `o boot em modo somente-consulta -> ${s.diagnostico()}`
+  );
+  await s.handshake();
+  // O trabalho pesado mora dentro do `setTimeout(…, 500)` do boot, e "modelo de embeddings pronto"
+  // sai de DENTRO dele: esperar por essa linha é o que prova que a janela já passou. Sem isto o
+  // caso passaria por chegar cedo, e não por comportamento.
+  await ate(
+    () => s.err.includes("modelo de embeddings pronto"),
+    30000,
+    () => `o aquecimento do modelo -> ${s.diagnostico()}`
+  );
+  await dormir(1500);
+
+  // --- não disputa o lease ---
+  ok(lerLider(fx.db) === null, "com a flag ligada, alguém apareceu na tabela lider");
+  ok(!s.eLider(), "o servidor se declarou líder em modo somente-consulta");
+  ok(
+    !s.err.includes("boot (seguidor)"),
+    "o servidor disputou o lease e virou seguidor — em somente-consulta ele nem tenta"
+  );
+
+  // --- não varre ---
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM docs WHERE path LIKE '%depois.md'") === 0,
+    "indexou um arquivo criado depois do snapshot: a flag não segurou a varredura"
+  );
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsNoSnapshot,
+    "o número de documentos mudou sob um servidor que só deveria consultar"
+  );
+  for (const marca of ["grafo:", "vigia:", "embeddings:", "sync GitHub"]) {
+    ok(!s.err.includes(marca), `em somente-consulta e mesmo assim fez trabalho pesado (${marca})`);
+  }
+
+  // --- mas CONSULTA, e com a metade semântica de pé ---
+  // O `aquecer()` que fica não é descuido: um servidor sem semântica faria o eval reprovar por
+  // aquecimento (código 2) em vez de por ranking (código 1), e o portão mediria a si mesmo.
+  const busca = await s.chamarCru("search_context", { query: "alfa" });
+  ok(!busca.falhou, `search_context falhou no modo somente-consulta: ${busca.resumo()}`);
+  ok(
+    /alfa/i.test(busca.texto) && !/^Nenhum resultado/.test(busca.texto),
+    `o servidor parou de achar o que o snapshot tem: ${busca.texto.slice(0, 160)}`
+  );
+
+  // --- a tool reindex recusa, e recusa TAMBÉM com forcar ---
+  // A escapatória do TD-5 existe para disputar a liderança com outro processo. Aqui não há de
+  // quem disputar: se o `forcar` passasse, o eval indexaria o próprio snapshot que congelou.
+  for (const args of [{ full: true }, { full: true, forcar: true }]) {
+    const r = await s.chamarCru("reindex", args);
+    const como = JSON.stringify(args);
+    ok(!r.falhou, `reindex ${como} veio como erro de protocolo, não como recusa: ${r.resumo()}`);
+    ok(/não reindexei/i.test(r.texto), `reindex ${como} não recusou: ${r.texto.slice(0, 200)}`);
+    ok(
+      /somente-consulta/i.test(r.texto),
+      `a recusa de ${como} não diz o motivo (modo somente-consulta): ${r.texto.slice(0, 200)}`
+    );
+  }
+  ok(lerLider(fx.db) === null, "o reindex recusado promoveu o processo a líder assim mesmo");
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsNoSnapshot,
+    "o reindex recusado escreveu no índice antes de recusar"
+  );
+  ok(!s.err.includes("vigia:"), "o reindex recusado ligou o vigia do líder");
 });
 
 // ---------------------------------------------------------------- execução
