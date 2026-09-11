@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: `colher-golden.mjs` e o golden set derivado do uso real
 
