@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `uso.mjs` — percentil de verdade e a fração de meia-busca
 
