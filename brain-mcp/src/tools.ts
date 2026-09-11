@@ -5,7 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { Indexer } from "./indexer.js";
 import type { GithubSyncer } from "./githubSync.js";
-import type { Buscador } from "./search.js";
+import type { Buscador, Diagnostico } from "./search.js";
 import { matchExpr, normalizar as normalize } from "./search.js";
 import type { Grafo, Entidade } from "./grafo.js";
 import { registrarDecisao, decisoesRelacionadas } from "./memoria.js";
@@ -13,8 +13,21 @@ import type { Lease } from "./lease.js";
 
 const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"] as const;
 
-function text(t: string) {
-  return { content: [{ type: "text" as const, text: t }] };
+/**
+ * Toda resposta de tool sai por aqui. O segundo parâmetro é o canal de diagnóstico: quando vem,
+ * o diagnóstico da busca viaja em `_meta.brain` ao lado do texto, e não dentro dele.
+ *
+ * Dois consumidores dependem disso, e é por isso que o canal existe em vez de uma regex no
+ * rodapé: o wrapper `registerTool` abaixo, que grava a coluna `semantica` de `uso`, e o
+ * `scripts/eval.mjs`, que lê a MESMA chave do resultado JSON-RPC para decidir se a rodada é
+ * válida. O rodapé é prosa endereçada ao modelo — reescrevê-la para extrair o sinal faria a
+ * telemetria mentir em silêncio, sem teste que acusasse.
+ *
+ * `_meta` sobrevive à ida e à volta porque o `ResultSchema` do SDK é `z.looseObject`.
+ */
+function text(t: string, diag?: Diagnostico) {
+  const base = { content: [{ type: "text" as const, text: t }] };
+  return diag ? { ...base, _meta: { brain: { ...diag } } } : base;
 }
 
 export function registerTools(
@@ -47,15 +60,21 @@ export function registerTools(
       } finally {
         try {
           const txt: string = resp?.content?.[0]?.text ?? "";
+          // Lido do valor de retorno, nunca de variável de módulo: os handlers são `async`, e
+          // duas buscas simultâneas gravariam o sinal de uma na linha da outra. Ausente — toda
+          // tool que não é `search_context`, e o `Query vazia` que retorna antes de buscar — vira
+          // NULL, que é o que mantém essas linhas fora do denominador em `scripts/uso.mjs`.
+          const sem: unknown = resp?._meta?.brain?.semantica;
           db.prepare(
-            "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio) VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, ?, ?, ?, ?)"
           ).run(
             Date.now(),
             name,
             JSON.stringify(args ?? {}).slice(0, 500),
             Date.now() - t0,
             txt.length,
-            /^Nenhum resultado|^Query vazia|^Nenhuma/.test(txt) ? 1 : 0
+            /^Nenhum resultado|^Query vazia|^Nenhuma/.test(txt) ? 1 : 0,
+            typeof sem === "boolean" ? (sem ? 1 : 0) : null
           );
         } catch {
           /* log de uso nunca pode derrubar a tool */
@@ -100,9 +119,14 @@ export function registerTools(
         args.limit ?? 8
       );
       if (rows.length === 0) {
+        // O `diag` vai junto de propósito: os casos negativos do golden set são, por
+        // definição, os que voltam vazios. Sem ele o eval veria `_meta.brain === undefined`, não
+        // conseguiria distinguir de `semantica === false`, e a coluna ficaria NULL justamente nas
+        // linhas `vazio = 1` — que são parte da população cuja fração o relatório mede.
         return text(
           `Nenhum resultado para "${args.query}". Tente termos mais curtos/sinônimos, ou remova filtros. ` +
-            `Para visão geral use list_features ou busque source="mapa".`
+            `Para visão geral use list_features ou busque source="mapa".`,
+          diag
         );
       }
       const out = rows
@@ -115,7 +139,7 @@ export function registerTools(
         })
         .join("\n\n");
       const rodape = diag.semantica ? "" : "\n(busca semântica indisponível nesta consulta — só léxico)";
-      return text(out + rodape + "\n\nUse read_doc(path) para ler o documento inteiro ou uma seção.");
+      return text(out + rodape + "\n\nUse read_doc(path) para ler o documento inteiro ou uma seção.", diag);
     }
   );
 

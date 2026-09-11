@@ -1200,6 +1200,181 @@ caso("cli-disputa-o-lease", async () => {
   }
 });
 
+// ---------------------------------------------------------------- coluna `semantica` em `uso`
+// (card #18) A primeira migração de schema do repo, e quem a alimenta. O que estes casos afirmam
+// está nas COLUNAS de `uso`, nunca no texto da resposta — o texto é prosa endereçada ao modelo, e
+// foi justamente para não depender dele que o canal `_meta.brain` existe.
+
+/** Última linha de `uso` de uma tool. */
+const ultimoUso = (caminho, tool) => {
+  const db = openDb(caminho);
+  try {
+    return db
+      .prepare("SELECT vazio, semantica FROM uso WHERE tool = ? ORDER BY id DESC LIMIT 1")
+      .get(tool);
+  } finally {
+    db.close();
+  }
+};
+
+/** Um banco com o `uso` de ANTES da migração: as mesmas colunas, sem `semantica`. */
+const bancoPreMigracao = (nome, linhas = 1) => {
+  const caminho = join(fixture, nome);
+  const cru = new DatabaseSync(caminho);
+  cru.exec(
+    "CREATE TABLE uso (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, tool TEXT NOT NULL," +
+      " args TEXT, ms INTEGER NOT NULL, resp_chars INTEGER NOT NULL, vazio INTEGER NOT NULL);"
+  );
+  const ins = cru.prepare(
+    "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio) VALUES (?, 'search_context', '{}', 10, 100, 0)"
+  );
+  for (let i = 0; i < linhas; i++) ins.run(i + 1);
+  cru.close();
+  return caminho;
+};
+
+caso("uso-pre-migracao-ganha-a-coluna", async () => {
+  // `banco-antigo-abre-sem-passo-manual` acima cobre TABELA nova, que é aditiva de graça dentro do
+  // CREATE TABLE IF NOT EXISTS. COLUNA nova não é: sem o ALTER, um banco vivo ficaria para sempre
+  // sem `semantica` e o relatório do CA1 não teria o que ler.
+  const caminho = bancoPreMigracao("uso-pre-migracao.db");
+
+  const db = openDb(caminho);
+  try {
+    const cols = db
+      .prepare("PRAGMA table_info(uso)")
+      .all()
+      .map((c) => c.name);
+    ok(cols.includes("semantica"), `openDb nao migrou a coluna; veio [${cols.join(", ")}]`);
+
+    const linha = db.prepare("SELECT ts, semantica FROM uso").get();
+    ok(linha !== undefined, "a linha anterior a migracao sumiu");
+    ok(Number(linha.ts) === 1, "a migracao reescreveu o dado que ja estava la");
+    // O NULL é o contrato, não um detalhe: é ele que mantém a linha velha FORA do denominador da
+    // fração de meia-busca. Um DEFAULT 0 aqui diluiria a fração e violaria o CA1 em silêncio.
+    ok(
+      linha.semantica === null,
+      `linha pre-migracao devia ficar NULL, veio ${JSON.stringify(linha.semantica)}`
+    );
+
+    db.prepare(
+      "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(2, "search_context", "{}", 5, 10, 0, 1);
+  } finally {
+    db.close();
+  }
+
+  // Reabrir é o caminho comum — toda sessão faz isso. Tem de ver a coluna e NÃO tentar o ALTER.
+  const db2 = openDb(caminho);
+  try {
+    const n = Number(db2.prepare("SELECT COUNT(*) c FROM uso").get().c);
+    ok(n === 2, `reabrir o banco migrado devia ver 2 linhas, viu ${n}`);
+    const viva = db2.prepare("SELECT semantica FROM uso WHERE ts = 2").get();
+    ok(Number(viva.semantica) === 1, `a escrita pos-migracao nao persistiu: ${viva.semantica}`);
+  } finally {
+    db2.close();
+  }
+});
+
+caso("migracao-de-uso-sob-concorrencia", async () => {
+  // A guarda do `duplicate column name`, e ela só é observável sob disputa real. São oito
+  // servidores contra o mesmo arquivo na vida real: o busy_timeout serializa o ALTER, e todos
+  // menos um chegam depois de a coluna existir. Quem tratasse isso como erro morreria no boot —
+  // exatamente a falha que `abrir-em-paralelo-nao-quebra` documentou para o WAL, noutro PRAGMA.
+  const PROCESSOS = 10;
+  const caminho = bancoPreMigracao("uso-pre-migracao-paralelo.db", 3);
+  const fonte = [
+    `const { openDb } = await import(${JSON.stringify(modulo("db.js"))});`,
+    `const db = openDb(process.env.D);`,
+    `const cols = db.prepare("PRAGMA table_info(uso)").all().map((c) => c.name);`,
+    `db.close();`,
+    `if (!cols.includes("semantica")) { console.error("sem coluna: " + cols.join(",")); process.exit(3); }`,
+  ].join("\n");
+
+  const filhos = await Promise.all(
+    Array.from(
+      { length: PROCESSOS },
+      () =>
+        new Promise((res) => {
+          const c = spawn(process.execPath, ["--input-type=module", "-e", fonte], {
+            env: { ...process.env, D: caminho },
+            stdio: ["ignore", "ignore", "pipe"],
+          });
+          let e = "";
+          c.stderr.on("data", (d) => (e += d.toString()));
+          c.on("exit", (code) => res({ code, e }));
+        })
+    )
+  );
+
+  const quebrados = filhos.filter((f) => f.code !== 0);
+  ok(
+    quebrados.length === 0,
+    `${quebrados.length}/${filhos.length} processos morreram migrando o mesmo banco em paralelo: ` +
+      `${(quebrados[0]?.e ?? "").split("\n").slice(0, 3).join(" | ").slice(0, 240)}`
+  );
+  ok(
+    contar(caminho, "SELECT COUNT(*) c FROM uso") === 3,
+    "a migracao concorrente perdeu linhas de uso"
+  );
+});
+
+caso("busca-vazia-grava-semantica", async () => {
+  // O caso que a spec chama de "fácil errar e que quebraria dois critérios de uma vez": a saída
+  // `Nenhum resultado` tem o `diag` em escopo mas saía pelo helper `text()` sem ele. Resultado:
+  // os negativos do golden set chegariam ao eval sem diagnóstico, e a coluna ficaria NULL
+  // justamente nas linhas `vazio = 1` — parte da população cuja fração o CA1 manda medir.
+  const fx = criarFixture("uso-busca-vazia", {
+    "alfa.md": "# Alfa\n\nDocumento de origem sobre alfa.\n",
+  });
+  const s = subirServidor(fx, "busca-vazia");
+  await ate(() => s.eLider(), 30000, "o servidor bootar");
+  await s.handshake();
+
+  // Vazio por construção, não por sorte: a fixture só tem root `docs`, então o filtro
+  // `source: "github"` não casa nada nem pelo léxico nem pelo vetor. Um termo sem sentido não
+  // serviria — o lado vetorial devolve vizinhos por cosseno mesmo para query que o FTS ignora.
+  const r = await s.chamarCru("search_context", { query: "alfa documento", source: "github" });
+  ok(!r.falhou, `search_context falhou: ${r.resumo()}`);
+  ok(/^Nenhum resultado/.test(r.texto), `esperava resposta vazia, veio: ${r.texto.slice(0, 160)}`);
+
+  await ate(() => ultimoUso(fx.db, "search_context") !== undefined, 10000, "a linha de uso");
+  const linha = ultimoUso(fx.db, "search_context");
+  ok(Number(linha.vazio) === 1, `vazio devia ser 1, veio ${JSON.stringify(linha.vazio)}`);
+  ok(
+    linha.semantica !== null && linha.semantica !== undefined,
+    "busca vazia gravou semantica NULL: o diagnostico nao viajou no caminho do `Nenhum resultado`"
+  );
+  ok(
+    Number(linha.semantica) === 0 || Number(linha.semantica) === 1,
+    `semantica devia ser 0 ou 1, veio ${JSON.stringify(linha.semantica)}`
+  );
+});
+
+caso("query-vazia-deixa-semantica-nula", async () => {
+  // A única saída que legitimamente NÃO carrega diagnóstico: retorna antes de qualquer busca, e
+  // ali não há o que diagnosticar. O NULL aqui é correto, e é o que distingue "não busquei" de
+  // "busquei e a semântica não respondeu" — distinção de que o CA3 depende para invalidar rodada.
+  const fx = criarFixture("uso-query-vazia", {
+    "alfa.md": "# Alfa\n\nDocumento de origem sobre alfa.\n",
+  });
+  const s = subirServidor(fx, "query-vazia");
+  await ate(() => s.eLider(), 30000, "o servidor bootar");
+  await s.handshake();
+
+  const r = await s.chamarCru("search_context", { query: "   " });
+  ok(!r.falhou, `search_context falhou: ${r.resumo()}`);
+  ok(/^Query vazia/.test(r.texto), `esperava 'Query vazia', veio: ${r.texto.slice(0, 160)}`);
+
+  await ate(() => ultimoUso(fx.db, "search_context") !== undefined, 10000, "a linha de uso");
+  const linha = ultimoUso(fx.db, "search_context");
+  ok(Number(linha.vazio) === 1, `vazio devia ser 1, veio ${JSON.stringify(linha.vazio)}`);
+  ok(
+    linha.semantica === null,
+    `'Query vazia' devia gravar semantica NULL, veio ${JSON.stringify(linha.semantica)}`
+  );
+});
+
 // ---------------------------------------------------------------- execução
 console.log(`fixture: ${fixture}`);
 console.log(`TTL_MS=${TTL_MS} TIQUE_MS=${TIQUE_MS} | servidores: TTL=${TTL_SERVIDOR_MS} ms\n`);
