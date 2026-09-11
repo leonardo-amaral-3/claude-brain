@@ -1478,6 +1478,173 @@ caso("somente-consulta-nao-varre", async () => {
   ok(!s.err.includes("vigia:"), "o reindex recusado ligou o vigia do líder");
 });
 
+// ---------------------------------------------------------------- relatório de uso (CA1)
+// (card #18) O `npm run uso` é o único consumidor humano da tabela `uso`, e passou a vida
+// rotulando `ms p50` uma coluna que era `AVG(ms)`. Estes casos afirmam as duas coisas que a
+// correção precisa ter: o percentil sai do vetor ordenado, e a fração de meia-busca conta só
+// quem foi medido.
+
+/** Roda `scripts/uso.mjs` como um humano roda: processo próprio, banco escolhido pelo BRAIN_DB. */
+const rodarUso = (caminho, dias = "14") => {
+  const r = spawnSync(process.execPath, [join(root, "scripts", "uso.mjs"), dias], {
+    env: { ...process.env, BRAIN_DB: caminho },
+    encoding: "utf8",
+  });
+  return { code: r.status, saida: r.stdout ?? "", erro: r.stderr ?? "" };
+};
+
+/** A linha de uma tool no relatório, já quebrada nas colunas que o cabeçalho anuncia. */
+const linhaDe = (saida, tool) => {
+  const linha = saida.split("\n").find((l) => l.startsWith(tool + " "));
+  if (!linha) return null;
+  const [t, n, vazias, p50, p90, soLexico, chars] = linha.trim().split(/\s+/);
+  return { tool: t, n: Number(n), vazias: Number(vazias), p50, p90, soLexico, chars };
+};
+
+/** Banco já migrado com `uso` semeado: valores escolhidos, para o relatório ter o que medir. */
+const bancoDeUso = (nome, linhas) => {
+  const caminho = join(fixture, nome);
+  const db = openDb(caminho);
+  try {
+    const ins = db.prepare(
+      "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica)" +
+        " VALUES (?, ?, '{}', ?, ?, ?, ?)"
+    );
+    for (const l of linhas) {
+      ins.run(
+        l.ts ?? Date.now() - 60000,
+        l.tool,
+        l.ms,
+        l.chars ?? 100,
+        l.vazio ?? 0,
+        l.semantica ?? null
+      );
+    }
+  } finally {
+    db.close();
+  }
+  return caminho;
+};
+
+caso("uso-percentil-e-fracao-de-meia-busca", async () => {
+  // Três tools, cada uma existindo por um motivo que as outras não cobrem:
+  //  `impar` — 9 chamadas com uma cauda de 900 ms. É aqui que p50 e média DIVERGEM, e a divergência
+  //            é a mentira que o CA1 manda desfazer: um relatório que só mostra média faz uma
+  //            busca de 50 ms parecer de 140.
+  //  `par`   — 4 chamadas. Com n par o percentil por índice NÃO interpola: cai no elemento de
+  //            baixo. É contrato, não acaso, e sem um caso par ninguém percebe se ele mudar.
+  //  `nulo`  — 3 chamadas sem sinal nenhum. Denominador zero vira `—`, jamais `0 %`.
+  const msImpar = [900, 40, 10, 70, 30, 80, 20, 60, 50]; // fora de ordem de propósito
+  const semImpar = [null, 0, 1, 1, 0, 1, null, 1, 0]; //     3 zeros, 4 uns, 2 NULL -> 3/7
+  const msPar = [30, 10, 40, 20];
+  const semPar = [0, 1, 1, 1]; //                            1 zero de 4 medidos   -> 1/4
+  const msNulo = [25, 5, 15];
+
+  const caminho = bancoDeUso("uso-percentis.db", [
+    ...msImpar.map((ms, i) => ({ tool: "impar", ms, semantica: semImpar[i] })),
+    ...msPar.map((ms, i) => ({ tool: "par", ms, semantica: semPar[i] })),
+    ...msNulo.map((ms) => ({ tool: "nulo", ms })),
+  ]);
+
+  const r = rodarUso(caminho);
+  ok(r.code === 0, `uso.mjs saiu com ${r.code}: ${r.erro.slice(0, 400)}`);
+  ok(/só-léxico/.test(r.saida), `o cabeçalho não anuncia a coluna só-léxico:\n${r.saida.slice(0, 300)}`);
+
+  // O percentil esperado sai do MESMO vetor ordenado que o humano leria — é essa a definição, e
+  // deixá-la no teste é o que permite trocar a implementação sem trocar o contrato.
+  const esperado = (v, p) => String([...v].sort((a, b) => a - b)[Math.floor(p * (v.length - 1))]);
+
+  const impar = linhaDe(r.saida, "impar");
+  ok(impar !== null, `o relatório não trouxe a linha de 'impar':\n${r.saida}`);
+  ok(impar.n === 9, `esperava 9 chamadas em 'impar', veio ${impar.n}`);
+  ok(
+    impar.p50 === esperado(msImpar, 0.5),
+    `p50 de 'impar' veio ${impar.p50}, esperava ${esperado(msImpar, 0.5)}`
+  );
+  ok(
+    impar.p90 === esperado(msImpar, 0.9),
+    `p90 de 'impar' veio ${impar.p90}, esperava ${esperado(msImpar, 0.9)}`
+  );
+  // E a relação que dá sentido ao card: a cauda infla a média acima do p50 e até do p90. Com estes
+  // valores a média é 140 e o p50 é 50. As duas asserções acima passariam se `esperado` estivesse
+  // errado junto com a implementação; esta não passa, porque não depende da mesma conta.
+  const mediaImpar = msImpar.reduce((a, b) => a + b, 0) / msImpar.length;
+  ok(
+    Number(impar.p50) < mediaImpar && Number(impar.p90) < mediaImpar,
+    `p50=${impar.p50} p90=${impar.p90} deviam ficar abaixo da média (${mediaImpar}): a coluna ainda é AVG disfarçado`
+  );
+  ok(
+    Number(impar.p50) === 50 && Number(impar.p90) === 80,
+    `p50/p90 de 'impar' deviam ser 50/80, vieram ${impar.p50}/${impar.p90}`
+  );
+
+  const par = linhaDe(r.saida, "par");
+  ok(par !== null, `o relatório não trouxe a linha de 'par':\n${r.saida}`);
+  ok(par.p50 === esperado(msPar, 0.5), `p50 de 'par' veio ${par.p50}, esperava ${esperado(msPar, 0.5)}`);
+  ok(par.p90 === esperado(msPar, 0.9), `p90 de 'par' veio ${par.p90}, esperava ${esperado(msPar, 0.9)}`);
+  ok(Number(par.p50) === 20, `com n par o percentil cai no elemento de baixo (20), veio ${par.p50}`);
+
+  // --- a fração de meia-busca, que é a metade nova do CA1 ---
+  const fracao = (s) => Number(s.replace("%", ""));
+  // 3 de 7 MEDIDOS, não 3 de 9: as duas linhas NULL ficam fora do denominador. Se entrassem, a
+  // conta daria 33,3% — e é exatamente esse o erro que `COUNT(semantica IS NOT NULL)` cometeria.
+  ok(
+    Math.abs(fracao(impar.soLexico) - (100 * 3) / 7) < 0.05,
+    `só-léxico de 'impar' veio ${impar.soLexico}, esperava ~${((100 * 3) / 7).toFixed(1)}% (3 de 7 medidos, não 3 de 9)`
+  );
+  ok(
+    Math.abs(fracao(par.soLexico) - 25) < 0.05,
+    `só-léxico de 'par' veio ${par.soLexico}, esperava 25.0%`
+  );
+
+  const nulo = linhaDe(r.saida, "nulo");
+  ok(nulo !== null, `o relatório não trouxe a linha de 'nulo':\n${r.saida}`);
+  ok(nulo.n === 3, `esperava 3 chamadas em 'nulo', veio ${nulo.n}`);
+  ok(
+    nulo.soLexico === "—",
+    `tool sem nenhum sinal gravado tem de mostrar '—' e não um número; veio ${nulo.soLexico}`
+  );
+  // O percentil continua valendo para ela: não ter sinal semântico não é não ter latência.
+  ok(nulo.p50 === esperado(msNulo, 0.5), `p50 de 'nulo' veio ${nulo.p50}, esperava ${esperado(msNulo, 0.5)}`);
+});
+
+caso("uso-relatorio-sobrevive-a-banco-pre-migracao", async () => {
+  // O relatório abre somente-leitura e não passa pelo `dist/` — não tem como migrar o banco que
+  // recebe. E vai receber bancos velhos: o BRAIN_DB aponta para qualquer instalação, e nem toda
+  // instalação subiu o código novo. Sem a guarda do PRAGMA, `npm run uso` morreria inteiro em
+  // "no such column: semantica" — uma coluna nova derrubando um relatório anterior a ela.
+  const caminho = bancoPreMigracao("uso-relatorio-pre-migracao.db", 3);
+
+  // `bancoPreMigracao` semeia ts = 1, 2, 3 (época de 1970); a janela precisa alcançar lá atrás.
+  const antes = rodarUso(caminho, "30000");
+  ok(
+    antes.code === 0,
+    `uso.mjs quebrou com banco pré-migração (code ${antes.code}): ${antes.erro.slice(0, 400)}`
+  );
+  ok(/só-léxico/.test(antes.saida), `o cabeçalho perdeu a coluna só-léxico:\n${antes.saida.slice(0, 300)}`);
+  const l = linhaDe(antes.saida, "search_context");
+  ok(l !== null, `o relatório não trouxe a linha de search_context:\n${antes.saida}`);
+  ok(l.n === 3, `esperava 3 chamadas, veio ${l.n}`);
+  ok(l.soLexico === "—", `banco sem a coluna tem de mostrar '—', veio ${l.soLexico}`);
+
+  // Abre (migrando) e imprime de novo — o caminho real de uma instalação que acabou de subir o
+  // código novo. As linhas velhas seguem NULL, então a fração segue `—`, e é assim que o CA1
+  // quer: não se inventa medição para quem nunca foi medido.
+  openDb(caminho).close();
+  const depois = rodarUso(caminho, "30000");
+  ok(
+    depois.code === 0,
+    `uso.mjs quebrou depois da migração (code ${depois.code}): ${depois.erro.slice(0, 400)}`
+  );
+  const l2 = linhaDe(depois.saida, "search_context");
+  ok(l2 !== null, `o relatório sumiu com a linha depois da migração:\n${depois.saida}`);
+  ok(l2.n === 3, `a migração mexeu na contagem do relatório: ${l2.n}`);
+  ok(
+    l2.soLexico === "—",
+    `linhas pré-migração têm de ficar fora do denominador mesmo com a coluna presente; veio ${l2.soLexico}`
+  );
+});
+
 // ---------------------------------------------------------------- execução
 console.log(`fixture: ${fixture}`);
 console.log(`TTL_MS=${TTL_MS} TIQUE_MS=${TIQUE_MS} | servidores: TTL=${TTL_SERVIDOR_MS} ms\n`);
