@@ -1645,6 +1645,272 @@ caso("uso-relatorio-sobrevive-a-banco-pre-migracao", async () => {
   );
 });
 
+// ---------------------------------------------------------------- colheita do golden set (CA2)
+// (card #18) O golden set deixou de ser redigido e passou a ser COLHIDO do uso real. O que estes
+// casos afirmam é o pareamento — a janela, o dedup e os dois motivos de descarte —, porque é ali
+// que um golden set silenciosamente ganha caso que nunca pode acertar.
+
+const { colher, JANELA_MS } = await import(pathToFileURL(join(root, "scripts", "colher-golden.mjs")).href);
+
+/** Banco com `docs` e `uso` semeados: a colheita lê os dois e revalida um contra o outro. */
+const bancoParaColher = (nome, docs, linhas) => {
+  const caminho = join(fixture, nome);
+  const db = openDb(caminho);
+  try {
+    const insDoc = db.prepare(
+      "INSERT INTO docs (path, title, source, repo, feature, doc_type) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    for (const d of docs) {
+      insDoc.run(
+        d.path,
+        d.title ?? d.path,
+        d.source ?? "docs",
+        d.repo ?? null,
+        d.feature ?? null,
+        d.doc_type ?? "doc"
+      );
+    }
+    const insUso = db.prepare(
+      "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, 10, 100, ?, ?)"
+    );
+    for (const l of linhas) insUso.run(l.ts, l.tool, JSON.stringify(l.args), l.vazio ?? 0, l.semantica ?? null);
+  } finally {
+    db.close();
+  }
+  return caminho;
+};
+
+const colherDe = (caminho) => {
+  const db = new DatabaseSync(caminho, { readOnly: true });
+  try {
+    return colher(db);
+  } finally {
+    db.close();
+  }
+};
+
+/** Roda o `colher` como um humano roda: processo próprio, banco e golden escolhidos pelo ambiente. */
+const rodarColher = (caminhoDb, caminhoGolden) => {
+  const r = spawnSync(process.execPath, [join(root, "scripts", "colher-golden.mjs")], {
+    env: { ...process.env, BRAIN_DB: caminhoDb, BRAIN_GOLDEN: caminhoGolden },
+    encoding: "utf8",
+  });
+  return { code: r.status, saida: r.stdout ?? "", erro: r.stderr ?? "" };
+};
+
+caso("colher-janela-dedup-e-os-dois-descartes", async () => {
+  const T = 1700000000000;
+  const P = (n) => "C:\\fx\\docs\\" + n + ".md";
+  // Cenários separados por 1 h para não se contaminarem: a busca varre para a FRENTE, e um
+  // `read_doc` solto seria pareado por qualquer busca anterior que ainda estivesse na janela.
+  const h = (n) => T + n * 3600000;
+  const docs = [
+    { path: P("valido") },
+    { path: P("limite") },
+    { path: P("tardio") },
+    { path: P("primeira") },
+    { path: P("segunda") },
+    { path: P("incoerente"), source: "mapa", repo: null },
+    { path: P("vazia") },
+  ];
+  const uso = [
+    // (a) par dentro da janela
+    { ts: h(1), tool: "search_context", args: { query: "por que a consulta valida encontra o alvo dela?" } },
+    { ts: h(1) + 89000, tool: "read_doc", args: { path: P("valido") } },
+    // (b) EXATAMENTE 90 s: a borda é inclusiva, e é contrato — sem caso, ninguém nota se ela mudar
+    { ts: h(2), tool: "search_context", args: { query: "consulta na borda" } },
+    { ts: h(2) + JANELA_MS, tool: "read_doc", args: { path: P("limite") } },
+    // (c) 91 s: fora. A leitura já é de outro assunto.
+    { ts: h(3), tool: "search_context", args: { query: "consulta tardia" } },
+    { ts: h(3) + JANELA_MS + 1000, tool: "read_doc", args: { path: P("tardio") } },
+    // (d) query repetida: vence a PRIMEIRA, e a chave é normalizada (trim + lowercase)
+    { ts: h(4), tool: "search_context", args: { query: "consulta repetida" } },
+    { ts: h(4) + 1000, tool: "read_doc", args: { path: P("primeira") } },
+    { ts: h(5), tool: "search_context", args: { query: "  CONSULTA Repetida  " } },
+    { ts: h(5) + 1000, tool: "read_doc", args: { path: P("segunda") } },
+    // (e) alvo que não está em `docs`: apodreceu ou saiu do índice
+    { ts: h(6), tool: "search_context", args: { query: "consulta de alvo sumido" } },
+    { ts: h(6) + 1000, tool: "read_doc", args: { path: P("nunca-indexado") } },
+    // (f) alvo que não satisfaz os próprios filtros: par temporal FALSO (emenda 2026-09-11)
+    { ts: h(7), tool: "search_context", args: { query: "consulta com filtro", repo: "operations-center" } },
+    { ts: h(7) + 1000, tool: "read_doc", args: { path: P("incoerente") } },
+    // (g) busca que voltou vazia nunca vira caso positivo, mesmo com leitura logo depois
+    { ts: h(8), tool: "search_context", args: { query: "consulta que voltou vazia" }, vazio: 1 },
+    { ts: h(8) + 1000, tool: "read_doc", args: { path: P("vazia") } },
+  ];
+
+  const caminho = bancoParaColher("colheita-pareamento.db", docs, uso);
+  const { casos, avisos, contagem } = colherDe(caminho);
+  const porQuery = new Map(casos.map((c) => [c.q.trim().toLowerCase(), c]));
+
+  const valida = porQuery.get("por que a consulta valida encontra o alvo dela?");
+  ok(valida !== undefined, "o par dentro da janela não virou caso");
+  ok(
+    valida.esperado[0] === "docs/valido.md",
+    `o 'esperado' tem de ser os DOIS últimos segmentos, nunca o caminho absoluto da máquina; veio ${valida.esperado[0]}`
+  );
+  ok(valida.estilo === "natural", "query com '?' é 'natural' — é o que o filtro de CLI do eval usa");
+  ok(porQuery.has("consulta na borda"), `90 s exatos ficam DENTRO da janela (${JANELA_MS} ms)`);
+  ok(!porQuery.has("consulta tardia"), "91 s ficam fora da janela e o caso é descartado");
+
+  const repetida = porQuery.get("consulta repetida");
+  ok(repetida !== undefined, "a query repetida sumiu inteira em vez de sobrar uma vez");
+  ok(repetida.esperado[0] === "docs/primeira.md", `no dedup vence a PRIMEIRA ocorrência; veio ${repetida.esperado[0]}`);
+  ok(contagem.repetidas === 1, `esperava 1 repetida descartada, veio ${contagem.repetidas}`);
+
+  ok(!porQuery.has("consulta de alvo sumido"), "alvo fora de 'docs' tem de ser descartado");
+  ok(contagem.semAlvo === 1, `esperava 1 descarte por alvo ausente, veio ${contagem.semAlvo}`);
+  ok(
+    avisos.some((a) => a.includes("nunca-indexado")),
+    "descarte por alvo ausente tem de sair como AVISO nomeando o alvo, não em silêncio"
+  );
+
+  // A emenda 2026-09-11, que é a razão de este caso existir: o alvo tem 'repo' null e a busca
+  // filtrou por 'operations-center'. O search.ts:184-187 compara por igualdade, então aquela busca
+  // JAMAIS devolveria aquele alvo — é par temporal falso, e emitido valeria 0 para sempre.
+  ok(!porQuery.has("consulta com filtro"), "alvo que não satisfaz os próprios filtros tem de ser descartado");
+  ok(contagem.incoerentes === 1, `esperava 1 descarte por incoerência, veio ${contagem.incoerentes}`);
+  ok(
+    avisos.some((a) => a.includes("par temporal falso")),
+    "o descarte por incoerência tem de se explicar no aviso; senão vira mistério na próxima colheita"
+  );
+
+  ok(!porQuery.has("consulta que voltou vazia"), "busca com 'vazio = 1' não pode virar caso positivo");
+  ok(casos.length === 3, `esperava 3 casos colhidos (válido, borda, repetida), vieram ${casos.length}`);
+});
+
+caso("colher-preserva-manuais-e-e-idempotente", async () => {
+  const T = 1700000000000;
+  const docs = [];
+  const uso = [];
+  // 60 pares sintéticos: é o piso do CA2, e a asserção de cobertura mora dentro do próprio script.
+  // O primeiro alvo é 'source: code' e o segundo é do 'operations-center' — as duas coberturas que
+  // o CA2 exige, e que ele exige POR ALVO, não pelo filtro do caso.
+  for (let i = 0; i < 60; i++) {
+    const path = "C:\\fx\\colhidos\\alvo-" + i + ".md";
+    docs.push({ path, source: i === 0 ? "code" : "docs", repo: i === 1 ? "operations-center" : null });
+    const ts = T + i * 600000;
+    uso.push({ ts, tool: "search_context", args: { query: `pergunta numero ${i}` } });
+    uso.push({ ts: ts + 1000, tool: "read_doc", args: { path } });
+  }
+  docs.push({ path: "C:\\fx\\docs\\alvo-manual.md" }, { path: "C:\\fx\\docs\\alvo-antigo.md" });
+
+  const caminhoDb = bancoParaColher("colheita-preservacao.db", docs, uso);
+  const caminhoGolden = join(fixture, "golden-preservacao.json");
+  writeFileSync(
+    caminhoGolden,
+    JSON.stringify(
+      [
+        {
+          q: "caso manual que ninguém pode apagar",
+          filtros: { source: null, repo: null, feature: null, doc_type: null },
+          esperado: ["docs/alvo-manual.md"],
+          tipo: "positivo",
+          estilo: "natural",
+          origem: "manual",
+          nota: "a nota também sobrevive",
+        },
+        // Formato antigo: sem 'origem', sem 'filtros', sem 'tipo'. É a remarcação única de que a
+        // spec fala — depois dela o caso é 'manual' e nunca mais é tocado.
+        { q: "caso do formato antigo", esperado: ["docs/alvo-antigo.md"], estilo: "keywords" },
+        {
+          q: "negativo estrutural do fixture",
+          filtros: { source: "mapa", repo: "operations-center", feature: null, doc_type: null },
+          esperado: [],
+          tipo: "negativo",
+          estilo: "natural",
+          volatil: false,
+          origem: "manual",
+        },
+        {
+          q: "negativo volatil do fixture",
+          filtros: { source: null, repo: "repo-que-nao-existe", feature: null, doc_type: null },
+          esperado: [],
+          tipo: "negativo",
+          estilo: "keywords",
+          volatil: true,
+          origem: "manual",
+        },
+        // Colhido de uma safra velha: ESTE tem de ser substituído, senão "preservar" viraria "nunca
+        // mais atualizar" e o golden set congelaria no primeiro dia.
+        {
+          q: "colhido de uma safra que já passou",
+          filtros: { source: null, repo: null, feature: null, doc_type: null },
+          esperado: ["docs/alvo-que-nem-existe.md"],
+          tipo: "positivo",
+          estilo: "keywords",
+          origem: "uso:2020-01-01",
+        },
+      ],
+      null,
+      2
+    )
+  );
+
+  const r1 = rodarColher(caminhoDb, caminhoGolden);
+  ok(r1.code === 0, `colher saiu com ${r1.code}: ${r1.erro.slice(0, 500)}`);
+  const depois1 = readFileSync(caminhoGolden, "utf8");
+  const casos1 = JSON.parse(depois1);
+  const acha = (q) => casos1.find((c) => c.q === q);
+
+  const manual = acha("caso manual que ninguém pode apagar");
+  ok(manual !== undefined, "o caso manual foi APAGADO pela recolheita");
+  ok(manual.origem === "manual" && manual.nota === "a nota também sobrevive", "o caso manual voltou mutilado");
+  ok(manual.esperado[0] === "docs/alvo-manual.md", "o 'esperado' do caso manual mudou");
+
+  const antigo = acha("caso do formato antigo");
+  ok(antigo !== undefined, "o caso do formato antigo sumiu em vez de ser remarcado");
+  ok(antigo.origem === "manual", `formato antigo tem de virar 'manual'; veio ${antigo.origem}`);
+  ok(antigo.tipo === "positivo" && antigo.filtros.source === null, "a remarcação tem de completar o formato novo");
+
+  ok(
+    acha("colhido de uma safra que já passou") === undefined,
+    "caso 'uso:*' velho tem de ser SUBSTITUÍDO, não preservado — senão o golden set congela no primeiro dia"
+  );
+  ok(casos1.filter((c) => c.tipo === "negativo").length === 2, "os dois negativos têm de sobreviver");
+  const colhidos1 = casos1.filter((c) => String(c.origem).startsWith("uso:")).length;
+  ok(colhidos1 === 60, `esperava 60 casos colhidos, vieram ${colhidos1}`);
+
+  // Idempotência: a segunda rodada não pode mexer em nada. Sem isto, "preserva os manuais" seria
+  // verdade num dia e mentira no outro, e o 'git diff' de cada colheita viraria ruído ilegível.
+  const r2 = rodarColher(caminhoDb, caminhoGolden);
+  ok(r2.code === 0, `a segunda colheita saiu com ${r2.code}: ${r2.erro.slice(0, 500)}`);
+  ok(readFileSync(caminhoGolden, "utf8") === depois1, "a segunda colheita mudou o arquivo: não é idempotente");
+});
+
+caso("colher-falha-sem-escrever-quando-a-cobertura-nao-fecha", async () => {
+  // Um clone novo, com 'uso' quase vazio. Se o script escrevesse antes de conferir, ele APAGARIA o
+  // golden set versionado — que é a ENTRADA do portão — justamente quando ninguém está olhando.
+  const docs = [{ path: "C:\\fx\\docs\\unico.md" }];
+  const uso = [
+    { ts: 1700000000000, tool: "search_context", args: { query: "unica pergunta do clone novo" } },
+    { ts: 1700000001000, tool: "read_doc", args: { path: "C:\\fx\\docs\\unico.md" } },
+  ];
+  const caminhoDb = bancoParaColher("colheita-magra.db", docs, uso);
+  const caminhoGolden = join(fixture, "golden-magro.json");
+  const antes = JSON.stringify(
+    [
+      {
+        q: "o golden set que já existia",
+        filtros: { source: null, repo: null, feature: null, doc_type: null },
+        esperado: ["docs/unico.md"],
+        tipo: "positivo",
+        estilo: "keywords",
+        origem: "manual",
+      },
+    ],
+    null,
+    2
+  );
+  writeFileSync(caminhoGolden, antes);
+
+  const r = rodarColher(caminhoDb, caminhoGolden);
+  ok(r.code !== 0, "colheita sem cobertura tem de sair com código diferente de zero");
+  ok(/COLHEITA FALHOU/.test(r.erro), `a falha tem de ser RUIDOSA; stderr veio: ${r.erro.slice(0, 300)}`);
+  ok(/mínimo do CA2/.test(r.erro), "a mensagem tem de dizer qual cobertura faltou, não só que falhou");
+  ok(readFileSync(caminhoGolden, "utf8") === antes, "o golden.json foi SOBRESCRITO por uma colheita que falhou");
+});
+
 // ---------------------------------------------------------------- execução
 console.log(`fixture: ${fixture}`);
 console.log(`TTL_MS=${TTL_MS} TIQUE_MS=${TIQUE_MS} | servidores: TTL=${TTL_SERVIDOR_MS} ms\n`);

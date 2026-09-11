@@ -41,6 +41,8 @@ Medido em 2026-09-11 sobre 361 chamadas de `search_context`, é esta a diferenç
 
 A colheita foi medida em 2026-09-11 e rende **75 queries distintas** (77 pares brutos, janela de 90 s, dedup por query) — folga de 15 sobre o mínimo. Nenhum dos 75 alvos apodreceu: todos ainda estão indexados.
 
+> Revisto pela **emenda 2026-09-11** em `### scripts/colher-golden.mjs (novo)`: 7 desses 75 carregam filtro que o próprio alvo não satisfaz e passam a ser descartados. São **68**, folga de 8 — e a cobertura conta pelo **alvo**, não pelo filtro.
+
 > **E** o conjunto cobre, com pelo menos um caso cada: `source: code`, `repo: operations-center`, e **dois** casos negativos que devem voltar vazio — um estrutural e um de assunto ausente.
 
 `repo: operations-center` sai da colheita (23 alvos). **`source: code` não sai**: a telemetria tem zero `read_doc` sobre código, e sempre terá — em modo bypass o modelo lê código com `cat`, não com a tool. Esse caso e os negativos são escritos à mão.
@@ -143,6 +145,12 @@ Pareamento, exatamente como medido nesta sessão:
 3. Dedup por query normalizada (trim + lowercase); vence a primeira ocorrência.
 4. Valida que o alvo ainda existe em `docs`; alvo ausente vira aviso e o caso é descartado.
 5. Emite `{ q, filtros, esperado, tipo, estilo, origem }`.
+
+**Emenda 2026-09-11 (durante a task 4): o passo 4 valida existência *e coerência*.** `src/search.ts:184-187` aplica os filtros como igualdade literal em `docs.source/repo/feature/doc_type`, e **7 dos 75 pares colhidos carregam um filtro que o próprio alvo não satisfaz** — a busca gravada, com os filtros gravados, nunca poderia devolver o alvo gravado. Quatro deles são `repo: operations-center` sobre um `mapa` cujo `repo` é `null`: exatamente a combinação que esta spec usa como **negativo estrutural** logo abaixo. Emitidos como positivos seriam casos insatisfazíveis — 0 no nDCG para sempre, no base e no head, que é como se ensina um revisor a ignorar vermelho. São **par temporal falso**, não caso com filtro ruim: o `read_doc` veio de outra busca dentro da janela de 90 s. Tirar os filtros para "salvar" o caso seria pior — mediria uma busca que ninguém fez. Portanto o passo 4 passa a descartar, com aviso, o alvo que não satisfaz os filtros gravados, exatamente como já faz com alvo apodrecido.
+
+Medido depois da emenda, em 2026-09-11: **75 → 68 casos** (folga de 8 sobre o mínimo de 60), `repo: operations-center` = 22 alvos, `source: code` = 0 (inalterado — segue escrito à mão), 40 dos 68 ainda com algum filtro.
+
+E a cobertura do CA2 é medida **pelo alvo**, não pelo filtro do caso: foi assim que os números originais desta spec foram medidos (23 alvos `operations-center`, zero `code`). Por filtro dariam 27 e 1 — e esse `1` é justamente um dos casos incoerentes que a emenda descarta, que teria satisfeito em silêncio a asserção criada para forçar o caso `source: code` escrito à mão.
 
 A janela de 90 s é escolha medida, não palpite: 30 s → 71 pares, 60 s → 73, **90 s → 77**, 120 s → 79, 300 s → 90. Depois de 90 s a curva vira captura de pares de sessões diferentes, porque a tabela `uso` **não tem coluna de sessão** e o pareamento é puramente temporal.
 
