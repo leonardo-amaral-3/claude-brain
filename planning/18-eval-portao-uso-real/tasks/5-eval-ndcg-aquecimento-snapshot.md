@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 5: `eval.mjs` — nDCG@5, aquecimento, rodada invalidável, sobre snapshot
 
