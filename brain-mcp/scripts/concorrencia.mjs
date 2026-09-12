@@ -1911,6 +1911,250 @@ caso("colher-falha-sem-escrever-quando-a-cobertura-nao-fecha", async () => {
   ok(readFileSync(caminhoGolden, "utf8") === antes, "o golden.json foi SOBRESCRITO por uma colheita que falhou");
 });
 
+// ---------------------------------------------------------------- eval como portão (CA3)
+// (card #18) O eval deixa de ser relatório e passa a ser portão, e portão tem uma obrigação a mais
+// que relatório: distinguir "o ranking piorou" (código 1) de "a medição não aconteceu" (código 2).
+// Os casos abaixo afirmam a métrica e, principalmente, as três formas de NÃO ter medido — cada uma
+// delas, se tratada como medição, faria o portão devolver um número falso com toda a confiança.
+
+const evalMod = await import(pathToFileURL(join(root, "scripts", "eval.mjs")).href);
+
+const filtrosNulos = { source: null, repo: null, feature: null, doc_type: null };
+const casoPositivo = (q, esperado) => ({
+  q,
+  filtros: filtrosNulos,
+  esperado: [esperado],
+  tipo: "positivo",
+  estilo: "keywords",
+  origem: "manual",
+});
+const casoNegativo = (q, filtros, volatil) => ({
+  q,
+  filtros: { ...filtrosNulos, ...filtros },
+  esperado: [],
+  tipo: "negativo",
+  estilo: "keywords",
+  volatil,
+  origem: "manual",
+});
+
+/**
+ * Mensagem JSON-RPC como a do `search_context`, montada à mão. `brain === null` forja a
+ * resposta SEM `_meta.brain` — a que um servidor antigo daria, e que nenhum servidor atual produz.
+ */
+const respostaForjada = (caminhos, brain = { semantica: true, lexicais: 1, vetoriais: 1, colapsados: 0 }) => {
+  const texto = caminhos.length
+    ? caminhos
+        .map((p, i) => `${i + 1}. Titulo ${i + 1}\n   [docs]\n   ${p}\n   trecho do resultado ${i + 1}`)
+        .join("\n\n") + "\n\nUse read_doc(path) para ler o documento inteiro ou uma seção."
+    : 'Nenhum resultado para "x". Tente termos mais curtos/sinônimos, ou remova filtros.';
+  const result = { content: [{ type: "text", text: texto }] };
+  if (brain !== null) result._meta = { brain };
+  return { jsonrpc: "2.0", id: 1, result };
+};
+
+caso("eval-ndcg-sobre-ranks-conhecidos", async () => {
+  const { ndcg5, avaliar, veredito } = evalMod;
+  const veio = [1, 2, 3, 4, 5, 6].map((r) => Number(ndcg5(r).toFixed(2)));
+  ok(
+    JSON.stringify(veio) === JSON.stringify([1, 0.63, 0.5, 0.43, 0.39, 0]),
+    `nDCG@5 dos ranks 1..6 devia ser [1, 0.63, 0.5, 0.43, 0.39, 0], veio [${veio.join(", ")}]`
+  );
+  ok(ndcg5(0) === 0, "rank 0 (não veio) tem de valer 0");
+
+  // O mesmo número, agora saindo de uma resposta: o rank é a POSIÇÃO do bloco, não a primeira linha
+  // que contém o alvo. O trecho do 1º resultado cita o caminho do alvo de propósito — um parser que
+  // procurasse "linha parecida com caminho" daria rank 1 aqui.
+  const alvo = "C:\\fx\\docs\\alvo.md";
+  const ruido = (n) => `C:\\fx\\docs\\ruido-${n}.md`;
+  const resposta = respostaForjada([ruido(1), ruido(2), alvo, ruido(4), ruido(5)]);
+  resposta.result.content[0].text = resposta.result.content[0].text.replace(
+    "trecho do resultado 1",
+    "C:\\fx\\docs\\alvo.md citado dentro de um trecho"
+  );
+  const noTerceiro = avaliar(casoPositivo("q3", "docs/alvo.md"), resposta);
+  ok(noTerceiro.rank === 3, `alvo no 3º bloco devia dar rank 3, deu ${noTerceiro.rank}`);
+  ok(Math.abs(noTerceiro.ndcg - 0.5) < 1e-12, `rank 3 devia valer 0.5, valeu ${noTerceiro.ndcg}`);
+
+  const noPrimeiro = avaliar(casoPositivo("q1", "docs/alvo.md"), respostaForjada([alvo]));
+  const foraDoTop = avaliar(casoPositivo("q0", "docs/alvo.md"), respostaForjada([ruido(1), ruido(2)]));
+  const negativoOk = avaliar(casoNegativo("n1", { source: "github" }, false), respostaForjada([]));
+  const negativoFurado = avaliar(casoNegativo("n2", { source: "github" }, false), respostaForjada([ruido(1)]));
+  ok(negativoOk.ndcg === 1 && negativoFurado.ndcg === 0, "negativo vale 1 se vazio e 0 se não");
+  ok(!negativoFurado.invalido, "negativo ESTRUTURAL com resultado é medição (vale 0), não invalidação");
+
+  // A métrica do portão é a média sobre TODOS os casos, negativos inclusive.
+  const v = veredito([noPrimeiro, noTerceiro, foraDoTop, negativoOk, negativoFurado]);
+  ok(v.codigo === 0, `rodada válida sem --base devia ser código 0, veio ${v.codigo}`);
+  ok(Math.abs(v.ndcg - (1 + 0.5 + 0 + 1 + 0) / 5) < 1e-12, `nDCG@5 da rodada devia ser 0.5, veio ${v.ndcg}`);
+  // Os secundários olham só os positivos: hit@k de um negativo não quer dizer nada.
+  ok(v.positivos === 3 && v.hit1 === 1 && v.hit5 === 2, `hit@1/hit@5 errados: ${v.hit1}/${v.hit5} de ${v.positivos}`);
+  ok(Math.abs(v.mrr - (1 + 1 / 3 + 0) / 3) < 1e-12, `MRR errado: ${v.mrr}`);
+});
+
+caso("eval-sem-diagnostico-e-distinto-de-so-lexico", async () => {
+  const { avaliar, veredito, CODIGO } = evalMod;
+  const positivo = casoPositivo("alvo", "docs/alvo.md");
+  const alvo = ["C:\\fx\\docs\\alvo.md"];
+
+  const semMeta = avaliar(positivo, respostaForjada(alvo, null));
+  const soLexico = avaliar(positivo, respostaForjada(alvo, { semantica: false, lexicais: 1, vetoriais: 0, colapsados: 0 }));
+  const metaSemSinal = avaliar(positivo, respostaForjada(alvo, { lexicais: 1 }));
+
+  ok(semMeta.invalido?.tipo === "sem-diagnostico", `sem _meta.brain devia ser 'sem-diagnostico', veio ${semMeta.invalido?.tipo}`);
+  ok(soLexico.invalido?.tipo === "so-lexico", `semantica === false devia ser 'so-lexico', veio ${soLexico.invalido?.tipo}`);
+  ok(semMeta.invalido.tipo !== soLexico.invalido.tipo, "ausência de diagnóstico foi confundida com semântica caída");
+  ok(metaSemSinal.invalido?.tipo === "sem-diagnostico", "`_meta.brain` sem `semantica` booleano tem de contar como ausente");
+
+  // O caso que é fácil errar: negativo VAZIO sem diagnóstico. Vazio parece "passou", mas sem o sinal
+  // não se sabe se veio vazio por construção ou porque a metade vetorial nem rodou.
+  const negativoSemMeta = avaliar(casoNegativo("vazio", { source: "github" }, false), respostaForjada([], null));
+  ok(negativoSemMeta.invalido?.tipo === "sem-diagnostico", "negativo vazio sem _meta.brain foi aceito como satisfeito");
+
+  for (const [rotulo, a] of [["sem _meta.brain", semMeta], ["semantica false", soLexico], ["negativo sem _meta", negativoSemMeta]]) {
+    const v = veredito([avaliar(positivo, respostaForjada(alvo)), a]);
+    ok(v.codigo === CODIGO.NAO_MEDI, `${rotulo}: um caso inválido numa rodada boa devia dar código 2, deu ${v.codigo}`);
+    ok(v.codigo !== CODIGO.REGREDIU, `${rotulo}: medição que não aconteceu virou 'regrediu'`);
+  }
+  ok(veredito([avaliar(positivo, respostaForjada(alvo))]).codigo === CODIGO.NAO_CAIU, "a rodada de controle devia dar 0");
+});
+
+/**
+ * Um índice pequeno e COM vetores, montado uma vez e compartilhado pelos casos de ponta a ponta.
+ * Compartilhar é seguro justamente pelo que eles provam: toda rodada do eval mede um snapshot, e o
+ * primeiro caso afirma que o banco da fixture sai intocado.
+ */
+let indiceDoEval = null;
+async function montarIndiceDoEval() {
+  if (indiceDoEval) return indiceDoEval;
+  const fx = criarFixture("eval", {
+    "alfa.md": "# Alfa\n\nDocumento sobre alfa, o alvo do caso positivo.\n",
+    "beta.md": "# Beta\n\nDocumento sobre beta, que fala de outra coisa.\n",
+  });
+  const s = subirServidor(fx, "indexa-eval");
+  // `semantica` só sai true com chunk embutido (`search.ts`: `cobertura().comEmbedding > 0`), e o
+  // servidor do eval, em somente-consulta, não embute nada: o índice tem de chegar pronto.
+  await ate(
+    () =>
+      contar(fx.db, "SELECT COUNT(*) c FROM chunks") > 0 &&
+      contar(fx.db, "SELECT COUNT(*) c FROM chunks WHERE embedding IS NULL") === 0,
+    30000,
+    () => `o índice da fixture ganhar vetores -> ${s.diagnostico()}`
+  );
+  s.fecharStdin();
+  await ate(() => lerLider(fx.db) === null, TTL_SERVIDOR_MS + 10000, "o lease sair da tabela");
+  s.matar();
+  await ate(() => !s.vivo, 15000, "o servidor de indexação morrer de vez");
+  indiceDoEval = fx;
+  return fx;
+}
+
+const escreverGolden = (nome, casos) => {
+  const caminho = join(fixture, nome);
+  writeFileSync(caminho, JSON.stringify(casos, null, 2));
+  return caminho;
+};
+
+/**
+ * Roda o eval como o portão roda: processo próprio, banco/config/golden pelo ambiente. O stub de
+ * embeddings chega ao servidor que o eval sobe pelo NODE_OPTIONS — o eval não tem, e não deve ter,
+ * nenhuma opção que saiba que teste existe.
+ */
+const rodarEval = (fx, golden, envExtra = {}) =>
+  new Promise((res) => {
+    const c = spawn(process.execPath, [join(root, "scripts", "eval.mjs")], {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        BRAIN_DB: fx.db,
+        BRAIN_CONFIG: fx.config,
+        BRAIN_GOLDEN: golden,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${hookStub}`].filter(Boolean).join(" "),
+        ...envExtra,
+      },
+    });
+    let saida = "";
+    let erro = "";
+    c.stdout.on("data", (d) => (saida += d.toString()));
+    c.stderr.on("data", (d) => (erro += d.toString()));
+    const prazo = setTimeout(() => c.kill(), 90000);
+    c.on("exit", (code) => {
+      clearTimeout(prazo);
+      const snapshot = saida.match(/^snapshot: (.+) \(\d/m)?.[1] ?? null;
+      res({ code, saida, erro, snapshot, tudo: () => (saida + erro).slice(-1500) });
+    });
+  });
+
+const golden3 = () => [
+  casoPositivo("alfa", "docs/alfa.md"),
+  // Estrutural: a fixture só tem root `docs`, então `source: github` não casa nem léxico nem vetor.
+  casoNegativo("alfa estrutural", { source: "github" }, false),
+  casoNegativo("alfa volatil", { repo: "repo-que-nao-esta-no-indice" }, true),
+];
+
+caso("eval-mede-sobre-snapshot-sem-tocar-o-indice", async () => {
+  const fx = await montarIndiceDoEval();
+  const usoAntes = contar(fx.db, "SELECT COUNT(*) c FROM uso");
+  const docsAntes = contar(fx.db, "SELECT COUNT(*) c FROM docs");
+
+  const r = await rodarEval(fx, escreverGolden("golden-eval-ok.json", golden3()));
+  ok(r.code === 0, `rodada válida devia sair com 0, saiu com ${r.code}:\n${r.tudo()}`);
+  // 1.000 prova os FILTROS: sem `source: github` repassado, "alfa estrutural" voltaria cheio e o
+  // negativo valeria 0 — a média cairia para 0.667.
+  ok(/nDCG@5 1\.000 \(3 casos\)/.test(r.saida), `esperava nDCG@5 1.000 sobre 3 casos:\n${r.tudo()}`);
+  ok(/EVAL OK \(código 0\)/.test(r.saida), `faltou o veredito legível:\n${r.tudo()}`);
+
+  ok(r.snapshot !== null, `o eval não disse onde tirou o snapshot:\n${r.tudo()}`);
+  ok(!existsSync(r.snapshot), `o snapshot ficou para trás: ${r.snapshot}`);
+  ok(!existsSync(dirname(r.snapshot)), `o diretório do snapshot ficou para trás: ${dirname(r.snapshot)}`);
+
+  // As buscas da rodada gravaram `uso` — no snapshot. No banco da fixture, nada.
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM uso") === usoAntes,
+    "o eval escreveu `uso` no banco medido: a rodada não correu sobre o snapshot"
+  );
+  ok(contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsAntes, "o eval mexeu nos documentos do banco medido");
+  ok(lerLider(fx.db) === null, "o servidor do eval disputou o lease do banco medido");
+});
+
+caso("eval-semantica-caida-sai-2-nao-1", async () => {
+  const fx = await montarIndiceDoEval();
+  const golden = escreverGolden("golden-eval-semantica.json", golden3());
+
+  // (a) Servidor que nunca aquece: o laço de aquecimento estoura o teto. Teto curto só para a
+  //     suíte não pagar os 60 s reais — a regra testada é a mesma.
+  const sem = await rodarEval(fx, golden, { BRAIN_STUB_SEM_AQUECER: "1", BRAIN_EVAL_TETO_AQUECIMENTO_MS: "1500" });
+  ok(sem.code === 2, `servidor sem aquecer devia dar código 2, deu ${sem.code}:\n${sem.tudo()}`);
+  ok(/NÃO CONSEGUI MEDIR/.test(sem.erro), `a mensagem tem de dizer 'não consegui medir':\n${sem.tudo()}`);
+  ok(/aquecimento/.test(sem.erro), `a mensagem tem de dizer que foi o aquecimento:\n${sem.tudo()}`);
+  ok(!/nDCG@5 \d/.test(sem.saida), "sem aquecimento não há medição, e mesmo assim saiu um nDCG@5");
+  ok(sem.snapshot && !existsSync(dirname(sem.snapshot)), "o snapshot ficou para trás no caminho de erro");
+
+  // (b) A semântica cai NO MEIO da rodada: aquecimento (1ª consulta) e 1º caso (2ª) respondem, o 2º
+  //     caso já sai só com léxico. A rodada inteira vale nada, e o caso tem de ser nomeado.
+  const meio = await rodarEval(fx, golden, { BRAIN_STUB_QUERIES_ATE_CAIR: "2" });
+  ok(meio.code === 2, `semântica caída no meio devia dar código 2, deu ${meio.code}:\n${meio.tudo()}`);
+  ok(/NÃO CONSEGUI MEDIR/.test(meio.erro), `a mensagem tem de dizer 'não consegui medir':\n${meio.tudo()}`);
+  ok(/\[so-lexico\] "alfa estrutural"/.test(meio.erro), `o caso que invalidou a rodada não foi nomeado:\n${meio.tudo()}`);
+  ok(!/nDCG@5 \d/.test(meio.saida), "rodada invalidada imprimiu nDCG@5 — seria lido como medição");
+  ok(meio.snapshot && !existsSync(dirname(meio.snapshot)), "o snapshot ficou para trás na rodada invalidada");
+});
+
+caso("eval-negativo-volatil-apodrecido-sai-2", async () => {
+  const fx = await montarIndiceDoEval();
+  // O assunto "chegou" ao índice: o filtro do negativo volátil agora casa o root da fixture.
+  const golden = escreverGolden("golden-eval-apodreceu.json", [
+    casoPositivo("alfa", "docs/alfa.md"),
+    casoNegativo("alfa volatil", { source: "docs" }, true),
+  ]);
+  const r = await rodarEval(fx, golden);
+  ok(r.code === 2, `negativo volátil com resultado devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  ok(r.code !== 1, "caso apodrecido foi reportado como regressão de ranking");
+  ok(/\[apodreceu\] "alfa volatil"/.test(r.erro), `o caso apodrecido não foi nomeado:\n${r.tudo()}`);
+  ok(/recolha de novo/.test(r.erro), `a mensagem tem de mandar recolher:\n${r.tudo()}`);
+});
+
 // ---------------------------------------------------------------- execução
 console.log(`fixture: ${fixture}`);
 console.log(`TTL_MS=${TTL_MS} TIQUE_MS=${TIQUE_MS} | servidores: TTL=${TTL_SERVIDOR_MS} ms\n`);
