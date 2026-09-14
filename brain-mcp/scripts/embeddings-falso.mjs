@@ -24,12 +24,24 @@ const registro = process.env.BRAIN_STUB_REGISTRO;
 
 let pronto = false;
 
+// Dois defeitos sob encomenda, para os casos do eval (card #18) que precisam de uma semântica que
+// NÃO responde — o que o stub, sempre pronto, nunca produziria sozinho:
+//  - BRAIN_STUB_SEM_AQUECER=1: `aquecer()` resolve sem deixar o modelo pronto, exatamente como o
+//    `aquecer()` real faz quando a carga do modelo falha (loga e resolve). Toda busca sai só com léxico.
+//  - BRAIN_STUB_QUERIES_ATE_CAIR=N: as N primeiras `embedQuery` respondem, as seguintes lançam — é
+//    o timeout do embed no meio da rodada, que o `Buscador` engole e devolve como `semantica: false`.
+const semAquecer = process.env.BRAIN_STUB_SEM_AQUECER === "1";
+const queriesAteCair = process.env.BRAIN_STUB_QUERIES_ATE_CAIR
+  ? Number(process.env.BRAIN_STUB_QUERIES_ATE_CAIR)
+  : Infinity;
+let queries = 0;
+
 export function jaPronto() {
   return pronto;
 }
 
 export function aquecer() {
-  pronto = true;
+  if (!semAquecer) pronto = true;
   return Promise.resolve();
 }
 
@@ -73,6 +85,7 @@ export async function embedPassagens(textos) {
 }
 
 export async function embedQuery(texto) {
+  if (++queries > queriesAteCair) throw new Error("stub: semântica derrubada de propósito");
   return vetor(texto);
 }
 

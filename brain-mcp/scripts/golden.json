@@ -1,78 +1,1240 @@
 [
   {
     "q": "blocklist gestao aihs linha fragmento",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "1072-gestao-aihs-linha-fragmento",
       "cards/1072",
       "prs/1078"
     ],
-    "estilo": "keywords"
+    "tipo": "positivo",
+    "estilo": "keywords",
+    "origem": "manual"
   },
   {
     "q": "por que a AIH consolidada aparece duas vezes na tela de gestão de AIHs?",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "1072-gestao-aihs-linha-fragmento",
       "cards/1072",
       "prs/1078"
     ],
-    "estilo": "natural"
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual"
   },
   {
     "q": "como funciona a esteira gm de desenvolvimento?",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "fluxo-gm-desenvolvimento"
     ],
-    "estilo": "natural"
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual"
   },
   {
     "q": "filtro de campo e valor da AIH",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "filtro-campo-valor"
     ],
-    "estilo": "keywords"
+    "tipo": "positivo",
+    "estilo": "keywords",
+    "origem": "manual"
   },
   {
     "q": "o que ficou decidido sobre os manuais de críticas?",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "manuais-criticas"
     ],
-    "estilo": "natural"
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual"
   },
   {
     "q": "renomear responsável para solicitante no controle de instituição",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "rename-responsavel-solicitante"
     ],
-    "estilo": "natural"
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual"
   },
   {
     "q": "quais portas os stacks docker locais usam?",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "notoria-local-env"
     ],
-    "estilo": "natural"
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual"
   },
   {
     "q": "onde fica a regra que impede designar AIH para competencia anterior?",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "1070-competencia-anterior-designacao",
       "cards/1070"
     ],
-    "estilo": "natural"
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual"
   },
   {
     "q": "validacao de CNES da instituicao na auditoria",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "1075-validacao-cnes-instituicao",
       "cards/1075"
     ],
-    "estilo": "keywords"
+    "tipo": "positivo",
+    "estilo": "keywords",
+    "origem": "manual"
   },
   {
     "q": "o que o brain-mcp usa para busca semantica e por que nao sqlite-vec?",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
     "esperado": [
       "decisoes/2026-09-02-a-busca-do-brain-mcp"
     ],
-    "estilo": "natural"
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual"
+  },
+  {
+    "q": "timeout do embed na busca e fusão RRF dos dois rankings",
+    "filtros": {
+      "source": "code",
+      "repo": "claude-brain",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "brain-mcp/src/search.ts"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual",
+    "nota": "escrito à mão porque a colheita nunca produziria: a telemetria tem zero read_doc sobre código — em modo bypass o modelo lê código com cat, não com a tool. Aponta para o próprio brain-mcp, o que o mantém estável e não acrescenta detalhe de cliente ao repo público."
+  },
+  {
+    "q": "eleição do líder do índice: lease, TTL e quem pode indexar",
+    "filtros": {
+      "source": "code",
+      "repo": "claude-brain",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "brain-mcp/src/lease.ts"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "manual",
+    "nota": "segundo caso source: code, pelo mesmo motivo do primeiro."
+  },
+  {
+    "q": "arquitetura core session bridge IPC canais renderer ChatScreen",
+    "filtros": {
+      "source": "mapa",
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [],
+    "tipo": "negativo",
+    "estilo": "natural",
+    "volatil": false,
+    "origem": "manual",
+    "nota": "negativo ESTRUTURAL: vazio por construção do config — toda raiz mapa tem repo null (7 de 7, medido em 2026-09-11), então a combinação nunca casa, nem na metade léxica nem na vetorial (vectors.ts:80-81 aplica os mesmos filtros). Nenhuma mudança de ranking o faz falhar; por isso volatil: false."
+  },
+  {
+    "q": "GetIndicadoresController getFalhasPorSetor limitMetricItems",
+    "filtros": {
+      "source": null,
+      "repo": "modulo-erp",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [],
+    "tipo": "negativo",
+    "estilo": "keywords",
+    "volatil": true,
+    "origem": "manual",
+    "nota": "negativo de ASSUNTO AUSENTE: o repo modulo-erp não está no brain.config.json — 0 docs e 0 chunks com embedding em 2026-09-11. Basta indexá-lo para o caso deixar de ser vazio, e por isso volatil: true: o eval sai com código 2 ('o caso apodreceu, recolha de novo'), nunca com 1. Todo negativo deste índice é escopado por filtro, e não por assunto: não há corte de score, então a metade vetorial devolve sempre os K mais próximos (search.ts:278) e uma query sem filtro jamais volta vazia."
+  },
+  {
+    "q": "reagrupar AihData por domínio 1067 PRD",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "reagrupamento-aih-por-dominio/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-02"
+  },
+  {
+    "q": "cherry-pick main para dev depois do merge hotfix backport",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "prs/992.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-03"
+  },
+  {
+    "q": "1088 editar campo lote valor vazio",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1088-editar-campo-lote-valor-vazio/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-03"
+  },
+  {
+    "q": "Local Development Environment",
+    "filtros": {
+      "source": "docs",
+      "repo": "modulo-processos",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "modulo-processos/local_development.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "keywords",
+    "origem": "uso:2026-09-03"
+  },
+  {
+    "q": "revisão automática de PR no CI/CD com agente Claude workflow GitHub Actions",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "planning/fluxo-gm-desenvolvimento.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "custo API key revisão de código gate G4 decisão sobre revisor automático",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "planning/fluxo-gm-desenvolvimento.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "incrementar-arquivo erro 500 timeout transação interativa Prisma createMany",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-04-o-erro-500-de-post-processos-id-incrementar-arquivo-em-prod-.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "board Project 19 colunas status esteira gm workflows automação card",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "planning/fluxo-gm-desenvolvimento.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "Fase 0 fundação de testes custo real escrever teste api web vitest dificuldade",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "diario/2026-09-03 task 3 reagrupamento — vitest db.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "Task 3 vitest banco Postgres api dublê de auth fricção",
+    "filtros": {
+      "source": "diario",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "diario/2026-09-03 task 3 reagrupamento — vitest db.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "revisão automática de PR no CI agent review claude code",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "planning/fluxo-gm-desenvolvimento.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "agent review CI/CD linhagem do card qualidade da revisão",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "planning/fluxo-gm-desenvolvimento.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-04"
+  },
+  {
+    "q": "operations center gestão de tarefas simultâneas do Claude Code objetivo",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-04-as-11-skills-gm-deixaram-de-ter-board-hardcoded-owner-projec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-05"
+  },
+  {
+    "q": "workspace pessoal operations-center criado por quê motivação",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-04-as-11-skills-gm-deixaram-de-ter-board-hardcoded-owner-projec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-05"
+  },
+  {
+    "q": "rodar várias sessões Claude Code em paralelo acompanhar dificuldade",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-04-as-11-skills-gm-deixaram-de-ter-board-hardcoded-owner-projec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-05"
+  },
+  {
+    "q": "PRD Operations Center kanban board GitHub Projects requisitos funcionais",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-05"
+  },
+  {
+    "q": "spec fundar operations-center fatia vertical Electron core sessão",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-05"
+  },
+  {
+    "q": "PRD operations center requisitos funcionais RF-1 RF-3 chat no cartão prioridade próximos passos",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-05"
+  },
+  {
+    "q": "chat do card dentro do cartão do kanban, sessão por card, pasta local do repo",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-05"
+  },
+  {
+    "q": "Task 1 Fundação entrada do builder no web e os dois gates 1102",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": "task"
+    },
+    "esperado": [
+      "fase-1b/1-fundacao-adaptador-e-gates.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-06"
+  },
+  {
+    "q": "RN-4 nenhuma sessão trabalha sem comando humano permissionMode permissão ferramenta",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-06"
+  },
+  {
+    "q": "canUseTool permissão aprovação ferramenta SessionHost fluxo de permissão",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-06"
+  },
+  {
+    "q": "sinal de vida sessão trabalhando atividade corrente cartão kanban",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-06"
+  },
+  {
+    "q": "Fase 2 reagrupamento group dos campos do catálogo de filtros do web muda grupo",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "reagrupamento-aih-por-dominio/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "RF-1 aba por board GitHub Projects múltiplos boards Operations Center",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "RF-9 iniciar nova triagem coluna Triagem chat sem card",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "RF-6 cartão expandido expandir sob demanda tela cheia",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "RF-6 cartão expandido expandir sob demanda scroll altura máxima conversa",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "tema claro escuro theme design system neobrutalism renderer",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "8-design-system-neobrutalism/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "RF-1 abrir todos os boards do GitHub um por aba multi-board",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "design system neobrutalism tokens de cor index.css renderer",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "8-design-system-neobrutalism/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "RF-1 emendado aba por board que roda a esteira seis estações conversáveis",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-07-o-rf-1-do-prd-do-operations-center-esta-emendado-pelo-card-2.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "decisão 203 os 16 Projects que o token enxerga e o campo Status de cada um",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-07-medido-em-2026-09-07-o-token-do-leonardo-enxerga-16-projects.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "permissionMode default SessionHost permissão por ferramenta RN-4 nenhuma sessão trabalha sem comando humano",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "canUseTool permissão aprovar ferramenta chat modo autônomo dangerously skip permissions",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "modo autônomo sessão trabalha sozinha várias tarefas simultâneas painel de acompanhamento fila de aprovação",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "11-fila-de-pedidos-pendentes/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-07"
+  },
+  {
+    "q": "modulo-erp prettier format:check dev quebrado lint CI verificação automática",
+    "filtros": {
+      "source": "github",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "cards/982.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "format:check vermelho na dev pre-existente não corrigir dentro da PR escopo que ninguém pediu",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-04-no-plataformas-auth-o-yarn-format-check-esta-vermelho-na-dev.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "Fase 1 abas verificação pós-deploy card 32 aba ativa cartão aberto",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "25-boards-por-aba/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "promoção da Fase 1 card 32 validação em dev bancada checklist yarn build yarn start abas",
+    "filtros": {
+      "source": "diario",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "diario/2026-09-08 fase 1 do épico #25 completa.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "PR plataformas-auth deploy correção de setores",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-08-a-correcao-do-982-no-plataformas-auth-foi-recortada-da-dev-e.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "Reagrupamento da AihData por domínio spec",
+    "filtros": {
+      "source": "planning",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "reagrupamento-aih-por-dominio/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "decisão 266 diff vazio src/testing subdiretório aditivo CA1 paridade de superfície builder v2",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-08-a-fase-2a-1098-do-epico-1067-foi-quebrada-em-7-tasks-v2-do-c.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "mapa de arquitetura operations-center estrutura core renderer ponte IPC",
+    "filtros": {
+      "source": "mapa",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "mapas/operations-center.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "RF-6 um cartão expandido por vez, cartão aberto por aba, expandir colapsar cartão coluna",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "SessionHandle ingest assistantText ChatMessage ponte core chat",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "14-sinal-de-vida-no-chat/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "reagrupamento AIH por domínio spec tasks",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "reagrupamento-aih-por-dominio/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-08"
+  },
+  {
+    "q": "mapa de arquitetura operations-center estrutura de pastas main renderer core",
+    "filtros": {
+      "source": "mapa",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "mapas/operations-center.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "tema escuro combinação de cores design system tokens index.css",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "29-combinacoes-de-cores/spec.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "decisão 261 contagem 35 dot-paths 312 ocorrências processos-criticas criticas.ts",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-08-fechada-a-contagem-que-a-spec-do-1067-deixou-explicitamente-.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "subfaturamento cirurgia eletiva relatório procedimentos",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "memory/extracao-prod-banco-processos.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "keywords",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "extração banco prod subfaturamento xlsx crítica 000009 valor complementação perdida",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "memory/extracao-prod-banco-processos.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "rota curta o que ela pula: spec curta, plan-tasks, uma task só",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "planning/fluxo-gm-desenvolvimento.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "campo origem do Processo removido zmodel multifaturista",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-08-medicao-do-round-trip-contasparsing-fileserializer-sobre-os-.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "classificação diagnóstico secundário branco serializeDiagnosticos layout SISAIH01",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-08-medicao-do-round-trip-contasparsing-fileserializer-sobre-os-.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "AskUserQuestion opções de resposta aprovação skills gm perguntas ao usuário",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-09-as-duas-dores-de-usabilidade-das-skills-gm-perguntas-cifrada.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "aprovação humana nas skills gm-* pergunta com contexto AskUserQuestion escolha",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-09-o-card-5-do-claude-brain-humanizar-a-conversa-das-skills-gm-.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "bump lockfile processos-criticas api infra yarn.lock frozen-lockfile card 1141",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "modulo-processos/2026-07.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "AskUserQuestion comportamento SDK opções header label Other texto livre",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-05-no-claude-agent-sdk-o-askuserquestion-chega-ao-host-pelo-mes.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-09"
+  },
+  {
+    "q": "brain-contexto.js hook UserPromptSubmit injeção de contexto slash command",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-10-diagnostico-do-consumo-de-cota-do-claude-code-medido-em-2026.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-10"
+  },
+  {
+    "q": "diagnóstico consumo de cota cache-read grep razão Bash brain 31:1",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-10-diagnostico-do-consumo-de-cota-do-claude-code-medido-em-2026.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-10"
+  },
+  {
+    "q": "Fase 2c2 emenda config release breakingHeaderPattern próximos passos ship",
+    "filtros": {
+      "source": "diario",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "diario/2026-09-10 fase 2c2 emenda config release.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-10"
+  },
+  {
+    "q": "regra guarda-chuva só o primeiro procedimento recebe complementação subfaturamento",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1136-subfaturamento-huap/roteiro.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-10"
+  },
+  {
+    "q": "Fase 2d 2b ordem release web depois da api reagrupamento",
+    "filtros": {
+      "source": "decisao",
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-09-no-reagrupamento-da-aihdata-inserir-o-segmento-de-dominio-nu.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-10"
+  },
+  {
+    "q": "card 1128",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "decisoes/2026-09-10-na-promocao-da-fase-2d-1128-a-fase-foi-re-cortada-em-dois-ca.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "keywords",
+    "origem": "uso:2026-09-10"
+  },
+  {
+    "q": "escrita dupla depois do flip colunas antigas buildFlattenedUpdate inverte projeção direta",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": "reagrupamento-aih-por-dominio",
+      "doc_type": null
+    },
+    "esperado": [
+      "fase-2a/6-escrita-dupla-nas-duas-rotas.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-10"
+  },
+  {
+    "q": "eval de retrieval golden set hit@1 hit@5 MRR ranking regressão",
+    "filtros": {
+      "source": null,
+      "repo": null,
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "diario/2026-09-10 estratégia eval e quantization brain-mcp.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-11"
+  },
+  {
+    "q": "RF-6 cartão expandido expandir sob demanda scroll próprio altura máxima tipografia",
+    "filtros": {
+      "source": null,
+      "repo": "operations-center",
+      "feature": null,
+      "doc_type": null
+    },
+    "esperado": [
+      "1-fundar-operations-center/prd.md"
+    ],
+    "tipo": "positivo",
+    "estilo": "natural",
+    "origem": "uso:2026-09-11"
   }
 ]

@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig, dbPath, packageRoot } from "./config.js";
+import { loadConfig, dbPath, packageRoot, SOMENTE_CONSULTA } from "./config.js";
 import { openDb, versaoIndice, bumpVersaoIndice } from "./db.js";
 import { Indexer } from "./indexer.js";
 import { GithubSyncer } from "./githubSync.js";
@@ -41,7 +41,16 @@ const syncer = new GithubSyncer(config.github, join(packageRoot, "data", "github
 
 // Eleição no boot. Quem ganha varre; quem perde não varre — é esta linha que elimina as N
 // varreduras simultâneas dos mesmos arquivos que o card #1 reporta.
-if (lease.tentarAdquirir()) {
+//
+// O modo somente-consulta não entra na disputa: ele nem TENTA, porque tentar e perder ainda
+// deixaria este processo pronto a assumir no tique se o líder sumisse — que é exatamente o
+// caso do `--base` do eval, onde NÃO HÁ líder algum e o primeiro tique promoveria um dos dois
+// servidores a varrer o snapshot por baixo da comparação.
+if (SOMENTE_CONSULTA) {
+  console.error(
+    "[brain] boot (somente-consulta): não disputo o lease e não indexo nada — só respondo consulta"
+  );
+} else if (lease.tentarAdquirir()) {
   try {
     const stats = indexer.scan();
     console.error(
@@ -173,6 +182,11 @@ setTimeout(() => {
       console.error("[brain] backfill de vetores de decisao falhou:", err);
     }
   });
+
+  // Daqui para baixo é tudo trabalho de líder, e é tudo o que o modo somente-consulta desliga.
+  // O `aquecer()` acima fica de propósito: o eval precisa da metade semântica, e um servidor
+  // que só tivesse léxico reprovaria por aquecimento, não por ranking.
+  if (SOMENTE_CONSULTA) return;
 
   if (lease.souLider) assumirTrabalhoPesado();
 
