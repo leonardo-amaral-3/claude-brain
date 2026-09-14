@@ -11,7 +11,7 @@
 // que sobem `dist/index.js` de verdade e falam JSON-RPC por stdio. Os de servidor recebem o stub
 // determinístico de embeddings (ver embeddings-falso.mjs e a emenda 2026-09-09 da spec).
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -2059,20 +2059,25 @@ const escreverGolden = (nome, casos) => {
  * Roda o eval como o portão roda: processo próprio, banco/config/golden pelo ambiente. O stub de
  * embeddings chega ao servidor que o eval sobe pelo NODE_OPTIONS — o eval não tem, e não deve ter,
  * nenhuma opção que saiba que teste existe.
+ *
+ * `instalacao` roda uma CÓPIA do eval.mjs a partir de outra pasta (as guardas do `--base` leem a pasta
+ * onde ele roda); `null` no `envExtra` tira a variável do ambiente herdado.
  */
-const rodarEval = (fx, golden, envExtra = {}) =>
+const rodarEval = (fx, golden, envExtra = {}, { instalacao = root, args = [] } = {}) =>
   new Promise((res) => {
-    const c = spawn(process.execPath, [join(root, "scripts", "eval.mjs")], {
-      cwd: root,
+    const env = {
+      ...process.env,
+      BRAIN_DB: fx.db,
+      BRAIN_CONFIG: fx.config,
+      BRAIN_GOLDEN: golden,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${hookStub}`].filter(Boolean).join(" "),
+      ...envExtra,
+    };
+    for (const [k, v] of Object.entries(env)) if (v === null) delete env[k];
+    const c = spawn(process.execPath, [join(instalacao, "scripts", "eval.mjs"), ...args], {
+      cwd: instalacao,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        BRAIN_DB: fx.db,
-        BRAIN_CONFIG: fx.config,
-        BRAIN_GOLDEN: golden,
-        NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${hookStub}`].filter(Boolean).join(" "),
-        ...envExtra,
-      },
+      env,
     });
     let saida = "";
     let erro = "";
@@ -2153,6 +2158,200 @@ caso("eval-negativo-volatil-apodrecido-sai-2", async () => {
   ok(r.code !== 1, "caso apodrecido foi reportado como regressão de ranking");
   ok(/\[apodreceu\] "alfa volatil"/.test(r.erro), `o caso apodrecido não foi nomeado:\n${r.tudo()}`);
   ok(/recolha de novo/.test(r.erro), `a mensagem tem de mandar recolher:\n${r.tudo()}`);
+});
+
+// ---------------------------------------------------------------- o --base: comparação e guardas
+// (card #18, task 6) O portão compara dois servidores, e o que mais custa caro nele não é a conta — é
+// medir a coisa errada e devolver "não caiu" com toda a confiança. Por isso as guardas têm casos
+// próprios, e cada um afirma também que NADA foi feito antes delas: nem snapshot, nem compilação.
+
+caso("eval-comparar-e-estrito", async () => {
+  const { avaliar, veredito, comparar, CODIGO } = evalMod;
+  const alvo = "C:\\fx\\docs\\alvo.md";
+  const ruido = (n) => `C:\\fx\\docs\\ruido-${n}.md`;
+  const casos = [
+    casoPositivo("a", "docs/alvo.md"),
+    casoPositivo("b", "docs/alvo.md"),
+    casoNegativo("n", { source: "github" }, false),
+  ];
+  const rodadaDe = (respostas) => {
+    const avaliacoes = casos.map((c, i) => avaliar(c, respostas[i]));
+    return { v: veredito(avaliacoes), avaliacoes };
+  };
+  const base = rodadaDe([respostaForjada([alvo]), respostaForjada([ruido(1), alvo]), respostaForjada([])]);
+
+  const igual = comparar(base, rodadaDe([respostaForjada([alvo]), respostaForjada([ruido(1), alvo]), respostaForjada([])]));
+  ok(igual.codigo === CODIGO.NAO_CAIU, `rodadas idênticas deviam dar 0, deram ${igual.codigo}`);
+  ok(igual.mudaram.length === 0, `rodadas idênticas não têm caso que mudou, vieram ${igual.mudaram.length}`);
+
+  // "a" cai do 1º para o 2º, "b" sobe do 2º para o 1º, o negativo passa a ter resultado.
+  const caiu = comparar(base, rodadaDe([respostaForjada([ruido(1), alvo]), respostaForjada([alvo]), respostaForjada([ruido(2)])]));
+  ok(caiu.codigo === CODIGO.REGREDIU, `queda de nDCG@5 devia dar código 1, deu ${caiu.codigo}`);
+  ok(Math.abs(caiu.delta - -1 / 3) < 1e-12, `delta devia ser -1/3, veio ${caiu.delta}`);
+  const ordem = caiu.mudaram.map((m) => m.caso.q).join(",");
+  ok(ordem === "n,a,b", `os casos que mudaram, dos que mais caíram para os que subiram, deviam ser n,a,b — vieram ${ordem}`);
+  ok(caiu.mudaram[1].base.rank === 1 && caiu.mudaram[1].head.rank === 2, "o caso que mudou tem de carregar as duas posições");
+
+  // Troca que se compensa: a média não se move, então não barra — mas a tabela mostra onde mexeu.
+  const trocou = comparar(base, rodadaDe([respostaForjada([ruido(1), alvo]), respostaForjada([alvo]), respostaForjada([])]));
+  ok(trocou.codigo === CODIGO.NAO_CAIU, `troca que se compensa não é queda, deu ${trocou.codigo}`);
+  ok(trocou.mudaram.length === 2, `a troca tem de aparecer nos casos que mudaram, vieram ${trocou.mudaram.length}`);
+
+  // O épsilon é contra ruído de ponto flutuante e NÃO é faixa de tolerância: uma queda de um
+  // milionésimo barra; só a diferença no último bit passa.
+  const so = (ndcg) => ({ v: { ndcg }, avaliacoes: [] });
+  ok(comparar(so(0.8), so(0.8 - 1e-6)).codigo === CODIGO.REGREDIU, "queda de 1e-6 passou: o épsilon virou faixa de tolerância");
+  ok(comparar(so(0.8), so(0.8 - 1e-12)).codigo === CODIGO.NAO_CAIU, "ruído de ponto flutuante (1e-12) barrou");
+  ok(comparar(so(0.8), so(0.9)).codigo === CODIGO.NAO_CAIU, "melhora não é regressão");
+});
+
+caso("eval-argumentos-do-portao", async () => {
+  const { lerArgumentos } = evalMod;
+  const a = lerArgumentos(["--base", "origin/dev", "--repo=C:\\repo", "natural"]);
+  ok(a.base === "origin/dev" && a.repo === "C:\\repo" && a.estilo === "natural" && !a.erros.length, `leitura errada: ${JSON.stringify(a)}`);
+  ok(lerArgumentos(["--base"]).erros.length === 1, "--base sem valor foi aceito");
+  ok(lerArgumentos(["--base", "--repo", "x"]).erros.length > 0, "--base engoliu a flag seguinte como ref");
+  ok(/só vale com --base/.test(lerArgumentos(["--repo", "x"]).erros.join()), "--repo sem --base foi aceito em silêncio");
+  ok(/não reconhecida/.test(lerArgumentos(["--bse", "origin/dev"]).erros.join()), "flag com erro de digitação foi ignorada");
+});
+
+/**
+ * Instalação de mentira para as guardas: o eval.mjs COPIADO, um dist/index.js e um src/*.ts com os
+ * mtimes que o caso escolhe. Copiado, e não rodado do root, porque as guardas leem a pasta onde o eval
+ * roda — e mexer no mtime do src/ do próprio repo sujaria o build de quem roda a suíte.
+ */
+function criarInstalacao(dir, { distVelho = false } = {}) {
+  for (const sub of ["scripts", "dist", "src"]) mkdirSync(join(dir, sub), { recursive: true });
+  writeFileSync(join(dir, "scripts", "eval.mjs"), readFileSync(join(root, "scripts", "eval.mjs")));
+  writeFileSync(join(dir, "dist", "index.js"), "// nunca roda: as guardas param antes\n");
+  writeFileSync(join(dir, "src", "index.ts"), "export {};\n");
+  const t = Date.now() / 1000 - 3600;
+  utimesSync(join(dir, "src", "index.ts"), t, t);
+  utimesSync(join(dir, "dist", "index.js"), t + (distVelho ? -60 : 60), t + (distVelho ? -60 : 60));
+  return dir;
+}
+
+function criarRepo(dir, branch) {
+  mkdirSync(dir, { recursive: true });
+  const g = (...a) => {
+    const r = spawnSync("git", ["-C", dir, "-c", "user.name=teste", "-c", "user.email=teste@exemplo", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8" });
+    ok(r.status === 0, `git ${a.join(" ")} falhou na fixture: ${r.stderr}`);
+  };
+  g("init", "-q");
+  g("symbolic-ref", "HEAD", `refs/heads/${branch}`);
+  g("commit", "-q", "--allow-empty", "-m", "fixture");
+  return dir;
+}
+
+/**
+ * O que toda guarda precisa para chegar até ela: banco, config e golden que existem, e um
+ * `~/.claude` próprio. `GIT_CEILING_DIRECTORIES` impede o git de achar um repositório ACIMA da
+ * fixture — sem isso "a instalação não é git" dependeria de onde fica o temporário de quem roda.
+ */
+function montarGuardas(nome) {
+  const dir = join(fixture, nome);
+  const claudeHome = join(dir, "claude-home");
+  mkdirSync(claudeHome, { recursive: true });
+  const db = join(dir, "vazio.db");
+  const conexao = new DatabaseSync(db);
+  conexao.exec("CREATE TABLE t (x)");
+  conexao.close();
+  const config = join(dir, "brain.config.json");
+  writeFileSync(config, "{}");
+  return {
+    dir,
+    claudeHome,
+    fx: { db, config },
+    golden: escreverGolden(`golden-${nome}.json`, golden3()),
+    env: () => ({ CLAUDE_CONFIG_DIR: claudeHome, BRAIN_REPO: null, GIT_CEILING_DIRECTORIES: fixture }),
+    marcador: (campos) =>
+      writeFileSync(
+        join(claudeHome, "brain-sync-origem.txt"),
+        `# fixture\n${Object.entries(campos).map(([k, v]) => `${k}=${v}`).join("\n")}\ndata=2026-09-14 00:00:00\n`
+      ),
+  };
+}
+
+/** Nada de trabalho antes da guarda: o snapshot é o primeiro trabalho, e a compilação vem depois dele. */
+const semTrabalho = (r, inst) => {
+  ok(!/^snapshot: /m.test(r.saida), `a guarda deixou o eval tirar snapshot:\n${r.tudo()}`);
+  ok(!/^base: /m.test(r.saida), `a guarda deixou o eval compilar o base:\n${r.tudo()}`);
+  ok(!existsSync(join(inst, ".eval-base")) && !existsSync(join(inst, "dist-base")), "sobrou .eval-base/ ou dist-base/ na instalação");
+};
+
+/** `/c/Users/x`, como o `sync.sh` grava — o `sync.ps1` grava `C:\Users\x`, e o eval lê os dois. */
+const comoGitBash = (p) => p.split("\\").join("/").replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`);
+
+caso("eval-base-sem-checkout-nomeia-as-tres-saidas", async () => {
+  const g = montarGuardas("base-sem-checkout");
+  const inst = criarInstalacao(join(g.dir, "inst"));
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "origin/dev"] });
+  ok(r.code === 2, `sem checkout devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  for (const saida of ["--repo", "BRAIN_REPO", "brain-sync-origem.txt"]) {
+    ok(r.erro.includes(saida), `a mensagem tem de nomear a saída "${saida}":\n${r.tudo()}`);
+  }
+  semTrabalho(r, inst);
+
+  // Emenda 2026-09-14, item 2: o --repo acha o checkout, mas numa instalação fora do git e sem
+  // marcador ninguém sabe de que branch veio o dist/ — e passar em silêncio é o pior veredito.
+  const repo = criarRepo(join(g.dir, "repo"), "dev");
+  const semMarcador = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD", "--repo", repo] });
+  ok(semMarcador.code === 2, `--repo sem marcador numa instalação fora do git devia dar 2, deu ${semMarcador.code}:\n${semMarcador.tudo()}`);
+  ok(/não sei de que branch veio o dist/.test(semMarcador.erro), `a mensagem tem de dizer que a branch do dist/ é desconhecida:\n${semMarcador.tudo()}`);
+  semTrabalho(semMarcador, inst);
+});
+
+caso("eval-base-guarda-de-branch-nao-compila", async () => {
+  const g = montarGuardas("base-guarda-branch");
+  const repo = criarRepo(join(g.dir, "repo"), "feat/y");
+  const inst = criarInstalacao(join(g.dir, "inst"));
+  g.marcador({ worktree: comoGitBash(repo), branch: "feat/x" });
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(r.code === 2, `marcador em feat/x e checkout em feat/y devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  ok(r.code !== 1, "branch trocada foi reportada como regressão");
+  ok(/"feat\/x"/.test(r.erro) && /"feat\/y"/.test(r.erro), `a mensagem tem de nomear as duas branches:\n${r.tudo()}`);
+  semTrabalho(r, inst);
+
+  // Controle: com a branch certa, a MESMA instalação passa das duas guardas e só para na compilação
+  // (a fixture não tem brain-mcp/src para arquivar). Prova que o 2 de cima foi a branch — e que o
+  // `.eval-base/` criado no caminho de erro da compilação não fica para trás.
+  g.marcador({ worktree: comoGitBash(repo), branch: "feat/y" });
+  const passou = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(passou.code === 2 && /o base não compilou/.test(passou.erro), `com a branch certa devia parar só na compilação:\n${passou.tudo()}`);
+  ok(/^checkout: .* \(branch feat\/y, via o worktree= de /m.test(passou.saida), `o checkout não veio do marcador:\n${passou.tudo()}`);
+  ok(!existsSync(join(inst, ".eval-base")) && !existsSync(join(inst, "dist-base")), "a compilação que falhou deixou .eval-base/ ou dist-base/ para trás");
+  ok(passou.snapshot && !existsSync(dirname(passou.snapshot)), "o snapshot ficou para trás quando o base não compilou");
+});
+
+caso("eval-base-guarda-de-frescor", async () => {
+  const g = montarGuardas("base-guarda-frescor");
+  const repo = criarRepo(join(g.dir, "repo"), "dev");
+  const inst = criarInstalacao(join(g.dir, "inst"), { distVelho: true });
+  g.marcador({ worktree: repo, branch: "dev" });
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(r.code === 2, `dist/ mais velho que src/ devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  ok(/npm run build/.test(r.erro), `a mensagem tem de mandar rodar npm run build:\n${r.tudo()}`);
+  ok(/src\/index\.ts/.test(r.erro), `a mensagem tem de nomear o src/*.ts mais novo:\n${r.tudo()}`);
+  semTrabalho(r, inst);
+});
+
+caso("eval-base-dentro-do-git-le-a-branch-do-git", async () => {
+  // Emenda 2026-09-14, item 1: instalação DENTRO de uma worktree deste repo (quem instalou do clone,
+  // ou a verificação feita de uma worktree). O marcador descreve outra pasta, noutra branch, e não
+  // pode ser lido: se fosse, a guarda de branch pararia antes da de frescor.
+  const g = montarGuardas("base-dentro-do-git");
+  const repo = criarRepo(join(g.dir, "repo"), "feat/x");
+  const inst = criarInstalacao(join(repo, "brain-mcp"), { distVelho: true });
+  g.marcador({ worktree: criarRepo(join(g.dir, "instalacao-viva"), "main"), branch: "main" });
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(r.code === 2, `devia parar com código 2 na guarda de frescor, deu ${r.code}:\n${r.tudo()}`);
+  ok(!/veio da branch/.test(r.erro), `o marcador foi lido para a branch de uma instalação que é git:\n${r.tudo()}`);
+  ok(/npm run build/.test(r.erro), `quem parou devia ser a guarda de frescor, com a branch resolvida pelo git:\n${r.tudo()}`);
+  semTrabalho(r, inst);
 });
 
 // ---------------------------------------------------------------- execução

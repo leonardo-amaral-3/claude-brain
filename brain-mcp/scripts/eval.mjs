@@ -6,8 +6,10 @@
 // um alvo que cai do 1º para o 3º lugar aparece no número. `hit@1`, `hit@5` e `MRR` continuam
 // impressos como secundários: são legíveis e o histórico existe.
 //
-//   node scripts/eval.mjs            # roda tudo
-//   node scripts/eval.mjs natural    # só as queries em linguagem natural
+//   node scripts/eval.mjs                          # relatório: roda tudo
+//   node scripts/eval.mjs natural                  # só as queries em linguagem natural
+//   node scripts/eval.mjs --base origin/dev        # PORTÃO: head (dist/) contra o ref base
+//   node scripts/eval.mjs --base <ref> --repo <checkout>
 //   BRAIN_DB=<banco> BRAIN_CONFIG=<config> BRAIN_GOLDEN=<golden> node scripts/eval.mjs
 //
 // Roda na INSTALAÇÃO: o índice vivo e o cache do modelo de embeddings só existem lá.
@@ -16,24 +18,37 @@
 // escreve `uso` e disputaria o lease do índice de produção — e medir base e head em momentos
 // diferentes contra um índice que muda sozinho mediria deriva de índice e a chamaria de regressão.
 //
+// O `--base` sobe DOIS servidores, um de cada vez, contra o MESMO snapshot: o head é o `dist/` desta
+// instalação, o base é o ref compilado na hora a partir do git do checkout. O checkout vem de
+// `--repo` → `BRAIN_REPO` → a worktree onde o eval roda, se ele roda de dentro de uma →
+// `worktree=` de `~/.claude/brain-sync-origem.txt` (o marcador do `sync push`).
+//
 // Códigos de saída — é o que torna o portão legível por máquina:
 //   0  não caiu (sem --base, apenas relatório)
-//   1  regrediu: nDCG@5 do head abaixo do base          (nasce com o --base)
-//   2  NÃO CONSEGUI MEDIR: semântica caiu, caso apodrecido, servidor não respondeu…
+//   1  regrediu: nDCG@5 do head abaixo do base
+//   2  NÃO CONSEGUI MEDIR: semântica caiu, caso apodrecido, base não compilou, checkout não
+//      resolvido, branch do dist/ ≠ branch do checkout, dist/ mais velho que src/…
 // Código 2 nunca é licença para seguir: é medição que não aconteceu, e barra a PR igual ao 1.
 //
 // BRAIN_EVAL_TETO_AQUECIMENTO_MS existe só para os testes de scripts/concorrencia.mjs: o teto
 // real é 60 s, e um caso que prova "estourou o teto" não pode custar um minuto à suíte.
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const CODIGO = { NAO_CAIU: 0, REGREDIU: 1, NAO_MEDI: 2 };
+
+/**
+ * Só contra ruído de ponto flutuante: a média de ~70 termos `1/log2(r+1)` pode diferir no último bit
+ * conforme a ordem da soma. NÃO é faixa de tolerância, e não deve virar uma — eliminado o ruído da
+ * semântica o eval é determinístico, e é isso que autoriza barrar qualquer queda.
+ */
+export const EPSILON = 1e-9;
 
 /**
  * Fixo em todos os casos, inclusive nos cujo uso original pediu outro limite: a métrica é @5, e o
@@ -170,6 +185,28 @@ export function veredito(avaliacoes) {
   };
 }
 
+/**
+ * Base contra head, as duas rodadas VÁLIDAS e sobre os mesmos casos na mesma ordem. Barra com
+ * qualquer queda além do épsilon.
+ *
+ * `mudaram` existe porque o número diz que caiu e não diz onde: são os positivos cujo rank mudou e
+ * os negativos que passaram de vazio a cheio (ou o contrário), os que mais caíram primeiro.
+ */
+export function comparar(base, head) {
+  const mudaram = [];
+  base.avaliacoes.forEach((b, i) => {
+    const h = head.avaliacoes[i];
+    const mudou = b.caso.tipo === "negativo" ? b.vazio !== h.vazio : b.rank !== h.rank;
+    if (mudou) mudaram.push({ caso: b.caso, base: b, head: h });
+  });
+  mudaram.sort((x, y) => x.head.ndcg - x.base.ndcg - (y.head.ndcg - y.base.ndcg));
+  return {
+    codigo: head.v.ndcg < base.v.ndcg - EPSILON ? CODIGO.REGREDIU : CODIGO.NAO_CAIU,
+    delta: head.v.ndcg - base.v.ndcg,
+    mudaram,
+  };
+}
+
 // ---------------------------------------------------------------- aquecimento
 
 /**
@@ -236,6 +273,194 @@ export function limpar(dir) {
   } catch (err) {
     console.error(`  aviso: não consegui apagar ${dir}: ${err.message}`);
   }
+}
+
+// ---------------------------------------------------------------- de onde veio o head (--base)
+
+const ARQUIVO_MARCADOR = "brain-sync-origem.txt";
+
+function git(cwd, args) {
+  const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true });
+  return { ok: r.status === 0, out: (r.stdout ?? "").trim(), err: (r.stderr || r.error?.message || "").trim() };
+}
+
+/** O `sync.sh` grava `/c/Users/x` (Git Bash) e o `sync.ps1` grava `C:\Users\x`; o Node só abre o segundo. */
+const caminhoNativo = (p) => (process.platform === "win32" ? p.replace(/^\/([a-zA-Z])(?=\/|$)/, "$1:") : p);
+
+const mesmoCaminho = (a, b) => {
+  const n = (p) => {
+    const s = resolve(caminhoNativo(p)).split(BS).join("/").replace(/\/+$/, "");
+    return process.platform === "win32" ? s.toLowerCase() : s;
+  };
+  return n(a) === n(b);
+};
+
+/** Mesmo arquivo e mesma regra do `sync.sh`/`sync.ps1`: `$CLAUDE_CONFIG_DIR` ou `~/.claude`; a última linha vence. */
+export function lerMarcador(env = process.env) {
+  const arquivo = join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ARQUIVO_MARCADOR);
+  if (!existsSync(arquivo)) return { arquivo, existe: false, worktree: null, branch: null };
+  const campos = {};
+  for (const linha of readFileSync(arquivo, "utf8").split(/\r?\n/)) {
+    const m = /^(worktree|branch)=(.*)$/.exec(linha);
+    if (m && m[2].trim()) campos[m[1]] = m[2].trim();
+  }
+  return {
+    arquivo,
+    existe: true,
+    worktree: campos.worktree ? caminhoNativo(campos.worktree) : null,
+    branch: campos.branch ?? null,
+  };
+}
+
+/**
+ * A worktree git DESTE repo que contém a pasta onde o eval roda, ou `null`. "Deste repo" quer dizer
+ * que a raiz dela tem esta `brain-mcp/`: uma instalação que por acaso more dentro de outro
+ * repositório qualquer não é checkout de nada.
+ */
+function worktreeDaInstalacao(raiz) {
+  const r = git(raiz, ["rev-parse", "--show-toplevel"]);
+  return r.ok && r.out && mesmoCaminho(join(r.out, "brain-mcp"), raiz) ? r.out : null;
+}
+
+/**
+ * Resolve o checkout e aplica a GUARDA DE BRANCH. Devolve `{ checkout, branch, origem }` ou
+ * `{ erro: [linhas] }` — e nunca compila, nem copia, nem abre banco: roda antes de qualquer trabalho.
+ *
+ * De que branch veio o `dist/` (emenda 2026-09-14 da spec):
+ *  - a pasta onde o eval roda está numa worktree git deste repo → o `dist/` foi compilado DELA, e a
+ *    branch dela é a resposta. O marcador não é lido: ele descreve a instalação viva de `~/.claude`,
+ *    que é outra pasta — e é o caso de quem instalou do clone (`install.sh` registra
+ *    `<repo>/brain-mcp/dist/index.js`) e da verificação feita de uma worktree;
+ *  - a pasta não é git → só o `branch=` do marcador sabe. Sem ele a guarda não tem o que comparar,
+ *    e passar em silêncio seria devolver "não caiu" sem saber o que foi medido: código 2.
+ */
+export function resolverOrigem({ raiz, repo = null, env = process.env }) {
+  const marcador = lerMarcador(env);
+  const propria = worktreeDaInstalacao(raiz);
+  const candidatos = [
+    ["--repo", repo],
+    ["BRAIN_REPO", env.BRAIN_REPO || null],
+    ["a worktree onde o eval roda", propria],
+    [`o worktree= de ${marcador.arquivo}`, marcador.worktree],
+  ];
+  const escolhido = candidatos.find(([, caminho]) => caminho);
+  if (!escolhido) {
+    return {
+      erro: [
+        "não sei onde está o checkout do repositório, e o --base precisa do git dele para compilar o ref. Diga por uma das três saídas:",
+        "  --repo <caminho do checkout>",
+        "  BRAIN_REPO=<caminho do checkout>",
+        `  ${marcador.arquivo} — escrito pelo \`./sync.sh push\` / \`./sync.ps1 push\` do checkout`,
+      ],
+    };
+  }
+
+  const [origem, caminho] = escolhido;
+  const topo = git(caminho, ["rev-parse", "--show-toplevel"]);
+  if (!topo.ok || !topo.out) {
+    return { erro: [`${origem} aponta para ${caminho}, que não é repositório git: ${topo.err || "(sem saída)"}`] };
+  }
+  const checkout = topo.out;
+  const branchCheckout = git(checkout, ["rev-parse", "--abbrev-ref", "HEAD"]).out;
+
+  let branchHead;
+  let deOnde;
+  if (propria) {
+    branchHead = git(propria, ["rev-parse", "--abbrev-ref", "HEAD"]).out;
+    deOnde = `a worktree onde o eval roda (${propria})`;
+  } else if (marcador.branch) {
+    branchHead = marcador.branch;
+    deOnde = `o branch= de ${marcador.arquivo}`;
+  } else {
+    return {
+      erro: [
+        `não sei de que branch veio o dist/ de ${raiz}: a pasta não é git e ${marcador.existe ? `${marcador.arquivo} não tem branch=` : `${marcador.arquivo} não existe`}.`,
+        "  Sem isso a guarda de branch não tem o que comparar. Rode o `sync push` a partir do checkout, ou rode o eval de dentro dele.",
+      ],
+    };
+  }
+
+  if (branchHead !== branchCheckout) {
+    return {
+      erro: [
+        `o dist/ que seria medido veio da branch "${branchHead}" (${deOnde}), e o checkout ${checkout} está em "${branchCheckout}".`,
+        "  O portão compararia o base com código de outra branch. Sincronize a instalação a partir desta branch (`sync push` + `npm run build`), ou aponte o --repo para o checkout certo.",
+      ],
+    };
+  }
+  return { checkout, branch: branchCheckout, origem };
+}
+
+/**
+ * A GUARDA DE FRESCOR: `dist/index.js` mais velho que o `src/*.ts` mais recente quer dizer que o head
+ * mediria código anterior à última edição — o "nada avisa quando ele fica velho" do CLAUDE.md,
+ * virando aviso. Numa worktree ela também pega o `git checkout` de outra branch sem rebuild, que
+ * reescreve os `src/*.ts` que diferem.
+ */
+export function conferirFrescor(raiz) {
+  const dist = join(raiz, "dist", "index.js");
+  const src = join(raiz, "src");
+  if (!existsSync(dist)) return { erro: `${dist} não existe — rode \`npm run build\`` };
+  let maisNovo = null;
+  for (const rel of existsSync(src) ? readdirSync(src, { recursive: true }) : []) {
+    if (!String(rel).endsWith(".ts")) continue;
+    const ms = statSync(join(src, rel)).mtimeMs;
+    if (!maisNovo || ms > maisNovo.ms) maisNovo = { rel: String(rel).split(BS).join("/"), ms };
+  }
+  if (!maisNovo) return { erro: `não achei nenhum src/*.ts em ${raiz}: sem eles não dá para saber se o dist/ está em dia` };
+  if (statSync(dist).mtimeMs < maisNovo.ms) {
+    return {
+      erro: `dist/index.js é mais velho que src/${maisNovo.rel}: o head mediria código anterior à última edição. Rode \`npm run build\` em ${raiz}`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Compila o ref base. Os dois detalhes de caminho não são estética, cada um evita uma falha concreta:
+ *  - extrai DENTRO da instalação (`.eval-base/`), não no temporário: o `tsc` resolve `node_modules`,
+ *    `@types/node` e o `"type": "module"` do package.json subindo a partir do tsconfig, e num
+ *    temporário não há nada disso acima;
+ *  - `-p <tsconfig>` com `--outDir`, e não `--rootDir`/`--outDir` soltos: arquivos ou rootDir na linha
+ *    de comando fazem o `tsc` ignorar o tsconfig inteiro e cair para ES5/CommonJS, onde nem o
+ *    `import.meta` nem o top-level await compilam. De quebra vale o tsconfig DO REF BASE.
+ * O `dist-base/` fica ao lado do `dist/` pelo mesmo motivo: `packageRoot` e o cache do modelo seguem
+ * apontando para a instalação.
+ */
+export function compilarBase({ raiz, checkout, ref, estado }) {
+  const extraido = join(raiz, ".eval-base");
+  const saida = join(raiz, "dist-base");
+  estado.compilados = [extraido, saida];
+  // Sobra de rodada morta por SIGKILL: um `.ts` que o ref base não tem entraria na compilação dele.
+  limpar(extraido);
+  limpar(saida);
+  mkdirSync(extraido, { recursive: true });
+
+  const arquivo = spawnSync("git", ["-C", checkout, "archive", "--format=tar", ref, "brain-mcp/src", "brain-mcp/tsconfig.json"], {
+    maxBuffer: 256 * 1024 * 1024,
+    windowsHide: true,
+  });
+  if (arquivo.status !== 0) {
+    return { erro: `git archive ${ref} falhou em ${checkout}: ${String(arquivo.stderr || arquivo.error?.message || "").trim()}` };
+  }
+  // O tar roda com cwd no destino e lê do stdin: nenhum caminho vai na linha de comando, então o `C:`
+  // de um caminho Windows nunca chega ao GNU tar do Git Bash, que o leria como host remoto.
+  const tar = spawnSync("tar", ["-x", "-f", "-"], { cwd: extraido, input: arquivo.stdout, windowsHide: true });
+  if (tar.status !== 0) return { erro: `tar não extraiu o ref ${ref}: ${String(tar.stderr || tar.error?.message || "").trim()}` };
+
+  const tsc = join(raiz, "node_modules", "typescript", "bin", "tsc");
+  if (!existsSync(tsc)) return { erro: `${tsc} não existe — o base se compila com o tsc da instalação; rode \`npm ci\`` };
+  const t0 = Date.now();
+  const c = spawnSync(process.execPath, [tsc, "-p", join(extraido, "brain-mcp", "tsconfig.json"), "--outDir", saida], {
+    cwd: raiz,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (c.status !== 0) {
+    const rastro = `${c.stdout ?? ""}${c.stderr ?? ""}`.trim().split("\n").slice(-8).join("\n    ");
+    return { erro: `o ref ${ref} não compilou:\n    ${rastro || c.error?.message || `tsc saiu com ${c.status}`}` };
+  }
+  return { entrada: join(saida, "index.js"), ms: Date.now() - t0 };
 }
 
 // ---------------------------------------------------------------- servidor
@@ -340,15 +565,110 @@ function naoMedi(motivos) {
   return CODIGO.NAO_MEDI;
 }
 
+const resumo = (v) =>
+  `nDCG@5 ${v.ndcg.toFixed(3)} (${v.n} casos)  ·  hit@1 ${v.hit1}/${v.positivos} (${pct(v.hit1, v.positivos)}%)` +
+  `  ·  hit@5 ${v.hit5}/${v.positivos} (${pct(v.hit5, v.positivos)}%)  ·  MRR ${v.mrr.toFixed(2)}` +
+  `  ·  negativos vazios ${v.negativosVazios}/${v.negativos}`;
+
+const posicao = (a) => (a.caso.tipo === "negativo" ? (a.vazio ? "vazio" : "cheio") : a.rank ? `@${a.rank}` : "fora");
+
+function imprimirComparacao(ref, base, head, cmp) {
+  const linha = (rotulo, v) =>
+    `  ${rotulo.padEnd(24)} ${v.ndcg.toFixed(3).padStart(6)}  ${`${v.hit1}/${v.positivos}`.padStart(7)}  ` +
+    `${`${v.hit5}/${v.positivos}`.padStart(7)}  ${v.mrr.toFixed(2).padStart(5)}  ${`${v.negativosVazios}/${v.negativos}`.padStart(11)}`;
+  console.log(
+    `\n  ${"".padEnd(24)} ${"nDCG@5".padStart(6)}  ${"hit@1".padStart(7)}  ${"hit@5".padStart(7)}  ${"MRR".padStart(5)}  ${"neg. vazios".padStart(11)}`
+  );
+  console.log(linha(`base  ${ref}`, base.v));
+  console.log(linha("head  dist/", head.v));
+  console.log(`  ${"delta".padEnd(24)} ${((cmp.delta >= 0 ? "+" : "") + cmp.delta.toFixed(3)).padStart(6)}`);
+
+  if (!cmp.mudaram.length) {
+    console.log("\nNenhum caso mudou de posição.");
+    return;
+  }
+  console.log(`\nMudaram de posição (${cmp.mudaram.length}), os que mais caíram primeiro:`);
+  for (const m of cmp.mudaram) {
+    const d = m.head.ndcg - m.base.ndcg;
+    console.log(
+      `  ${posicao(m.base).padStart(5)} → ${posicao(m.head).padEnd(5)}  ${((d >= 0 ? "+" : "") + d.toFixed(2)).padStart(5)}  [${m.caso.estilo}] ${m.caso.q}`
+    );
+  }
+}
+
 // ---------------------------------------------------------------- CLI
 
+/** `--base <ref>` e `--repo <caminho>`, também na forma `--base=<ref>`. Tudo o mais que começa com `-` é erro. */
+export function lerArgumentos(argv) {
+  const r = { estilo: undefined, base: null, repo: null, erros: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const m = /^--(base|repo)(?:=(.*))?$/.exec(a);
+    if (m) {
+      const valor = m[2] ?? argv[++i];
+      // Um ref que começa com "-" chegaria ao `git archive` como opção.
+      if (!valor || valor.startsWith("-")) r.erros.push(`--${m[1]} precisa de um valor`);
+      else r[m[1]] = valor;
+    } else if (a.startsWith("-")) {
+      // Flag desconhecida é código 2, e não silêncio: uma opção ignorada pode ser justamente a que
+      // mandava comparar, e o eval imprimiria "não caiu" sem ter comparado nada.
+      r.erros.push(`opção não reconhecida: ${a}`);
+    } else if (r.estilo === undefined) {
+      r.estilo = a;
+    } else {
+      r.erros.push(`argumento a mais: ${a}`);
+    }
+  }
+  if (r.repo && !r.base) r.erros.push("--repo só vale com --base: sem comparação não há checkout a resolver");
+  return r;
+}
+
+/**
+ * Uma rodada inteira contra o snapshot: sobe, aquece, mede todos os casos e derruba. Devolve
+ * `{ v, avaliacoes }` quando a medição valeu, `{ motivos }` quando não.
+ */
+async function rodada({ rotulo, entrada, snapshot, config, casos, estado, verboso }) {
+  const srv = subirServidor(entrada, {
+    ...process.env,
+    BRAIN_DB: snapshot,
+    BRAIN_CONFIG: config,
+    BRAIN_SOMENTE_CONSULTA: "1",
+  });
+  estado.servidor = srv;
+  const prefixo = rotulo ? `${rotulo}: ` : "";
+  try {
+    await srv.handshake();
+    const aq = await aquecer(srv.pedir);
+    if (!aq.ok) return { motivos: [`${prefixo}${aq.motivo}`] };
+    console.log(`${prefixo}semântica pronta em ${(aq.ms / 1000).toFixed(1)} s · ${casos.length} casos${verboso ? "\n" : ""}`);
+
+    const avaliacoes = [];
+    for (const caso of casos) {
+      const a = avaliar(caso, await srv.pedir("tools/call", { name: "search_context", arguments: argumentosDaBusca(caso) }));
+      avaliacoes.push(a);
+      if (verboso) console.log(`${marca(a)} ${a.ndcg.toFixed(2)} [${caso.estilo}] ${caso.q}${a.invalido ? `  <- ${a.invalido.msg}` : ""}`);
+    }
+
+    const v = veredito(avaliacoes);
+    // Sem o número de propósito: uma média com casos inválidos é outro número, e impresso ele seria
+    // lido como medição.
+    if (v.codigo === CODIGO.NAO_MEDI) {
+      return { motivos: v.invalidos.map((a) => `${prefixo}[${a.invalido.tipo}] "${a.caso.q}": ${a.invalido.msg}`) };
+    }
+    return { v, avaliacoes };
+  } catch (err) {
+    const rastro = srv.rastro();
+    return { motivos: [`${prefixo}${err.message}${rastro ? `\n    stderr do servidor:\n    ${rastro}` : ""}`] };
+  } finally {
+    // Morto e ESPERADO antes da próxima rodada: dois servidores juntos disputariam CPU, e a semântica
+    // que estoura o timeout invalida a rodada.
+    await srv.encerrar();
+  }
+}
+
 async function main(estado) {
-  const argv = process.argv.slice(2);
-  // Flag desconhecida é código 2, e não silêncio: `--base` ignorado aqui imprimiria "não caiu"
-  // sem ter comparado nada — a pior resposta que um portão pode dar.
-  const flags = argv.filter((a) => a.startsWith("-"));
-  if (flags.length) return naoMedi([`opção não reconhecida: ${flags.join(" ")}`]);
-  const estilo = argv[0];
+  const args = lerArgumentos(process.argv.slice(2));
+  if (args.erros.length) return naoMedi(args.erros);
 
   const caminhoGolden = process.env.BRAIN_GOLDEN || join(root, "scripts", "golden.json");
   const dbOrigem = process.env.BRAIN_DB || join(root, "data", "brain.db");
@@ -361,72 +681,85 @@ async function main(estado) {
   } catch (err) {
     return naoMedi([`golden set ilegível em ${caminhoGolden}: ${err.message}`]);
   }
-  const casos = estilo ? golden.filter((g) => g.estilo === estilo) : golden;
-  if (!casos.length) return naoMedi([`nenhum caso${estilo ? ` com estilo "${estilo}"` : ""} em ${caminhoGolden}`]);
+  const casos = args.estilo ? golden.filter((g) => g.estilo === args.estilo) : golden;
+  if (!casos.length) return naoMedi([`nenhum caso${args.estilo ? ` com estilo "${args.estilo}"` : ""} em ${caminhoGolden}`]);
   if (!existsSync(dbOrigem)) return naoMedi([`banco não encontrado em ${dbOrigem} — rode na instalação, ou aponte o BRAIN_DB`]);
   if (!existsSync(config)) return naoMedi([`config não encontrado em ${config} — rode na instalação, ou aponte o BRAIN_CONFIG`]);
   if (!existsSync(entrada)) return naoMedi([`${entrada} não existe — rode \`npm run build\``]);
+
+  // As duas guardas, ANTES de qualquer trabalho: sem elas o portão compara o base com um dist/ de
+  // outra branch ou anterior à última edição, e devolve "não caiu" com toda a confiança.
+  let origem = null;
+  if (args.base) {
+    origem = resolverOrigem({ raiz: root, repo: args.repo });
+    if (origem.erro) return naoMedi(origem.erro);
+    const frescor = conferirFrescor(root);
+    if (frescor.erro) return naoMedi([frescor.erro]);
+    console.log(`checkout: ${origem.checkout} (branch ${origem.branch}, via ${origem.origem})`);
+  }
 
   try {
     const t0 = Date.now();
     estado.snapshot = tirarSnapshot(dbOrigem);
     console.log(`snapshot: ${estado.snapshot.arquivo} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+    const comum = { snapshot: estado.snapshot.arquivo, config, casos, estado };
 
-    estado.servidor = subirServidor(entrada, {
-      ...process.env,
-      BRAIN_DB: estado.snapshot.arquivo,
-      BRAIN_CONFIG: config,
-      BRAIN_SOMENTE_CONSULTA: "1",
-    });
-    const srv = estado.servidor;
-    await srv.handshake();
-
-    const aq = await aquecer(srv.pedir);
-    if (!aq.ok) return naoMedi([aq.motivo]);
-    console.log(`semântica pronta em ${(aq.ms / 1000).toFixed(1)} s · ${casos.length} casos\n`);
-
-    const avaliacoes = [];
-    for (const caso of casos) {
-      const a = avaliar(caso, await srv.pedir("tools/call", { name: "search_context", arguments: argumentosDaBusca(caso) }));
-      avaliacoes.push(a);
-      console.log(`${marca(a)} ${a.ndcg.toFixed(2)} [${caso.estilo}] ${caso.q}${a.invalido ? `  <- ${a.invalido.msg}` : ""}`);
-    }
-
-    const v = veredito(avaliacoes);
-    if (v.codigo === CODIGO.NAO_MEDI) {
-      // Sem o número de propósito: uma média com casos inválidos é outro número, e impresso ele seria
-      // lido como medição.
-      return naoMedi(v.invalidos.map((a) => `[${a.invalido.tipo}] "${a.caso.q}": ${a.invalido.msg}`));
-    }
-
-    console.log(
-      `\nnDCG@5 ${v.ndcg.toFixed(3)} (${v.n} casos)  ·  hit@1 ${v.hit1}/${v.positivos} (${pct(v.hit1, v.positivos)}%)` +
-        `  ·  hit@5 ${v.hit5}/${v.positivos} (${pct(v.hit5, v.positivos)}%)  ·  MRR ${v.mrr.toFixed(2)}` +
-        `  ·  negativos vazios ${v.negativosVazios}/${v.negativos}`
-    );
-    const abaixo = avaliacoes.filter((a) => a.ndcg < 1);
-    if (abaixo.length) {
-      console.log("\nAbaixo de 1:");
-      for (const a of abaixo) {
-        const esperado = a.caso.tipo === "negativo" ? "(vazio)" : [].concat(a.caso.esperado).join(" ou ");
-        console.log(`  "${a.caso.q}"\n    esperado: ${esperado}\n    veio:     ${a.caminhos.slice(0, 3).map(ultimosDois).join(" | ") || "(vazio)"}`);
+    if (!args.base) {
+      const r = await rodada({ ...comum, rotulo: "", entrada, verboso: true });
+      if (r.motivos) return naoMedi(r.motivos);
+      console.log(`\n${resumo(r.v)}`);
+      const abaixo = r.avaliacoes.filter((a) => a.ndcg < 1);
+      if (abaixo.length) {
+        console.log("\nAbaixo de 1:");
+        for (const a of abaixo) {
+          const esperado = a.caso.tipo === "negativo" ? "(vazio)" : [].concat(a.caso.esperado).join(" ou ");
+          console.log(`  "${a.caso.q}"\n    esperado: ${esperado}\n    veio:     ${a.caminhos.slice(0, 3).map(ultimosDois).join(" | ") || "(vazio)"}`);
+        }
       }
+      console.log("\nEVAL OK (código 0) — medição válida; sem --base não há comparação, é relatório.");
+      return CODIGO.NAO_CAIU;
     }
-    console.log("\nEVAL OK (código 0) — medição válida; sem --base não há comparação, é relatório.");
-    return v.codigo;
+
+    const compilado = compilarBase({ raiz: root, checkout: origem.checkout, ref: args.base, estado });
+    if (compilado.erro) return naoMedi([`o base não compilou — ${compilado.erro}`]);
+    console.log(`base: ${args.base} compilado em ${(compilado.ms / 1000).toFixed(1)} s`);
+
+    const base = await rodada({ ...comum, rotulo: `base (${args.base})`, entrada: compilado.entrada });
+    if (base.motivos) return naoMedi(base.motivos);
+    const head = await rodada({ ...comum, rotulo: "head (dist/)", entrada });
+    if (head.motivos) return naoMedi(head.motivos);
+
+    const cmp = comparar(base, head);
+    imprimirComparacao(args.base, base, head, cmp);
+    if (cmp.codigo === CODIGO.REGREDIU) {
+      console.error(
+        `\nEVAL: REGREDIU (código 1) — nDCG@5 do head ${head.v.ndcg.toFixed(3)} abaixo do base ${base.v.ndcg.toFixed(3)}.` +
+          " O portão é estrito: qualquer queda barra a PR."
+      );
+      return CODIGO.REGREDIU;
+    }
+    console.log(`\nEVAL OK (código 0) — não caiu: nDCG@5 do head ${head.v.ndcg.toFixed(3)}, do base ${base.v.ndcg.toFixed(3)}.`);
+    return CODIGO.NAO_CAIU;
   } catch (err) {
     const rastro = estado.servidor?.rastro();
     return naoMedi([err.message + (rastro ? `\n    stderr do servidor:\n    ${rastro}` : "")]);
   }
 }
 
+/** Snapshot, `.eval-base/` e `dist-base/`: os três saem em qualquer caminho de saída. */
+function limparTudo(estado) {
+  limpar(estado.snapshot?.dir);
+  for (const dir of estado.compilados ?? []) limpar(dir);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const estado = { snapshot: null, servidor: null };
+  const estado = { snapshot: null, servidor: null, compilados: [] };
   // Ctrl+C no meio da rodada: sem isto ficariam ~155 MB de snapshot órfão no temporário a cada
-  // interrupção. Síncrono e sem esperar o filho — é o melhor que um handler de sinal pode fazer.
+  // interrupção, e um dist-base/ velho na instalação. Síncrono e sem esperar o filho — é o melhor
+  // que um handler de sinal pode fazer.
   process.on("SIGINT", () => {
     estado.servidor?.matarJa();
-    limpar(estado.snapshot?.dir);
+    limparTudo(estado);
     process.exit(CODIGO.NAO_MEDI);
   });
   let codigo = CODIGO.NAO_MEDI;
@@ -438,7 +771,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     codigo = naoMedi([`erro inesperado: ${err?.stack ?? err}`]);
   } finally {
     await estado.servidor?.encerrar();
-    limpar(estado.snapshot?.dir);
+    limparTudo(estado);
   }
   process.exit(codigo);
 }
