@@ -11,7 +11,7 @@
 // que sobem `dist/index.js` de verdade e falam JSON-RPC por stdio. Os de servidor recebem o stub
 // determinístico de embeddings (ver embeddings-falso.mjs e a emenda 2026-09-09 da spec).
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -131,7 +131,7 @@ function criarFixture(nome, docs = {}, opts = {}) {
  * capturado (e não herdado) porque é nele que o servidor diz se nasceu líder ou seguidor — os
  * logs SÃO a asserção de metade destes casos.
  */
-function subirServidor(fx, rotulo) {
+function subirServidor(fx, rotulo, envExtra = {}) {
   const child = spawn(process.execPath, ["--import", hookStub, join(root, "dist", "index.js")], {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
@@ -141,6 +141,7 @@ function subirServidor(fx, rotulo) {
       BRAIN_CONFIG: fx.config,
       BRAIN_LEASE_TTL_MS: String(TTL_SERVIDOR_MS),
       BRAIN_STUB_REGISTRO: fx.registro,
+      ...envExtra,
     },
   });
 
@@ -232,7 +233,7 @@ function subirServidor(fx, rotulo) {
   /** Despedida real de uma sessão MCP: o cliente fecha o stdin e o transporte stdio termina. */
   s.fecharStdin = () => child.stdin.end();
 
-  s.bootou = () => /boot \((líder|seguidor)\)/.test(s.err);
+  s.bootou = () => /boot \((líder|seguidor|somente-consulta)\)/.test(s.err);
 
   /** Um servidor que não bootou tem sempre um porquê no stderr; sem isto o teste só diz "timeout". */
   s.diagnostico = () => {
@@ -1198,6 +1199,1159 @@ caso("cli-disputa-o-lease", async () => {
     clearInterval(segurando);
     db.close();
   }
+});
+
+// ---------------------------------------------------------------- coluna `semantica` em `uso`
+// (card #18) A primeira migração de schema do repo, e quem a alimenta. O que estes casos afirmam
+// está nas COLUNAS de `uso`, nunca no texto da resposta — o texto é prosa endereçada ao modelo, e
+// foi justamente para não depender dele que o canal `_meta.brain` existe.
+
+/** Última linha de `uso` de uma tool. */
+const ultimoUso = (caminho, tool) => {
+  const db = openDb(caminho);
+  try {
+    return db
+      .prepare("SELECT vazio, semantica FROM uso WHERE tool = ? ORDER BY id DESC LIMIT 1")
+      .get(tool);
+  } finally {
+    db.close();
+  }
+};
+
+/** Um banco com o `uso` de ANTES da migração: as mesmas colunas, sem `semantica`. */
+const bancoPreMigracao = (nome, linhas = 1) => {
+  const caminho = join(fixture, nome);
+  const cru = new DatabaseSync(caminho);
+  cru.exec(
+    "CREATE TABLE uso (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, tool TEXT NOT NULL," +
+      " args TEXT, ms INTEGER NOT NULL, resp_chars INTEGER NOT NULL, vazio INTEGER NOT NULL);"
+  );
+  const ins = cru.prepare(
+    "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio) VALUES (?, 'search_context', '{}', 10, 100, 0)"
+  );
+  for (let i = 0; i < linhas; i++) ins.run(i + 1);
+  cru.close();
+  return caminho;
+};
+
+caso("uso-pre-migracao-ganha-a-coluna", async () => {
+  // `banco-antigo-abre-sem-passo-manual` acima cobre TABELA nova, que é aditiva de graça dentro do
+  // CREATE TABLE IF NOT EXISTS. COLUNA nova não é: sem o ALTER, um banco vivo ficaria para sempre
+  // sem `semantica` e o relatório do CA1 não teria o que ler.
+  const caminho = bancoPreMigracao("uso-pre-migracao.db");
+
+  const db = openDb(caminho);
+  try {
+    const cols = db
+      .prepare("PRAGMA table_info(uso)")
+      .all()
+      .map((c) => c.name);
+    ok(cols.includes("semantica"), `openDb nao migrou a coluna; veio [${cols.join(", ")}]`);
+
+    const linha = db.prepare("SELECT ts, semantica FROM uso").get();
+    ok(linha !== undefined, "a linha anterior a migracao sumiu");
+    ok(Number(linha.ts) === 1, "a migracao reescreveu o dado que ja estava la");
+    // O NULL é o contrato, não um detalhe: é ele que mantém a linha velha FORA do denominador da
+    // fração de meia-busca. Um DEFAULT 0 aqui diluiria a fração e violaria o CA1 em silêncio.
+    ok(
+      linha.semantica === null,
+      `linha pre-migracao devia ficar NULL, veio ${JSON.stringify(linha.semantica)}`
+    );
+
+    db.prepare(
+      "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(2, "search_context", "{}", 5, 10, 0, 1);
+  } finally {
+    db.close();
+  }
+
+  // Reabrir é o caminho comum — toda sessão faz isso. Tem de ver a coluna e NÃO tentar o ALTER.
+  const db2 = openDb(caminho);
+  try {
+    const n = Number(db2.prepare("SELECT COUNT(*) c FROM uso").get().c);
+    ok(n === 2, `reabrir o banco migrado devia ver 2 linhas, viu ${n}`);
+    const viva = db2.prepare("SELECT semantica FROM uso WHERE ts = 2").get();
+    ok(Number(viva.semantica) === 1, `a escrita pos-migracao nao persistiu: ${viva.semantica}`);
+  } finally {
+    db2.close();
+  }
+});
+
+caso("migracao-de-uso-sob-concorrencia", async () => {
+  // A guarda do `duplicate column name`, e ela só é observável sob disputa real. São oito
+  // servidores contra o mesmo arquivo na vida real: o busy_timeout serializa o ALTER, e todos
+  // menos um chegam depois de a coluna existir. Quem tratasse isso como erro morreria no boot —
+  // exatamente a falha que `abrir-em-paralelo-nao-quebra` documentou para o WAL, noutro PRAGMA.
+  const PROCESSOS = 10;
+  const caminho = bancoPreMigracao("uso-pre-migracao-paralelo.db", 3);
+  const fonte = [
+    `const { openDb } = await import(${JSON.stringify(modulo("db.js"))});`,
+    `const db = openDb(process.env.D);`,
+    `const cols = db.prepare("PRAGMA table_info(uso)").all().map((c) => c.name);`,
+    `db.close();`,
+    `if (!cols.includes("semantica")) { console.error("sem coluna: " + cols.join(",")); process.exit(3); }`,
+  ].join("\n");
+
+  const filhos = await Promise.all(
+    Array.from(
+      { length: PROCESSOS },
+      () =>
+        new Promise((res) => {
+          const c = spawn(process.execPath, ["--input-type=module", "-e", fonte], {
+            env: { ...process.env, D: caminho },
+            stdio: ["ignore", "ignore", "pipe"],
+          });
+          let e = "";
+          c.stderr.on("data", (d) => (e += d.toString()));
+          c.on("exit", (code) => res({ code, e }));
+        })
+    )
+  );
+
+  const quebrados = filhos.filter((f) => f.code !== 0);
+  ok(
+    quebrados.length === 0,
+    `${quebrados.length}/${filhos.length} processos morreram migrando o mesmo banco em paralelo: ` +
+      `${(quebrados[0]?.e ?? "").split("\n").slice(0, 3).join(" | ").slice(0, 240)}`
+  );
+  ok(
+    contar(caminho, "SELECT COUNT(*) c FROM uso") === 3,
+    "a migracao concorrente perdeu linhas de uso"
+  );
+});
+
+caso("busca-vazia-grava-semantica", async () => {
+  // O caso que a spec chama de "fácil errar e que quebraria dois critérios de uma vez": a saída
+  // `Nenhum resultado` tem o `diag` em escopo mas saía pelo helper `text()` sem ele. Resultado:
+  // os negativos do golden set chegariam ao eval sem diagnóstico, e a coluna ficaria NULL
+  // justamente nas linhas `vazio = 1` — parte da população cuja fração o CA1 manda medir.
+  const fx = criarFixture("uso-busca-vazia", {
+    "alfa.md": "# Alfa\n\nDocumento de origem sobre alfa.\n",
+  });
+  const s = subirServidor(fx, "busca-vazia");
+  await ate(() => s.eLider(), 30000, "o servidor bootar");
+  await s.handshake();
+
+  // Vazio por construção, não por sorte: a fixture só tem root `docs`, então o filtro
+  // `source: "github"` não casa nada nem pelo léxico nem pelo vetor. Um termo sem sentido não
+  // serviria — o lado vetorial devolve vizinhos por cosseno mesmo para query que o FTS ignora.
+  const r = await s.chamarCru("search_context", { query: "alfa documento", source: "github" });
+  ok(!r.falhou, `search_context falhou: ${r.resumo()}`);
+  ok(/^Nenhum resultado/.test(r.texto), `esperava resposta vazia, veio: ${r.texto.slice(0, 160)}`);
+
+  await ate(() => ultimoUso(fx.db, "search_context") !== undefined, 10000, "a linha de uso");
+  const linha = ultimoUso(fx.db, "search_context");
+  ok(Number(linha.vazio) === 1, `vazio devia ser 1, veio ${JSON.stringify(linha.vazio)}`);
+  ok(
+    linha.semantica !== null && linha.semantica !== undefined,
+    "busca vazia gravou semantica NULL: o diagnostico nao viajou no caminho do `Nenhum resultado`"
+  );
+  ok(
+    Number(linha.semantica) === 0 || Number(linha.semantica) === 1,
+    `semantica devia ser 0 ou 1, veio ${JSON.stringify(linha.semantica)}`
+  );
+});
+
+caso("query-vazia-deixa-semantica-nula", async () => {
+  // A única saída que legitimamente NÃO carrega diagnóstico: retorna antes de qualquer busca, e
+  // ali não há o que diagnosticar. O NULL aqui é correto, e é o que distingue "não busquei" de
+  // "busquei e a semântica não respondeu" — distinção de que o CA3 depende para invalidar rodada.
+  const fx = criarFixture("uso-query-vazia", {
+    "alfa.md": "# Alfa\n\nDocumento de origem sobre alfa.\n",
+  });
+  const s = subirServidor(fx, "query-vazia");
+  await ate(() => s.eLider(), 30000, "o servidor bootar");
+  await s.handshake();
+
+  const r = await s.chamarCru("search_context", { query: "   " });
+  ok(!r.falhou, `search_context falhou: ${r.resumo()}`);
+  ok(/^Query vazia/.test(r.texto), `esperava 'Query vazia', veio: ${r.texto.slice(0, 160)}`);
+
+  await ate(() => ultimoUso(fx.db, "search_context") !== undefined, 10000, "a linha de uso");
+  const linha = ultimoUso(fx.db, "search_context");
+  ok(Number(linha.vazio) === 1, `vazio devia ser 1, veio ${JSON.stringify(linha.vazio)}`);
+  ok(
+    linha.semantica === null,
+    `'Query vazia' devia gravar semantica NULL, veio ${JSON.stringify(linha.semantica)}`
+  );
+});
+
+// ---------------------------------------------------------------- modo somente-consulta
+caso("somente-consulta-nao-varre", async () => {
+  // (card #18) A flag de que o `--base` do eval depende: ele sobe DOIS servidores contra um
+  // snapshot congelado do índice, e se qualquer um deles indexasse, base e head mediriam corpora
+  // diferentes — deriva de índice vestida de regressão de ranking. O `ttl-zero-desliga-o-lease`
+  // acima é o caso que prova por que BRAIN_LEASE_TTL_MS=0 não serviria: lá os DOIS processos se
+  // elegem líder, que é o oposto do que se precisa aqui.
+  const fx = criarFixture("somente-consulta", {
+    "alfa.md": "# Alfa\n\nDocumento sobre alfa, indexado antes do snapshot.\n",
+  });
+
+  // 1) Um servidor NORMAL popula o índice e sai pela porta da frente. A saída graciosa esvazia a
+  //    tabela `lider` (ver posse-apos-saida-graciosa) — é isso que permite afirmar depois que a
+  //    tabela vazia é obra da flag, e não herança de um lease que ficou órfão.
+  const normal = subirServidor(fx, "normal");
+  await ate(
+    () => contar(fx.db, "SELECT COUNT(*) c FROM docs") > 0,
+    30000,
+    () => `o servidor normal indexar a fixture -> ${normal.diagnostico()}`
+  );
+  normal.fecharStdin();
+  await ate(() => lerLider(fx.db) === null, TTL_SERVIDOR_MS + 10000, "o lease sair da tabela");
+  normal.matar();
+  await ate(() => !normal.vivo, 15000, "o servidor normal morrer de vez");
+  const docsNoSnapshot = contar(fx.db, "SELECT COUNT(*) c FROM docs");
+
+  // 2) Um arquivo que só existe em disco. É a evidência POSITIVA de "não varre": sem ele o caso
+  //    provaria apenas que nada mudou num índice que já estava completo.
+  writeFileSync(
+    join(fx.docsDir, "depois.md"),
+    "# Depois\n\nArquivo criado depois do snapshot, sobre depois.\n"
+  );
+
+  const s = subirServidor(fx, "so-consulta", { BRAIN_SOMENTE_CONSULTA: "1" });
+  await ate(
+    () => s.err.includes("boot (somente-consulta)"),
+    30000,
+    () => `o boot em modo somente-consulta -> ${s.diagnostico()}`
+  );
+  await s.handshake();
+  // O trabalho pesado mora dentro do `setTimeout(…, 500)` do boot, e "modelo de embeddings pronto"
+  // sai de DENTRO dele: esperar por essa linha é o que prova que a janela já passou. Sem isto o
+  // caso passaria por chegar cedo, e não por comportamento.
+  await ate(
+    () => s.err.includes("modelo de embeddings pronto"),
+    30000,
+    () => `o aquecimento do modelo -> ${s.diagnostico()}`
+  );
+  await dormir(1500);
+
+  // --- não disputa o lease ---
+  ok(lerLider(fx.db) === null, "com a flag ligada, alguém apareceu na tabela lider");
+  ok(!s.eLider(), "o servidor se declarou líder em modo somente-consulta");
+  ok(
+    !s.err.includes("boot (seguidor)"),
+    "o servidor disputou o lease e virou seguidor — em somente-consulta ele nem tenta"
+  );
+
+  // --- não varre ---
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM docs WHERE path LIKE '%depois.md'") === 0,
+    "indexou um arquivo criado depois do snapshot: a flag não segurou a varredura"
+  );
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsNoSnapshot,
+    "o número de documentos mudou sob um servidor que só deveria consultar"
+  );
+  for (const marca of ["grafo:", "vigia:", "embeddings:", "sync GitHub"]) {
+    ok(!s.err.includes(marca), `em somente-consulta e mesmo assim fez trabalho pesado (${marca})`);
+  }
+
+  // --- mas CONSULTA, e com a metade semântica de pé ---
+  // O `aquecer()` que fica não é descuido: um servidor sem semântica faria o eval reprovar por
+  // aquecimento (código 2) em vez de por ranking (código 1), e o portão mediria a si mesmo.
+  const busca = await s.chamarCru("search_context", { query: "alfa" });
+  ok(!busca.falhou, `search_context falhou no modo somente-consulta: ${busca.resumo()}`);
+  ok(
+    /alfa/i.test(busca.texto) && !/^Nenhum resultado/.test(busca.texto),
+    `o servidor parou de achar o que o snapshot tem: ${busca.texto.slice(0, 160)}`
+  );
+
+  // --- a tool reindex recusa, e recusa TAMBÉM com forcar ---
+  // A escapatória do TD-5 existe para disputar a liderança com outro processo. Aqui não há de
+  // quem disputar: se o `forcar` passasse, o eval indexaria o próprio snapshot que congelou.
+  for (const args of [{ full: true }, { full: true, forcar: true }]) {
+    const r = await s.chamarCru("reindex", args);
+    const como = JSON.stringify(args);
+    ok(!r.falhou, `reindex ${como} veio como erro de protocolo, não como recusa: ${r.resumo()}`);
+    ok(/não reindexei/i.test(r.texto), `reindex ${como} não recusou: ${r.texto.slice(0, 200)}`);
+    ok(
+      /somente-consulta/i.test(r.texto),
+      `a recusa de ${como} não diz o motivo (modo somente-consulta): ${r.texto.slice(0, 200)}`
+    );
+  }
+  ok(lerLider(fx.db) === null, "o reindex recusado promoveu o processo a líder assim mesmo");
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsNoSnapshot,
+    "o reindex recusado escreveu no índice antes de recusar"
+  );
+  ok(!s.err.includes("vigia:"), "o reindex recusado ligou o vigia do líder");
+});
+
+// ---------------------------------------------------------------- relatório de uso (CA1)
+// (card #18) O `npm run uso` é o único consumidor humano da tabela `uso`, e passou a vida
+// rotulando `ms p50` uma coluna que era `AVG(ms)`. Estes casos afirmam as duas coisas que a
+// correção precisa ter: o percentil sai do vetor ordenado, e a fração de meia-busca conta só
+// quem foi medido.
+
+/** Roda `scripts/uso.mjs` como um humano roda: processo próprio, banco escolhido pelo BRAIN_DB. */
+const rodarUso = (caminho, dias = "14") => {
+  const r = spawnSync(process.execPath, [join(root, "scripts", "uso.mjs"), dias], {
+    env: { ...process.env, BRAIN_DB: caminho },
+    encoding: "utf8",
+  });
+  return { code: r.status, saida: r.stdout ?? "", erro: r.stderr ?? "" };
+};
+
+/** A linha de uma tool no relatório, já quebrada nas colunas que o cabeçalho anuncia. */
+const linhaDe = (saida, tool) => {
+  const linha = saida.split("\n").find((l) => l.startsWith(tool + " "));
+  if (!linha) return null;
+  const [t, n, vazias, p50, p90, soLexico, chars] = linha.trim().split(/\s+/);
+  return { tool: t, n: Number(n), vazias: Number(vazias), p50, p90, soLexico, chars };
+};
+
+/** Banco já migrado com `uso` semeado: valores escolhidos, para o relatório ter o que medir. */
+const bancoDeUso = (nome, linhas) => {
+  const caminho = join(fixture, nome);
+  const db = openDb(caminho);
+  try {
+    const ins = db.prepare(
+      "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica)" +
+        " VALUES (?, ?, '{}', ?, ?, ?, ?)"
+    );
+    for (const l of linhas) {
+      ins.run(
+        l.ts ?? Date.now() - 60000,
+        l.tool,
+        l.ms,
+        l.chars ?? 100,
+        l.vazio ?? 0,
+        l.semantica ?? null
+      );
+    }
+  } finally {
+    db.close();
+  }
+  return caminho;
+};
+
+caso("uso-percentil-e-fracao-de-meia-busca", async () => {
+  // Três tools, cada uma existindo por um motivo que as outras não cobrem:
+  //  `impar` — 9 chamadas com uma cauda de 900 ms. É aqui que p50 e média DIVERGEM, e a divergência
+  //            é a mentira que o CA1 manda desfazer: um relatório que só mostra média faz uma
+  //            busca de 50 ms parecer de 140.
+  //  `par`   — 4 chamadas. Com n par o percentil por índice NÃO interpola: cai no elemento de
+  //            baixo. É contrato, não acaso, e sem um caso par ninguém percebe se ele mudar.
+  //  `nulo`  — 3 chamadas sem sinal nenhum. Denominador zero vira `—`, jamais `0 %`.
+  const msImpar = [900, 40, 10, 70, 30, 80, 20, 60, 50]; // fora de ordem de propósito
+  const semImpar = [null, 0, 1, 1, 0, 1, null, 1, 0]; //     3 zeros, 4 uns, 2 NULL -> 3/7
+  const msPar = [30, 10, 40, 20];
+  const semPar = [0, 1, 1, 1]; //                            1 zero de 4 medidos   -> 1/4
+  const msNulo = [25, 5, 15];
+
+  const caminho = bancoDeUso("uso-percentis.db", [
+    ...msImpar.map((ms, i) => ({ tool: "impar", ms, semantica: semImpar[i] })),
+    ...msPar.map((ms, i) => ({ tool: "par", ms, semantica: semPar[i] })),
+    ...msNulo.map((ms) => ({ tool: "nulo", ms })),
+  ]);
+
+  const r = rodarUso(caminho);
+  ok(r.code === 0, `uso.mjs saiu com ${r.code}: ${r.erro.slice(0, 400)}`);
+  ok(/só-léxico/.test(r.saida), `o cabeçalho não anuncia a coluna só-léxico:\n${r.saida.slice(0, 300)}`);
+
+  // O percentil esperado sai do MESMO vetor ordenado que o humano leria — é essa a definição, e
+  // deixá-la no teste é o que permite trocar a implementação sem trocar o contrato.
+  const esperado = (v, p) => String([...v].sort((a, b) => a - b)[Math.floor(p * (v.length - 1))]);
+
+  const impar = linhaDe(r.saida, "impar");
+  ok(impar !== null, `o relatório não trouxe a linha de 'impar':\n${r.saida}`);
+  ok(impar.n === 9, `esperava 9 chamadas em 'impar', veio ${impar.n}`);
+  ok(
+    impar.p50 === esperado(msImpar, 0.5),
+    `p50 de 'impar' veio ${impar.p50}, esperava ${esperado(msImpar, 0.5)}`
+  );
+  ok(
+    impar.p90 === esperado(msImpar, 0.9),
+    `p90 de 'impar' veio ${impar.p90}, esperava ${esperado(msImpar, 0.9)}`
+  );
+  // E a relação que dá sentido ao card: a cauda infla a média acima do p50 e até do p90. Com estes
+  // valores a média é 140 e o p50 é 50. As duas asserções acima passariam se `esperado` estivesse
+  // errado junto com a implementação; esta não passa, porque não depende da mesma conta.
+  const mediaImpar = msImpar.reduce((a, b) => a + b, 0) / msImpar.length;
+  ok(
+    Number(impar.p50) < mediaImpar && Number(impar.p90) < mediaImpar,
+    `p50=${impar.p50} p90=${impar.p90} deviam ficar abaixo da média (${mediaImpar}): a coluna ainda é AVG disfarçado`
+  );
+  ok(
+    Number(impar.p50) === 50 && Number(impar.p90) === 80,
+    `p50/p90 de 'impar' deviam ser 50/80, vieram ${impar.p50}/${impar.p90}`
+  );
+
+  const par = linhaDe(r.saida, "par");
+  ok(par !== null, `o relatório não trouxe a linha de 'par':\n${r.saida}`);
+  ok(par.p50 === esperado(msPar, 0.5), `p50 de 'par' veio ${par.p50}, esperava ${esperado(msPar, 0.5)}`);
+  ok(par.p90 === esperado(msPar, 0.9), `p90 de 'par' veio ${par.p90}, esperava ${esperado(msPar, 0.9)}`);
+  ok(Number(par.p50) === 20, `com n par o percentil cai no elemento de baixo (20), veio ${par.p50}`);
+
+  // --- a fração de meia-busca, que é a metade nova do CA1 ---
+  const fracao = (s) => Number(s.replace("%", ""));
+  // 3 de 7 MEDIDOS, não 3 de 9: as duas linhas NULL ficam fora do denominador. Se entrassem, a
+  // conta daria 33,3% — e é exatamente esse o erro que `COUNT(semantica IS NOT NULL)` cometeria.
+  ok(
+    Math.abs(fracao(impar.soLexico) - (100 * 3) / 7) < 0.05,
+    `só-léxico de 'impar' veio ${impar.soLexico}, esperava ~${((100 * 3) / 7).toFixed(1)}% (3 de 7 medidos, não 3 de 9)`
+  );
+  ok(
+    Math.abs(fracao(par.soLexico) - 25) < 0.05,
+    `só-léxico de 'par' veio ${par.soLexico}, esperava 25.0%`
+  );
+
+  const nulo = linhaDe(r.saida, "nulo");
+  ok(nulo !== null, `o relatório não trouxe a linha de 'nulo':\n${r.saida}`);
+  ok(nulo.n === 3, `esperava 3 chamadas em 'nulo', veio ${nulo.n}`);
+  ok(
+    nulo.soLexico === "—",
+    `tool sem nenhum sinal gravado tem de mostrar '—' e não um número; veio ${nulo.soLexico}`
+  );
+  // O percentil continua valendo para ela: não ter sinal semântico não é não ter latência.
+  ok(nulo.p50 === esperado(msNulo, 0.5), `p50 de 'nulo' veio ${nulo.p50}, esperava ${esperado(msNulo, 0.5)}`);
+});
+
+caso("uso-relatorio-sobrevive-a-banco-pre-migracao", async () => {
+  // O relatório abre somente-leitura e não passa pelo `dist/` — não tem como migrar o banco que
+  // recebe. E vai receber bancos velhos: o BRAIN_DB aponta para qualquer instalação, e nem toda
+  // instalação subiu o código novo. Sem a guarda do PRAGMA, `npm run uso` morreria inteiro em
+  // "no such column: semantica" — uma coluna nova derrubando um relatório anterior a ela.
+  const caminho = bancoPreMigracao("uso-relatorio-pre-migracao.db", 3);
+
+  // `bancoPreMigracao` semeia ts = 1, 2, 3 (época de 1970); a janela precisa alcançar lá atrás.
+  const antes = rodarUso(caminho, "30000");
+  ok(
+    antes.code === 0,
+    `uso.mjs quebrou com banco pré-migração (code ${antes.code}): ${antes.erro.slice(0, 400)}`
+  );
+  ok(/só-léxico/.test(antes.saida), `o cabeçalho perdeu a coluna só-léxico:\n${antes.saida.slice(0, 300)}`);
+  const l = linhaDe(antes.saida, "search_context");
+  ok(l !== null, `o relatório não trouxe a linha de search_context:\n${antes.saida}`);
+  ok(l.n === 3, `esperava 3 chamadas, veio ${l.n}`);
+  ok(l.soLexico === "—", `banco sem a coluna tem de mostrar '—', veio ${l.soLexico}`);
+
+  // Abre (migrando) e imprime de novo — o caminho real de uma instalação que acabou de subir o
+  // código novo. As linhas velhas seguem NULL, então a fração segue `—`, e é assim que o CA1
+  // quer: não se inventa medição para quem nunca foi medido.
+  openDb(caminho).close();
+  const depois = rodarUso(caminho, "30000");
+  ok(
+    depois.code === 0,
+    `uso.mjs quebrou depois da migração (code ${depois.code}): ${depois.erro.slice(0, 400)}`
+  );
+  const l2 = linhaDe(depois.saida, "search_context");
+  ok(l2 !== null, `o relatório sumiu com a linha depois da migração:\n${depois.saida}`);
+  ok(l2.n === 3, `a migração mexeu na contagem do relatório: ${l2.n}`);
+  ok(
+    l2.soLexico === "—",
+    `linhas pré-migração têm de ficar fora do denominador mesmo com a coluna presente; veio ${l2.soLexico}`
+  );
+});
+
+// ---------------------------------------------------------------- colheita do golden set (CA2)
+// (card #18) O golden set deixou de ser redigido e passou a ser COLHIDO do uso real. O que estes
+// casos afirmam é o pareamento — a janela, o dedup e os dois motivos de descarte —, porque é ali
+// que um golden set silenciosamente ganha caso que nunca pode acertar.
+
+const { colher, JANELA_MS } = await import(pathToFileURL(join(root, "scripts", "colher-golden.mjs")).href);
+
+/** Banco com `docs` e `uso` semeados: a colheita lê os dois e revalida um contra o outro. */
+const bancoParaColher = (nome, docs, linhas) => {
+  const caminho = join(fixture, nome);
+  const db = openDb(caminho);
+  try {
+    const insDoc = db.prepare(
+      "INSERT INTO docs (path, title, source, repo, feature, doc_type) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    for (const d of docs) {
+      insDoc.run(
+        d.path,
+        d.title ?? d.path,
+        d.source ?? "docs",
+        d.repo ?? null,
+        d.feature ?? null,
+        d.doc_type ?? "doc"
+      );
+    }
+    const insUso = db.prepare(
+      "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, 10, 100, ?, ?)"
+    );
+    for (const l of linhas) insUso.run(l.ts, l.tool, JSON.stringify(l.args), l.vazio ?? 0, l.semantica ?? null);
+  } finally {
+    db.close();
+  }
+  return caminho;
+};
+
+const colherDe = (caminho) => {
+  const db = new DatabaseSync(caminho, { readOnly: true });
+  try {
+    return colher(db);
+  } finally {
+    db.close();
+  }
+};
+
+/** Roda o `colher` como um humano roda: processo próprio, banco e golden escolhidos pelo ambiente. */
+const rodarColher = (caminhoDb, caminhoGolden) => {
+  const r = spawnSync(process.execPath, [join(root, "scripts", "colher-golden.mjs")], {
+    env: { ...process.env, BRAIN_DB: caminhoDb, BRAIN_GOLDEN: caminhoGolden },
+    encoding: "utf8",
+  });
+  return { code: r.status, saida: r.stdout ?? "", erro: r.stderr ?? "" };
+};
+
+caso("colher-janela-dedup-e-os-dois-descartes", async () => {
+  const T = 1700000000000;
+  const P = (n) => "C:\\fx\\docs\\" + n + ".md";
+  // Cenários separados por 1 h para não se contaminarem: a busca varre para a FRENTE, e um
+  // `read_doc` solto seria pareado por qualquer busca anterior que ainda estivesse na janela.
+  const h = (n) => T + n * 3600000;
+  const docs = [
+    { path: P("valido") },
+    { path: P("limite") },
+    { path: P("tardio") },
+    { path: P("primeira") },
+    { path: P("segunda") },
+    { path: P("incoerente"), source: "mapa", repo: null },
+    { path: P("vazia") },
+  ];
+  const uso = [
+    // (a) par dentro da janela
+    { ts: h(1), tool: "search_context", args: { query: "por que a consulta valida encontra o alvo dela?" } },
+    { ts: h(1) + 89000, tool: "read_doc", args: { path: P("valido") } },
+    // (b) EXATAMENTE 90 s: a borda é inclusiva, e é contrato — sem caso, ninguém nota se ela mudar
+    { ts: h(2), tool: "search_context", args: { query: "consulta na borda" } },
+    { ts: h(2) + JANELA_MS, tool: "read_doc", args: { path: P("limite") } },
+    // (c) 91 s: fora. A leitura já é de outro assunto.
+    { ts: h(3), tool: "search_context", args: { query: "consulta tardia" } },
+    { ts: h(3) + JANELA_MS + 1000, tool: "read_doc", args: { path: P("tardio") } },
+    // (d) query repetida: vence a PRIMEIRA, e a chave é normalizada (trim + lowercase)
+    { ts: h(4), tool: "search_context", args: { query: "consulta repetida" } },
+    { ts: h(4) + 1000, tool: "read_doc", args: { path: P("primeira") } },
+    { ts: h(5), tool: "search_context", args: { query: "  CONSULTA Repetida  " } },
+    { ts: h(5) + 1000, tool: "read_doc", args: { path: P("segunda") } },
+    // (e) alvo que não está em `docs`: apodreceu ou saiu do índice
+    { ts: h(6), tool: "search_context", args: { query: "consulta de alvo sumido" } },
+    { ts: h(6) + 1000, tool: "read_doc", args: { path: P("nunca-indexado") } },
+    // (f) alvo que não satisfaz os próprios filtros: par temporal FALSO (emenda 2026-09-11)
+    { ts: h(7), tool: "search_context", args: { query: "consulta com filtro", repo: "operations-center" } },
+    { ts: h(7) + 1000, tool: "read_doc", args: { path: P("incoerente") } },
+    // (g) busca que voltou vazia nunca vira caso positivo, mesmo com leitura logo depois
+    { ts: h(8), tool: "search_context", args: { query: "consulta que voltou vazia" }, vazio: 1 },
+    { ts: h(8) + 1000, tool: "read_doc", args: { path: P("vazia") } },
+  ];
+
+  const caminho = bancoParaColher("colheita-pareamento.db", docs, uso);
+  const { casos, avisos, contagem } = colherDe(caminho);
+  const porQuery = new Map(casos.map((c) => [c.q.trim().toLowerCase(), c]));
+
+  const valida = porQuery.get("por que a consulta valida encontra o alvo dela?");
+  ok(valida !== undefined, "o par dentro da janela não virou caso");
+  ok(
+    valida.esperado[0] === "docs/valido.md",
+    `o 'esperado' tem de ser os DOIS últimos segmentos, nunca o caminho absoluto da máquina; veio ${valida.esperado[0]}`
+  );
+  ok(valida.estilo === "natural", "query com '?' é 'natural' — é o que o filtro de CLI do eval usa");
+  ok(porQuery.has("consulta na borda"), `90 s exatos ficam DENTRO da janela (${JANELA_MS} ms)`);
+  ok(!porQuery.has("consulta tardia"), "91 s ficam fora da janela e o caso é descartado");
+
+  const repetida = porQuery.get("consulta repetida");
+  ok(repetida !== undefined, "a query repetida sumiu inteira em vez de sobrar uma vez");
+  ok(repetida.esperado[0] === "docs/primeira.md", `no dedup vence a PRIMEIRA ocorrência; veio ${repetida.esperado[0]}`);
+  ok(contagem.repetidas === 1, `esperava 1 repetida descartada, veio ${contagem.repetidas}`);
+
+  ok(!porQuery.has("consulta de alvo sumido"), "alvo fora de 'docs' tem de ser descartado");
+  ok(contagem.semAlvo === 1, `esperava 1 descarte por alvo ausente, veio ${contagem.semAlvo}`);
+  ok(
+    avisos.some((a) => a.includes("nunca-indexado")),
+    "descarte por alvo ausente tem de sair como AVISO nomeando o alvo, não em silêncio"
+  );
+
+  // A emenda 2026-09-11, que é a razão de este caso existir: o alvo tem 'repo' null e a busca
+  // filtrou por 'operations-center'. O search.ts:184-187 compara por igualdade, então aquela busca
+  // JAMAIS devolveria aquele alvo — é par temporal falso, e emitido valeria 0 para sempre.
+  ok(!porQuery.has("consulta com filtro"), "alvo que não satisfaz os próprios filtros tem de ser descartado");
+  ok(contagem.incoerentes === 1, `esperava 1 descarte por incoerência, veio ${contagem.incoerentes}`);
+  ok(
+    avisos.some((a) => a.includes("par temporal falso")),
+    "o descarte por incoerência tem de se explicar no aviso; senão vira mistério na próxima colheita"
+  );
+
+  ok(!porQuery.has("consulta que voltou vazia"), "busca com 'vazio = 1' não pode virar caso positivo");
+  ok(casos.length === 3, `esperava 3 casos colhidos (válido, borda, repetida), vieram ${casos.length}`);
+});
+
+caso("colher-preserva-manuais-e-e-idempotente", async () => {
+  const T = 1700000000000;
+  const docs = [];
+  const uso = [];
+  // 60 pares sintéticos: é o piso do CA2, e a asserção de cobertura mora dentro do próprio script.
+  // O primeiro alvo é 'source: code' e o segundo é do 'operations-center' — as duas coberturas que
+  // o CA2 exige, e que ele exige POR ALVO, não pelo filtro do caso.
+  for (let i = 0; i < 60; i++) {
+    const path = "C:\\fx\\colhidos\\alvo-" + i + ".md";
+    docs.push({ path, source: i === 0 ? "code" : "docs", repo: i === 1 ? "operations-center" : null });
+    const ts = T + i * 600000;
+    uso.push({ ts, tool: "search_context", args: { query: `pergunta numero ${i}` } });
+    uso.push({ ts: ts + 1000, tool: "read_doc", args: { path } });
+  }
+  docs.push({ path: "C:\\fx\\docs\\alvo-manual.md" }, { path: "C:\\fx\\docs\\alvo-antigo.md" });
+
+  const caminhoDb = bancoParaColher("colheita-preservacao.db", docs, uso);
+  const caminhoGolden = join(fixture, "golden-preservacao.json");
+  writeFileSync(
+    caminhoGolden,
+    JSON.stringify(
+      [
+        {
+          q: "caso manual que ninguém pode apagar",
+          filtros: { source: null, repo: null, feature: null, doc_type: null },
+          esperado: ["docs/alvo-manual.md"],
+          tipo: "positivo",
+          estilo: "natural",
+          origem: "manual",
+          nota: "a nota também sobrevive",
+        },
+        // Formato antigo: sem 'origem', sem 'filtros', sem 'tipo'. É a remarcação única de que a
+        // spec fala — depois dela o caso é 'manual' e nunca mais é tocado.
+        { q: "caso do formato antigo", esperado: ["docs/alvo-antigo.md"], estilo: "keywords" },
+        {
+          q: "negativo estrutural do fixture",
+          filtros: { source: "mapa", repo: "operations-center", feature: null, doc_type: null },
+          esperado: [],
+          tipo: "negativo",
+          estilo: "natural",
+          volatil: false,
+          origem: "manual",
+        },
+        {
+          q: "negativo volatil do fixture",
+          filtros: { source: null, repo: "repo-que-nao-existe", feature: null, doc_type: null },
+          esperado: [],
+          tipo: "negativo",
+          estilo: "keywords",
+          volatil: true,
+          origem: "manual",
+        },
+        // Colhido de uma safra velha: ESTE tem de ser substituído, senão "preservar" viraria "nunca
+        // mais atualizar" e o golden set congelaria no primeiro dia.
+        {
+          q: "colhido de uma safra que já passou",
+          filtros: { source: null, repo: null, feature: null, doc_type: null },
+          esperado: ["docs/alvo-que-nem-existe.md"],
+          tipo: "positivo",
+          estilo: "keywords",
+          origem: "uso:2020-01-01",
+        },
+      ],
+      null,
+      2
+    )
+  );
+
+  const r1 = rodarColher(caminhoDb, caminhoGolden);
+  ok(r1.code === 0, `colher saiu com ${r1.code}: ${r1.erro.slice(0, 500)}`);
+  const depois1 = readFileSync(caminhoGolden, "utf8");
+  const casos1 = JSON.parse(depois1);
+  const acha = (q) => casos1.find((c) => c.q === q);
+
+  const manual = acha("caso manual que ninguém pode apagar");
+  ok(manual !== undefined, "o caso manual foi APAGADO pela recolheita");
+  ok(manual.origem === "manual" && manual.nota === "a nota também sobrevive", "o caso manual voltou mutilado");
+  ok(manual.esperado[0] === "docs/alvo-manual.md", "o 'esperado' do caso manual mudou");
+
+  const antigo = acha("caso do formato antigo");
+  ok(antigo !== undefined, "o caso do formato antigo sumiu em vez de ser remarcado");
+  ok(antigo.origem === "manual", `formato antigo tem de virar 'manual'; veio ${antigo.origem}`);
+  ok(antigo.tipo === "positivo" && antigo.filtros.source === null, "a remarcação tem de completar o formato novo");
+
+  ok(
+    acha("colhido de uma safra que já passou") === undefined,
+    "caso 'uso:*' velho tem de ser SUBSTITUÍDO, não preservado — senão o golden set congela no primeiro dia"
+  );
+  ok(casos1.filter((c) => c.tipo === "negativo").length === 2, "os dois negativos têm de sobreviver");
+  const colhidos1 = casos1.filter((c) => String(c.origem).startsWith("uso:")).length;
+  ok(colhidos1 === 60, `esperava 60 casos colhidos, vieram ${colhidos1}`);
+
+  // Idempotência: a segunda rodada não pode mexer em nada. Sem isto, "preserva os manuais" seria
+  // verdade num dia e mentira no outro, e o 'git diff' de cada colheita viraria ruído ilegível.
+  const r2 = rodarColher(caminhoDb, caminhoGolden);
+  ok(r2.code === 0, `a segunda colheita saiu com ${r2.code}: ${r2.erro.slice(0, 500)}`);
+  ok(readFileSync(caminhoGolden, "utf8") === depois1, "a segunda colheita mudou o arquivo: não é idempotente");
+});
+
+caso("colher-falha-sem-escrever-quando-a-cobertura-nao-fecha", async () => {
+  // Um clone novo, com 'uso' quase vazio. Se o script escrevesse antes de conferir, ele APAGARIA o
+  // golden set versionado — que é a ENTRADA do portão — justamente quando ninguém está olhando.
+  const docs = [{ path: "C:\\fx\\docs\\unico.md" }];
+  const uso = [
+    { ts: 1700000000000, tool: "search_context", args: { query: "unica pergunta do clone novo" } },
+    { ts: 1700000001000, tool: "read_doc", args: { path: "C:\\fx\\docs\\unico.md" } },
+  ];
+  const caminhoDb = bancoParaColher("colheita-magra.db", docs, uso);
+  const caminhoGolden = join(fixture, "golden-magro.json");
+  const antes = JSON.stringify(
+    [
+      {
+        q: "o golden set que já existia",
+        filtros: { source: null, repo: null, feature: null, doc_type: null },
+        esperado: ["docs/unico.md"],
+        tipo: "positivo",
+        estilo: "keywords",
+        origem: "manual",
+      },
+    ],
+    null,
+    2
+  );
+  writeFileSync(caminhoGolden, antes);
+
+  const r = rodarColher(caminhoDb, caminhoGolden);
+  ok(r.code !== 0, "colheita sem cobertura tem de sair com código diferente de zero");
+  ok(/COLHEITA FALHOU/.test(r.erro), `a falha tem de ser RUIDOSA; stderr veio: ${r.erro.slice(0, 300)}`);
+  ok(/mínimo do CA2/.test(r.erro), "a mensagem tem de dizer qual cobertura faltou, não só que falhou");
+  ok(readFileSync(caminhoGolden, "utf8") === antes, "o golden.json foi SOBRESCRITO por uma colheita que falhou");
+});
+
+// ---------------------------------------------------------------- eval como portão (CA3)
+// (card #18) O eval deixa de ser relatório e passa a ser portão, e portão tem uma obrigação a mais
+// que relatório: distinguir "o ranking piorou" (código 1) de "a medição não aconteceu" (código 2).
+// Os casos abaixo afirmam a métrica e, principalmente, as três formas de NÃO ter medido — cada uma
+// delas, se tratada como medição, faria o portão devolver um número falso com toda a confiança.
+
+const evalMod = await import(pathToFileURL(join(root, "scripts", "eval.mjs")).href);
+
+const filtrosNulos = { source: null, repo: null, feature: null, doc_type: null };
+const casoPositivo = (q, esperado) => ({
+  q,
+  filtros: filtrosNulos,
+  esperado: [esperado],
+  tipo: "positivo",
+  estilo: "keywords",
+  origem: "manual",
+});
+const casoNegativo = (q, filtros, volatil) => ({
+  q,
+  filtros: { ...filtrosNulos, ...filtros },
+  esperado: [],
+  tipo: "negativo",
+  estilo: "keywords",
+  volatil,
+  origem: "manual",
+});
+
+/**
+ * Mensagem JSON-RPC como a do `search_context`, montada à mão. `brain === null` forja a
+ * resposta SEM `_meta.brain` — a que um servidor antigo daria, e que nenhum servidor atual produz.
+ */
+const respostaForjada = (caminhos, brain = { semantica: true, lexicais: 1, vetoriais: 1, colapsados: 0 }) => {
+  const texto = caminhos.length
+    ? caminhos
+        .map((p, i) => `${i + 1}. Titulo ${i + 1}\n   [docs]\n   ${p}\n   trecho do resultado ${i + 1}`)
+        .join("\n\n") + "\n\nUse read_doc(path) para ler o documento inteiro ou uma seção."
+    : 'Nenhum resultado para "x". Tente termos mais curtos/sinônimos, ou remova filtros.';
+  const result = { content: [{ type: "text", text: texto }] };
+  if (brain !== null) result._meta = { brain };
+  return { jsonrpc: "2.0", id: 1, result };
+};
+
+caso("eval-ndcg-sobre-ranks-conhecidos", async () => {
+  const { ndcg5, avaliar, veredito } = evalMod;
+  const veio = [1, 2, 3, 4, 5, 6].map((r) => Number(ndcg5(r).toFixed(2)));
+  ok(
+    JSON.stringify(veio) === JSON.stringify([1, 0.63, 0.5, 0.43, 0.39, 0]),
+    `nDCG@5 dos ranks 1..6 devia ser [1, 0.63, 0.5, 0.43, 0.39, 0], veio [${veio.join(", ")}]`
+  );
+  ok(ndcg5(0) === 0, "rank 0 (não veio) tem de valer 0");
+
+  // O mesmo número, agora saindo de uma resposta: o rank é a POSIÇÃO do bloco, não a primeira linha
+  // que contém o alvo. O trecho do 1º resultado cita o caminho do alvo de propósito — um parser que
+  // procurasse "linha parecida com caminho" daria rank 1 aqui.
+  const alvo = "C:\\fx\\docs\\alvo.md";
+  const ruido = (n) => `C:\\fx\\docs\\ruido-${n}.md`;
+  const resposta = respostaForjada([ruido(1), ruido(2), alvo, ruido(4), ruido(5)]);
+  resposta.result.content[0].text = resposta.result.content[0].text.replace(
+    "trecho do resultado 1",
+    "C:\\fx\\docs\\alvo.md citado dentro de um trecho"
+  );
+  const noTerceiro = avaliar(casoPositivo("q3", "docs/alvo.md"), resposta);
+  ok(noTerceiro.rank === 3, `alvo no 3º bloco devia dar rank 3, deu ${noTerceiro.rank}`);
+  ok(Math.abs(noTerceiro.ndcg - 0.5) < 1e-12, `rank 3 devia valer 0.5, valeu ${noTerceiro.ndcg}`);
+
+  const noPrimeiro = avaliar(casoPositivo("q1", "docs/alvo.md"), respostaForjada([alvo]));
+  const foraDoTop = avaliar(casoPositivo("q0", "docs/alvo.md"), respostaForjada([ruido(1), ruido(2)]));
+  const negativoOk = avaliar(casoNegativo("n1", { source: "github" }, false), respostaForjada([]));
+  const negativoFurado = avaliar(casoNegativo("n2", { source: "github" }, false), respostaForjada([ruido(1)]));
+  ok(negativoOk.ndcg === 1 && negativoFurado.ndcg === 0, "negativo vale 1 se vazio e 0 se não");
+  ok(!negativoFurado.invalido, "negativo ESTRUTURAL com resultado é medição (vale 0), não invalidação");
+
+  // A métrica do portão é a média sobre TODOS os casos, negativos inclusive.
+  const v = veredito([noPrimeiro, noTerceiro, foraDoTop, negativoOk, negativoFurado]);
+  ok(v.codigo === 0, `rodada válida sem --base devia ser código 0, veio ${v.codigo}`);
+  ok(Math.abs(v.ndcg - (1 + 0.5 + 0 + 1 + 0) / 5) < 1e-12, `nDCG@5 da rodada devia ser 0.5, veio ${v.ndcg}`);
+  // Os secundários olham só os positivos: hit@k de um negativo não quer dizer nada.
+  ok(v.positivos === 3 && v.hit1 === 1 && v.hit5 === 2, `hit@1/hit@5 errados: ${v.hit1}/${v.hit5} de ${v.positivos}`);
+  ok(Math.abs(v.mrr - (1 + 1 / 3 + 0) / 3) < 1e-12, `MRR errado: ${v.mrr}`);
+});
+
+caso("eval-sem-diagnostico-e-distinto-de-so-lexico", async () => {
+  const { avaliar, veredito, CODIGO } = evalMod;
+  const positivo = casoPositivo("alvo", "docs/alvo.md");
+  const alvo = ["C:\\fx\\docs\\alvo.md"];
+
+  const semMeta = avaliar(positivo, respostaForjada(alvo, null));
+  const soLexico = avaliar(positivo, respostaForjada(alvo, { semantica: false, lexicais: 1, vetoriais: 0, colapsados: 0 }));
+  const metaSemSinal = avaliar(positivo, respostaForjada(alvo, { lexicais: 1 }));
+
+  ok(semMeta.invalido?.tipo === "sem-diagnostico", `sem _meta.brain devia ser 'sem-diagnostico', veio ${semMeta.invalido?.tipo}`);
+  ok(soLexico.invalido?.tipo === "so-lexico", `semantica === false devia ser 'so-lexico', veio ${soLexico.invalido?.tipo}`);
+  ok(semMeta.invalido.tipo !== soLexico.invalido.tipo, "ausência de diagnóstico foi confundida com semântica caída");
+  ok(metaSemSinal.invalido?.tipo === "sem-diagnostico", "`_meta.brain` sem `semantica` booleano tem de contar como ausente");
+
+  // O caso que é fácil errar: negativo VAZIO sem diagnóstico. Vazio parece "passou", mas sem o sinal
+  // não se sabe se veio vazio por construção ou porque a metade vetorial nem rodou.
+  const negativoSemMeta = avaliar(casoNegativo("vazio", { source: "github" }, false), respostaForjada([], null));
+  ok(negativoSemMeta.invalido?.tipo === "sem-diagnostico", "negativo vazio sem _meta.brain foi aceito como satisfeito");
+
+  for (const [rotulo, a] of [["sem _meta.brain", semMeta], ["semantica false", soLexico], ["negativo sem _meta", negativoSemMeta]]) {
+    const v = veredito([avaliar(positivo, respostaForjada(alvo)), a]);
+    ok(v.codigo === CODIGO.NAO_MEDI, `${rotulo}: um caso inválido numa rodada boa devia dar código 2, deu ${v.codigo}`);
+    ok(v.codigo !== CODIGO.REGREDIU, `${rotulo}: medição que não aconteceu virou 'regrediu'`);
+  }
+  ok(veredito([avaliar(positivo, respostaForjada(alvo))]).codigo === CODIGO.NAO_CAIU, "a rodada de controle devia dar 0");
+});
+
+/**
+ * Um índice pequeno e COM vetores, montado uma vez e compartilhado pelos casos de ponta a ponta.
+ * Compartilhar é seguro justamente pelo que eles provam: toda rodada do eval mede um snapshot, e o
+ * primeiro caso afirma que o banco da fixture sai intocado.
+ */
+let indiceDoEval = null;
+async function montarIndiceDoEval() {
+  if (indiceDoEval) return indiceDoEval;
+  const fx = criarFixture("eval", {
+    "alfa.md": "# Alfa\n\nDocumento sobre alfa, o alvo do caso positivo.\n",
+    "beta.md": "# Beta\n\nDocumento sobre beta, que fala de outra coisa.\n",
+  });
+  const s = subirServidor(fx, "indexa-eval");
+  // `semantica` só sai true com chunk embutido (`search.ts`: `cobertura().comEmbedding > 0`), e o
+  // servidor do eval, em somente-consulta, não embute nada: o índice tem de chegar pronto.
+  await ate(
+    () =>
+      contar(fx.db, "SELECT COUNT(*) c FROM chunks") > 0 &&
+      contar(fx.db, "SELECT COUNT(*) c FROM chunks WHERE embedding IS NULL") === 0,
+    30000,
+    () => `o índice da fixture ganhar vetores -> ${s.diagnostico()}`
+  );
+  s.fecharStdin();
+  await ate(() => lerLider(fx.db) === null, TTL_SERVIDOR_MS + 10000, "o lease sair da tabela");
+  s.matar();
+  await ate(() => !s.vivo, 15000, "o servidor de indexação morrer de vez");
+  indiceDoEval = fx;
+  return fx;
+}
+
+const escreverGolden = (nome, casos) => {
+  const caminho = join(fixture, nome);
+  writeFileSync(caminho, JSON.stringify(casos, null, 2));
+  return caminho;
+};
+
+/**
+ * Roda o eval como o portão roda: processo próprio, banco/config/golden pelo ambiente. O stub de
+ * embeddings chega ao servidor que o eval sobe pelo NODE_OPTIONS — o eval não tem, e não deve ter,
+ * nenhuma opção que saiba que teste existe.
+ *
+ * `instalacao` roda uma CÓPIA do eval.mjs a partir de outra pasta (as guardas do `--base` leem a pasta
+ * onde ele roda); `null` no `envExtra` tira a variável do ambiente herdado.
+ */
+const rodarEval = (fx, golden, envExtra = {}, { instalacao = root, args = [] } = {}) =>
+  new Promise((res) => {
+    const env = {
+      ...process.env,
+      BRAIN_DB: fx.db,
+      BRAIN_CONFIG: fx.config,
+      BRAIN_GOLDEN: golden,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${hookStub}`].filter(Boolean).join(" "),
+      ...envExtra,
+    };
+    for (const [k, v] of Object.entries(env)) if (v === null) delete env[k];
+    const c = spawn(process.execPath, [join(instalacao, "scripts", "eval.mjs"), ...args], {
+      cwd: instalacao,
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+    });
+    let saida = "";
+    let erro = "";
+    c.stdout.on("data", (d) => (saida += d.toString()));
+    c.stderr.on("data", (d) => (erro += d.toString()));
+    const prazo = setTimeout(() => c.kill(), 90000);
+    c.on("exit", (code) => {
+      clearTimeout(prazo);
+      const snapshot = saida.match(/^snapshot: (.+) \(\d/m)?.[1] ?? null;
+      res({ code, saida, erro, snapshot, tudo: () => (saida + erro).slice(-1500) });
+    });
+  });
+
+const golden3 = () => [
+  casoPositivo("alfa", "docs/alfa.md"),
+  // Estrutural: a fixture só tem root `docs`, então `source: github` não casa nem léxico nem vetor.
+  casoNegativo("alfa estrutural", { source: "github" }, false),
+  casoNegativo("alfa volatil", { repo: "repo-que-nao-esta-no-indice" }, true),
+];
+
+caso("eval-mede-sobre-snapshot-sem-tocar-o-indice", async () => {
+  const fx = await montarIndiceDoEval();
+  const usoAntes = contar(fx.db, "SELECT COUNT(*) c FROM uso");
+  const docsAntes = contar(fx.db, "SELECT COUNT(*) c FROM docs");
+
+  const r = await rodarEval(fx, escreverGolden("golden-eval-ok.json", golden3()));
+  ok(r.code === 0, `rodada válida devia sair com 0, saiu com ${r.code}:\n${r.tudo()}`);
+  // 1.000 prova os FILTROS: sem `source: github` repassado, "alfa estrutural" voltaria cheio e o
+  // negativo valeria 0 — a média cairia para 0.667.
+  ok(/nDCG@5 1\.000 \(3 casos\)/.test(r.saida), `esperava nDCG@5 1.000 sobre 3 casos:\n${r.tudo()}`);
+  ok(/EVAL OK \(código 0\)/.test(r.saida), `faltou o veredito legível:\n${r.tudo()}`);
+
+  ok(r.snapshot !== null, `o eval não disse onde tirou o snapshot:\n${r.tudo()}`);
+  ok(!existsSync(r.snapshot), `o snapshot ficou para trás: ${r.snapshot}`);
+  ok(!existsSync(dirname(r.snapshot)), `o diretório do snapshot ficou para trás: ${dirname(r.snapshot)}`);
+
+  // As buscas da rodada gravaram `uso` — no snapshot. No banco da fixture, nada.
+  ok(
+    contar(fx.db, "SELECT COUNT(*) c FROM uso") === usoAntes,
+    "o eval escreveu `uso` no banco medido: a rodada não correu sobre o snapshot"
+  );
+  ok(contar(fx.db, "SELECT COUNT(*) c FROM docs") === docsAntes, "o eval mexeu nos documentos do banco medido");
+  ok(lerLider(fx.db) === null, "o servidor do eval disputou o lease do banco medido");
+});
+
+caso("eval-semantica-caida-sai-2-nao-1", async () => {
+  const fx = await montarIndiceDoEval();
+  const golden = escreverGolden("golden-eval-semantica.json", golden3());
+
+  // (a) Servidor que nunca aquece: o laço de aquecimento estoura o teto. Teto curto só para a
+  //     suíte não pagar os 60 s reais — a regra testada é a mesma.
+  const sem = await rodarEval(fx, golden, { BRAIN_STUB_SEM_AQUECER: "1", BRAIN_EVAL_TETO_AQUECIMENTO_MS: "1500" });
+  ok(sem.code === 2, `servidor sem aquecer devia dar código 2, deu ${sem.code}:\n${sem.tudo()}`);
+  ok(/NÃO CONSEGUI MEDIR/.test(sem.erro), `a mensagem tem de dizer 'não consegui medir':\n${sem.tudo()}`);
+  ok(/aquecimento/.test(sem.erro), `a mensagem tem de dizer que foi o aquecimento:\n${sem.tudo()}`);
+  ok(!/nDCG@5 \d/.test(sem.saida), "sem aquecimento não há medição, e mesmo assim saiu um nDCG@5");
+  ok(sem.snapshot && !existsSync(dirname(sem.snapshot)), "o snapshot ficou para trás no caminho de erro");
+
+  // (b) A semântica cai NO MEIO da rodada: aquecimento (1ª consulta) e 1º caso (2ª) respondem, o 2º
+  //     caso já sai só com léxico. A rodada inteira vale nada, e o caso tem de ser nomeado.
+  const meio = await rodarEval(fx, golden, { BRAIN_STUB_QUERIES_ATE_CAIR: "2" });
+  ok(meio.code === 2, `semântica caída no meio devia dar código 2, deu ${meio.code}:\n${meio.tudo()}`);
+  ok(/NÃO CONSEGUI MEDIR/.test(meio.erro), `a mensagem tem de dizer 'não consegui medir':\n${meio.tudo()}`);
+  ok(/\[so-lexico\] "alfa estrutural"/.test(meio.erro), `o caso que invalidou a rodada não foi nomeado:\n${meio.tudo()}`);
+  ok(!/nDCG@5 \d/.test(meio.saida), "rodada invalidada imprimiu nDCG@5 — seria lido como medição");
+  ok(meio.snapshot && !existsSync(dirname(meio.snapshot)), "o snapshot ficou para trás na rodada invalidada");
+});
+
+caso("eval-negativo-volatil-apodrecido-sai-2", async () => {
+  const fx = await montarIndiceDoEval();
+  // O assunto "chegou" ao índice: o filtro do negativo volátil agora casa o root da fixture.
+  const golden = escreverGolden("golden-eval-apodreceu.json", [
+    casoPositivo("alfa", "docs/alfa.md"),
+    casoNegativo("alfa volatil", { source: "docs" }, true),
+  ]);
+  const r = await rodarEval(fx, golden);
+  ok(r.code === 2, `negativo volátil com resultado devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  ok(r.code !== 1, "caso apodrecido foi reportado como regressão de ranking");
+  ok(/\[apodreceu\] "alfa volatil"/.test(r.erro), `o caso apodrecido não foi nomeado:\n${r.tudo()}`);
+  ok(/recolha de novo/.test(r.erro), `a mensagem tem de mandar recolher:\n${r.tudo()}`);
+});
+
+// ---------------------------------------------------------------- o --base: comparação e guardas
+// (card #18, task 6) O portão compara dois servidores, e o que mais custa caro nele não é a conta — é
+// medir a coisa errada e devolver "não caiu" com toda a confiança. Por isso as guardas têm casos
+// próprios, e cada um afirma também que NADA foi feito antes delas: nem snapshot, nem compilação.
+
+caso("eval-comparar-e-estrito", async () => {
+  const { avaliar, veredito, comparar, CODIGO } = evalMod;
+  const alvo = "C:\\fx\\docs\\alvo.md";
+  const ruido = (n) => `C:\\fx\\docs\\ruido-${n}.md`;
+  const casos = [
+    casoPositivo("a", "docs/alvo.md"),
+    casoPositivo("b", "docs/alvo.md"),
+    casoNegativo("n", { source: "github" }, false),
+  ];
+  const rodadaDe = (respostas) => {
+    const avaliacoes = casos.map((c, i) => avaliar(c, respostas[i]));
+    return { v: veredito(avaliacoes), avaliacoes };
+  };
+  const base = rodadaDe([respostaForjada([alvo]), respostaForjada([ruido(1), alvo]), respostaForjada([])]);
+
+  const igual = comparar(base, rodadaDe([respostaForjada([alvo]), respostaForjada([ruido(1), alvo]), respostaForjada([])]));
+  ok(igual.codigo === CODIGO.NAO_CAIU, `rodadas idênticas deviam dar 0, deram ${igual.codigo}`);
+  ok(igual.mudaram.length === 0, `rodadas idênticas não têm caso que mudou, vieram ${igual.mudaram.length}`);
+
+  // "a" cai do 1º para o 2º, "b" sobe do 2º para o 1º, o negativo passa a ter resultado.
+  const caiu = comparar(base, rodadaDe([respostaForjada([ruido(1), alvo]), respostaForjada([alvo]), respostaForjada([ruido(2)])]));
+  ok(caiu.codigo === CODIGO.REGREDIU, `queda de nDCG@5 devia dar código 1, deu ${caiu.codigo}`);
+  ok(Math.abs(caiu.delta - -1 / 3) < 1e-12, `delta devia ser -1/3, veio ${caiu.delta}`);
+  const ordem = caiu.mudaram.map((m) => m.caso.q).join(",");
+  ok(ordem === "n,a,b", `os casos que mudaram, dos que mais caíram para os que subiram, deviam ser n,a,b — vieram ${ordem}`);
+  ok(caiu.mudaram[1].base.rank === 1 && caiu.mudaram[1].head.rank === 2, "o caso que mudou tem de carregar as duas posições");
+
+  // Troca que se compensa: a média não se move, então não barra — mas a tabela mostra onde mexeu.
+  const trocou = comparar(base, rodadaDe([respostaForjada([ruido(1), alvo]), respostaForjada([alvo]), respostaForjada([])]));
+  ok(trocou.codigo === CODIGO.NAO_CAIU, `troca que se compensa não é queda, deu ${trocou.codigo}`);
+  ok(trocou.mudaram.length === 2, `a troca tem de aparecer nos casos que mudaram, vieram ${trocou.mudaram.length}`);
+
+  // O épsilon é contra ruído de ponto flutuante e NÃO é faixa de tolerância: uma queda de um
+  // milionésimo barra; só a diferença no último bit passa.
+  const so = (ndcg) => ({ v: { ndcg }, avaliacoes: [] });
+  ok(comparar(so(0.8), so(0.8 - 1e-6)).codigo === CODIGO.REGREDIU, "queda de 1e-6 passou: o épsilon virou faixa de tolerância");
+  ok(comparar(so(0.8), so(0.8 - 1e-12)).codigo === CODIGO.NAO_CAIU, "ruído de ponto flutuante (1e-12) barrou");
+  ok(comparar(so(0.8), so(0.9)).codigo === CODIGO.NAO_CAIU, "melhora não é regressão");
+});
+
+caso("eval-argumentos-do-portao", async () => {
+  const { lerArgumentos } = evalMod;
+  const a = lerArgumentos(["--base", "origin/dev", "--repo=C:\\repo", "natural"]);
+  ok(a.base === "origin/dev" && a.repo === "C:\\repo" && a.estilo === "natural" && !a.erros.length, `leitura errada: ${JSON.stringify(a)}`);
+  ok(lerArgumentos(["--base"]).erros.length === 1, "--base sem valor foi aceito");
+  ok(lerArgumentos(["--base", "--repo", "x"]).erros.length > 0, "--base engoliu a flag seguinte como ref");
+  ok(/só vale com --base/.test(lerArgumentos(["--repo", "x"]).erros.join()), "--repo sem --base foi aceito em silêncio");
+  ok(/não reconhecida/.test(lerArgumentos(["--bse", "origin/dev"]).erros.join()), "flag com erro de digitação foi ignorada");
+});
+
+/**
+ * Instalação de mentira para as guardas: o eval.mjs COPIADO, um dist/index.js e um src/*.ts com os
+ * mtimes que o caso escolhe. Copiado, e não rodado do root, porque as guardas leem a pasta onde o eval
+ * roda — e mexer no mtime do src/ do próprio repo sujaria o build de quem roda a suíte.
+ */
+function criarInstalacao(dir, { distVelho = false } = {}) {
+  for (const sub of ["scripts", "dist", "src"]) mkdirSync(join(dir, sub), { recursive: true });
+  writeFileSync(join(dir, "scripts", "eval.mjs"), readFileSync(join(root, "scripts", "eval.mjs")));
+  writeFileSync(join(dir, "dist", "index.js"), "// nunca roda: as guardas param antes\n");
+  writeFileSync(join(dir, "src", "index.ts"), "export {};\n");
+  const t = Date.now() / 1000 - 3600;
+  utimesSync(join(dir, "src", "index.ts"), t, t);
+  utimesSync(join(dir, "dist", "index.js"), t + (distVelho ? -60 : 60), t + (distVelho ? -60 : 60));
+  return dir;
+}
+
+function criarRepo(dir, branch) {
+  mkdirSync(dir, { recursive: true });
+  const g = (...a) => {
+    const r = spawnSync("git", ["-C", dir, "-c", "user.name=teste", "-c", "user.email=teste@exemplo", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8" });
+    ok(r.status === 0, `git ${a.join(" ")} falhou na fixture: ${r.stderr}`);
+  };
+  g("init", "-q");
+  g("symbolic-ref", "HEAD", `refs/heads/${branch}`);
+  g("commit", "-q", "--allow-empty", "-m", "fixture");
+  return dir;
+}
+
+/**
+ * O que toda guarda precisa para chegar até ela: banco, config e golden que existem, e um
+ * `~/.claude` próprio. `GIT_CEILING_DIRECTORIES` impede o git de achar um repositório ACIMA da
+ * fixture — sem isso "a instalação não é git" dependeria de onde fica o temporário de quem roda.
+ */
+function montarGuardas(nome) {
+  const dir = join(fixture, nome);
+  const claudeHome = join(dir, "claude-home");
+  mkdirSync(claudeHome, { recursive: true });
+  const db = join(dir, "vazio.db");
+  const conexao = new DatabaseSync(db);
+  conexao.exec("CREATE TABLE t (x)");
+  conexao.close();
+  const config = join(dir, "brain.config.json");
+  writeFileSync(config, "{}");
+  return {
+    dir,
+    claudeHome,
+    fx: { db, config },
+    golden: escreverGolden(`golden-${nome}.json`, golden3()),
+    env: () => ({ CLAUDE_CONFIG_DIR: claudeHome, BRAIN_REPO: null, GIT_CEILING_DIRECTORIES: fixture }),
+    marcador: (campos) =>
+      writeFileSync(
+        join(claudeHome, "brain-sync-origem.txt"),
+        `# fixture\n${Object.entries(campos).map(([k, v]) => `${k}=${v}`).join("\n")}\ndata=2026-09-14 00:00:00\n`
+      ),
+  };
+}
+
+/** Nada de trabalho antes da guarda: o snapshot é o primeiro trabalho, e a compilação vem depois dele. */
+const semTrabalho = (r, inst) => {
+  ok(!/^snapshot: /m.test(r.saida), `a guarda deixou o eval tirar snapshot:\n${r.tudo()}`);
+  ok(!/^base: /m.test(r.saida), `a guarda deixou o eval compilar o base:\n${r.tudo()}`);
+  ok(!existsSync(join(inst, ".eval-base")) && !existsSync(join(inst, "dist-base")), "sobrou .eval-base/ ou dist-base/ na instalação");
+};
+
+/** `/c/Users/x`, como o `sync.sh` grava — o `sync.ps1` grava `C:\Users\x`, e o eval lê os dois. */
+const comoGitBash = (p) => p.split("\\").join("/").replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`);
+
+caso("eval-base-sem-checkout-nomeia-as-tres-saidas", async () => {
+  const g = montarGuardas("base-sem-checkout");
+  const inst = criarInstalacao(join(g.dir, "inst"));
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "origin/dev"] });
+  ok(r.code === 2, `sem checkout devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  for (const saida of ["--repo", "BRAIN_REPO", "brain-sync-origem.txt"]) {
+    ok(r.erro.includes(saida), `a mensagem tem de nomear a saída "${saida}":\n${r.tudo()}`);
+  }
+  semTrabalho(r, inst);
+
+  // Emenda 2026-09-14, item 2: o --repo acha o checkout, mas numa instalação fora do git e sem
+  // marcador ninguém sabe de que branch veio o dist/ — e passar em silêncio é o pior veredito.
+  const repo = criarRepo(join(g.dir, "repo"), "dev");
+  const semMarcador = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD", "--repo", repo] });
+  ok(semMarcador.code === 2, `--repo sem marcador numa instalação fora do git devia dar 2, deu ${semMarcador.code}:\n${semMarcador.tudo()}`);
+  ok(/não sei de que branch veio o dist/.test(semMarcador.erro), `a mensagem tem de dizer que a branch do dist/ é desconhecida:\n${semMarcador.tudo()}`);
+  semTrabalho(semMarcador, inst);
+});
+
+caso("eval-base-guarda-de-branch-nao-compila", async () => {
+  const g = montarGuardas("base-guarda-branch");
+  const repo = criarRepo(join(g.dir, "repo"), "feat/y");
+  const inst = criarInstalacao(join(g.dir, "inst"));
+  g.marcador({ worktree: comoGitBash(repo), branch: "feat/x" });
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(r.code === 2, `marcador em feat/x e checkout em feat/y devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  ok(r.code !== 1, "branch trocada foi reportada como regressão");
+  ok(/"feat\/x"/.test(r.erro) && /"feat\/y"/.test(r.erro), `a mensagem tem de nomear as duas branches:\n${r.tudo()}`);
+  semTrabalho(r, inst);
+
+  // Controle: com a branch certa, a MESMA instalação passa das duas guardas e só para na compilação
+  // (a fixture não tem brain-mcp/src para arquivar). Prova que o 2 de cima foi a branch — e que o
+  // `.eval-base/` criado no caminho de erro da compilação não fica para trás.
+  g.marcador({ worktree: comoGitBash(repo), branch: "feat/y" });
+  const passou = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(passou.code === 2 && /o base não compilou/.test(passou.erro), `com a branch certa devia parar só na compilação:\n${passou.tudo()}`);
+  ok(/^checkout: .* \(branch feat\/y, via o worktree= de /m.test(passou.saida), `o checkout não veio do marcador:\n${passou.tudo()}`);
+  ok(!existsSync(join(inst, ".eval-base")) && !existsSync(join(inst, "dist-base")), "a compilação que falhou deixou .eval-base/ ou dist-base/ para trás");
+  ok(passou.snapshot && !existsSync(dirname(passou.snapshot)), "o snapshot ficou para trás quando o base não compilou");
+});
+
+caso("eval-base-guarda-de-frescor", async () => {
+  const g = montarGuardas("base-guarda-frescor");
+  const repo = criarRepo(join(g.dir, "repo"), "dev");
+  const inst = criarInstalacao(join(g.dir, "inst"), { distVelho: true });
+  g.marcador({ worktree: repo, branch: "dev" });
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(r.code === 2, `dist/ mais velho que src/ devia dar código 2, deu ${r.code}:\n${r.tudo()}`);
+  ok(/npm run build/.test(r.erro), `a mensagem tem de mandar rodar npm run build:\n${r.tudo()}`);
+  ok(/src\/index\.ts/.test(r.erro), `a mensagem tem de nomear o src/*.ts mais novo:\n${r.tudo()}`);
+  semTrabalho(r, inst);
+});
+
+caso("eval-base-dentro-do-git-le-a-branch-do-git", async () => {
+  // Emenda 2026-09-14, item 1: instalação DENTRO de uma worktree deste repo (quem instalou do clone,
+  // ou a verificação feita de uma worktree). O marcador descreve outra pasta, noutra branch, e não
+  // pode ser lido: se fosse, a guarda de branch pararia antes da de frescor.
+  const g = montarGuardas("base-dentro-do-git");
+  const repo = criarRepo(join(g.dir, "repo"), "feat/x");
+  const inst = criarInstalacao(join(repo, "brain-mcp"), { distVelho: true });
+  g.marcador({ worktree: criarRepo(join(g.dir, "instalacao-viva"), "main"), branch: "main" });
+
+  const r = await rodarEval(g.fx, g.golden, g.env(), { instalacao: inst, args: ["--base", "HEAD"] });
+  ok(r.code === 2, `devia parar com código 2 na guarda de frescor, deu ${r.code}:\n${r.tudo()}`);
+  ok(!/veio da branch/.test(r.erro), `o marcador foi lido para a branch de uma instalação que é git:\n${r.tudo()}`);
+  ok(/npm run build/.test(r.erro), `quem parou devia ser a guarda de frescor, com a branch resolvida pelo git:\n${r.tudo()}`);
+  semTrabalho(r, inst);
 });
 
 // ---------------------------------------------------------------- execução

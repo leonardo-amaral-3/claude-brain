@@ -102,3 +102,23 @@ export function loadConfig(): BrainConfig {
  * o teste de concorrência seria impossível ou destrutivo: só há um banco, e é o índice vivo.
  */
 export const dbPath = process.env.BRAIN_DB || join(packageRoot, "data", "brain.db");
+
+/**
+ * Modo somente-consulta: o processo responde busca e NÃO escreve no índice — não disputa o
+ * lease, não varre, não reconstrói grafo, não gera embedding e não tique.
+ *
+ * Existe para o `--base` do `npm run eval` (card #18), que sobe DOIS servidores contra um
+ * SNAPSHOT congelado do índice. Se qualquer um dos dois indexasse, base e head passariam a medir
+ * corpora diferentes e a comparação devolveria deriva de índice vestida de regressão de ranking
+ * — e um servidor compilado do ref ANTIGO escrevendo no índice é o risco que a decisão #467
+ * recusa de saída.
+ *
+ * `BRAIN_LEASE_TTL_MS=0` NÃO serve para isto: faz o OPOSTO — todo lease nasce vencido e TODO
+ * processo se elege líder (`lease.ts:24-29`, provado pelo caso `ttl-zero-desliga-o-lease`).
+ *
+ * Vale exatamente "1". O valor é escrito por script, nunca adivinhado, e o boot anuncia o modo
+ * no stderr: um valor errado aparece como "boot (líder)" na primeira linha de log, e não como
+ * silêncio. `aquecer()` continua rodando neste modo — o eval precisa da metade semântica; é só o
+ * trabalho pesado que some.
+ */
+export const SOMENTE_CONSULTA = process.env.BRAIN_SOMENTE_CONSULTA === "1";

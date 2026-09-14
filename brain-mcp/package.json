@@ -12,6 +12,7 @@
     "smoke": "node scripts/smoke.mjs",
     "concorrencia": "node scripts/concorrencia.mjs",
     "eval": "node scripts/eval.mjs",
+    "colher": "node scripts/colher-golden.mjs",
     "uso": "node scripts/uso.mjs",
     "injecao": "node scripts/injecao.mjs",
     "embed": "node dist/cli.js --embed",

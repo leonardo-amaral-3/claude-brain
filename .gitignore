@@ -6,6 +6,8 @@ brain-mcp/brain.config.json.bak*
 brain-mcp/node_modules/
 brain-mcp/dist/
 brain-mcp/data/
+# O ref base que o `eval --base` compila na hora; nasce e morre na rodada
+brain-mcp/dist-base/
 
 # Rascunho local
 *.bak
