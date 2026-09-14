@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 7: Declarar o portão — README e `CLAUDE.md`
 
