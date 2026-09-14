@@ -2,6 +2,7 @@
 name: gm-triage
 description: Turn a raw report — a hospital's message, a stack trace, a loose idea — into qualified demand at the door of the team board (the team board declared in the workspace CLAUDE.md). Classifies type/severity/class/module with written criteria, deduplicates against open and closed issues before creating anything, fills the template for the type, records origin and requester, and parks the card in 📥 Triagem. Also routes away what is not demand. Use whenever something arrives from outside the board, before gm-card.
 disable-model-invocation: true
+model: claude-sonnet-5
 argument-hint: [relato bruto — cole a mensagem, o erro ou a ideia]
 ---
 

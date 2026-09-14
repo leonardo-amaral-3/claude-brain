@@ -2,6 +2,7 @@
 name: gm-release
 description: Cut the release train from the team board (the team board declared in the workspace CLAUDE.md) — read the validated queue in 🚂 Release, reconcile it against what is actually merged in dev, classify the train as trivial or sensitive (migrations / data treatment), open the dev→main PR, tag with calver, publish dual release notes, run the BLOCKING post-deploy verification for sensitive cards, move the cards to ✅ Produção and produce the list of requesters to notify. Use on the weekly train day, or whenever promoting dev to production.
 disable-model-invocation: true
+model: claude-opus-5
 argument-hint: [vazio para o trem de hoje | dry-run]
 ---
 

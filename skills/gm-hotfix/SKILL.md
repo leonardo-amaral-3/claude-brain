@@ -2,6 +2,7 @@
 name: gm-hotfix
 description: Drive a real S1 production emergency — faturamento parado or corrupted data — down the expedite rail on the team board (the team board declared in the workspace CLAUDE.md). Proves the S1 criterion and the one-at-a-time limit, opens a minimal card carrying repro + risk + the verification query, branches release/hotfix-* from main (never from dev), implements with tests, opens the PR to main with mandatory AI + human review, runs the BLOCKING post-deploy verification, tags, back-merges into dev and files the post-mortem card. Use only for a genuine S1 in production.
 disable-model-invocation: true
+model: claude-opus-5
 argument-hint: [#issue do card mínimo ou descrição do incidente]
 ---
 
