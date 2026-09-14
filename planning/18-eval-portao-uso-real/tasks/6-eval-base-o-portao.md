@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 6: `eval.mjs --base <ref>` — o portão
 
