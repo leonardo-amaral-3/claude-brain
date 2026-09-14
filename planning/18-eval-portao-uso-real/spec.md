@@ -60,6 +60,8 @@ A colheita foi medida em 2026-09-11 e rende **75 queries distintas** (77 pares b
 
 A prova do CA3 é uma rodada com regressão forçada, registrada na PR: basta inverter a ordenação final de `Buscador.buscar` (`src/search.ts:301`) num commit descartável e mostrar o `exit 1`.
 
+> Revisto pela **emenda 2026-09-14 (task 7)** em `### CLAUDE.md do repo — onde o portão é declarado`: a PR **deste** card não tem base medível na `dev` — `--base origin/dev` sai com código `2` — e prova o portão contra `091c5c8`, o primeiro commit que tem. Da PR seguinte em diante vale `origin/dev`, sem exceção.
+
 ## Technical Overview
 
 Quatro peças, nesta ordem de dependência:
@@ -260,6 +262,13 @@ Na seção `## A esteira`, o delta 2 deste repo ("Toda mudança em `brain-mcp/sr
 > Mudou `brain-mcp/src/`? A suíte relevante para a precondição 4 do `/gm-ship` inclui
 > `npm run eval -- --base origin/dev`. Código `1` é **vermelho**: a PR não abre. Código `2` não é
 > licença para seguir — é medição que não aconteceu, e a PR também não abre.
+
+**Emenda 2026-09-14 (task 7): a PR que cria o portão não tem base medível na `dev` e prova o portão contra o primeiro commit que tem.** O CA3 e a verificação da task 7 pedem `npm run eval -- --base origin/dev` com código `0`. Nesta branch o comando sai com **código `2`**, medido em 2026-09-14: `base (origin/dev): o servidor responde sem _meta.brain`. É a spec funcionando, porque `_meta.brain` ausente é código `2` e nunca `semantica === false`. O que ela não previu é que o primeiro base comparável só existe depois do merge deste card. Um base só é medível com as duas peças que o card traz: o `_meta.brain` (task 1, `24b6125`) e o `BRAIN_SOMENTE_CONSULTA` (task 2, `091c5c8`). Sem a segunda, o servidor do base vira líder do snapshot e o varre por baixo da comparação (`### Modo somente-consulta`). Portanto:
+
+1. **O `CLAUDE.md` declara o portão sem exceção**, com `--base origin/dev`, como está no bloco acima. Essa é a norma para toda PR depois do merge, quando a `dev` já tem as duas peças. Uma cláusula transitória ali estaria morta no dia do merge.
+2. **Só a PR do card #18** roda o portão com `--base 091c5c8`, o primeiro commit medível. O trecho que o portão não consegue medir é o diff das tasks 1 e 2, e ele não passa pelo ranking: todo o `src/` do card está nessas duas tasks (`git diff 091c5c8 HEAD -- brain-mcp/src` sai vazio), `src/search.ts`, `vectors.ts` e `lease.ts` não mudam em relação à `origin/dev`, e o texto do `search_context` sai idêntico, porque o diagnóstico vai no `_meta` e não no texto. Medido em 2026-09-14: código `0`, nDCG@5 0,556 no base e no head, 82 casos, nenhum mudou de posição.
+3. **A PR registra três rodadas:** esta; a de `--base origin/dev` com código `2`, que mostra a guarda funcionando e não é vermelho ignorado; e a prova do CA3 da task 6, com código `1`.
+4. **A verificação da task 7 passa a ser** `npm run smoke` e `npm run eval -- --base 091c5c8`, os dois com código `0`.
 
 ## File Change Summary
 

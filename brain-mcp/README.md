@@ -150,23 +150,61 @@ todo processo se eleger líder e o comportamento anterior voltar.
 
 ## Qualidade da busca
 
-`scripts/golden.json` guarda queries com o documento que **deveria** vir em 1º. `npm run eval` roda
-todas contra o servidor e reporta hit@1, hit@5 e MRR. Sem isso, mexer em ranking é fé — rode antes
-e depois de qualquer mudança em tokenização, fusão ou pesos. Adicione um caso novo toda vez que uma
-busca real decepcionar.
+`npm run eval -- --base origin/dev` é **portão**: mudança em `src/` que piora o ranking não vira PR.
+Quem declara isso é o `CLAUDE.md` do repo, na `## A esteira`. Nenhum hook barra a PR fisicamente; o
+que a barra é a regra escrita lá.
 
-Repare que o número **cai sozinho conforme o corpus cresce**, sem ninguém mexer em ranking: um
-`lembrar` novo sobre o mesmo assunto passa na frente da spec que o golden set esperava. Isso é
-sinal para revisar o caso (o documento esperado ainda é a melhor resposta?), não necessariamente
-para mexer nos pesos.
+**O que ele mede.** `scripts/golden.json` guarda casos com o documento que deveria vir no topo. A
+métrica é **nDCG@5** com relevância binária: um caso positivo vale `1 / log2(rank + 1)` se o alvo vem
+no top-5 e `0` fora dele; um caso negativo vale `1` quando a busca volta vazia. O número do portão é
+a média. `hit@1`, `hit@5` e MRR continuam impressos, mas não decidem nada. O `hit@5` saturou em 10/10
+e deixou de acusar regressão, e é por isso que o portão desconta a posição.
 
-> O `golden.json` versionado aqui aponta para documentos do workspace de origem, então ele **vai
-> falhar na sua máquina até você trocá-lo pelos seus casos**. É esperado: golden set é local por
-> natureza.
+**De onde vêm os casos.** `npm run colher` pareia, na tabela `uso`, cada `search_context` com o
+primeiro `read_doc` que veio até 90 s depois: a pergunta que o Claude fez de verdade e o documento
+que ele abriu em seguida. Os filtros da chamada vão junto, porque uma busca sem eles é uma busca que
+ninguém fez. Alvo que não está mais indexado, ou que não satisfaz os próprios filtros, é descartado
+com aviso. Casos `origem: "manual"` sobrevivem intactos a toda recolheita: é onde ficam os de
+`source: code`, que a telemetria nunca produz, e os dois negativos, um estrutural e um de assunto
+ausente. O script falha sem tocar no arquivo se render menos de 60 casos ou perder a cobertura.
 
-A tabela `uso` registra toda chamada de tool (qual, argumentos, ms, tamanho da resposta, se veio
-vazia). `npm run uso` transforma "acho que o Claude não usa o cérebro" em número, e a lista de
-buscas vazias vira candidata a caso de golden set ou a sinônimo faltando.
+**Como ele compara.** Toda rodada, com ou sem `--base`, mede um **snapshot** do índice
+(`VACUUM INTO` num temporário), nunca o índice vivo. Com `--base <ref>`, o eval compila o ref a partir
+do git do checkout e sobe dois servidores, um de cada vez, contra esse mesmo snapshot, ambos com
+`BRAIN_SOMENTE_CONSULTA=1`. Como base e head leem o mesmo arquivo, deriva do corpus não se confunde com
+regressão de ranking. Antes de medir, cada servidor aquece até a busca semântica responder (teto de
+60 s). Descartado o ruído da semântica, a busca é determinística, e por isso o portão é **estrito**:
+qualquer queda barra, sem faixa de tolerância. A saída traz base, head, delta e os casos que mudaram
+de posição.
+
+Duas guardas rodam antes de qualquer trabalho, porque sem elas o portão diria "não caiu" sobre a
+coisa errada. A branch de onde o `dist/` veio tem de ser a do checkout, e o `dist/` não pode ser mais
+velho que o `src/` (se for, rode `npm run build`). O checkout vem de `--repo`, depois `BRAIN_REPO`,
+depois a worktree git onde o eval roda, e por último a linha `worktree=` do
+`~/.claude/brain-sync-origem.txt`.
+
+| código | quer dizer | a PR |
+|---|---|---|
+| `0` | não caiu (sem `--base`: medição válida, só relatório) | abre |
+| `1` | **regrediu**: nDCG@5 do head abaixo do base | não abre |
+| `2` | **não consegui medir**: semântica não respondeu, negativo apodreceu, base não compilou, checkout não resolvido, branch ou build desencontrados | não abre |
+
+Código `2` não diz que o ranking piorou, diz que a medição não aconteceu. **Não é licença para
+seguir.**
+
+Rode de onde o modelo de embeddings está em cache, com `BRAIN_DB` e `BRAIN_CONFIG` apontando para o
+seu índice. Sem o cache, o aquecimento tenta baixar ~465 MB, estoura o teto e toda rodada sai com `2`.
+
+> **Na sua máquina o portão ainda não mede nada.** O `golden.json` versionado aponta para documentos
+> do workspace do mantenedor. Num índice que não tem esses documentos, o alvo ausente vale `0` no
+> base e no head, e o portão sai com `0` sem ter medido nada. Troque os casos pelos seus antes de
+> confiar nele. O `colher` ainda exige cobertura presa ao workspace de origem, o que está registrado
+> em [#22](https://github.com/leonardo-amaral-3/claude-brain/issues/22).
+
+A tabela `uso` registra toda chamada de tool: qual, argumentos, ms, tamanho da resposta, se veio
+vazia e, no `search_context`, se a semântica respondeu. `npm run uso` mostra p50 e p90 de verdade e a
+fração de buscas que saíram só com léxico. É o que transforma "acho que o Claude não usa o cérebro"
+em número, e é dela que o `colher` tira o golden set.
 
 ## Comandos
 
@@ -176,7 +214,8 @@ npm run index              # varredura incremental + estatísticas
 npm run index:full         # reindexação do zero (APAGA os embeddings — precisa rodar embed depois)
 npm run embed              # gera embeddings dos chunks que ainda não têm (retomável)
 npm run grafo              # reconstrói o grafo de entidades
-npm run eval               # golden set: hit@1 / hit@5 / MRR
+npm run eval               # golden set: nDCG@5 sobre snapshot (--base <ref> é o portão)
+npm run colher             # recolhe o golden set da tabela uso, preservando os casos manuais
 npm run uso                # quantas vezes o Claude chamou cada tool
 npm run smoke              # sobe o servidor por stdio e testa as tools
 node dist/cli.js --git     # relê o histórico de git dos repos
@@ -187,6 +226,9 @@ node dist/cli.js --force   # toma a liderança de um servidor vivo em vez de rec
 Variáveis de ambiente: `BRAIN_CONFIG` aponta para outro `brain.config.json` e `BRAIN_DB` para outro
 banco (úteis para testar sem mexer no seu índice); `BRAIN_LEASE_TTL_MS` ajusta o TTL do lease.
 `BRAIN_CLI_ESPERA_MS` muda os 10 s que a CLI espera antes de recusar (0 = recusa na hora).
+`BRAIN_SOMENTE_CONSULTA=1` sobe um servidor que só consulta: não disputa o lease, não varre, não gera
+embeddings, e a tool `reindex` recusa até com `forcar: true`. Ele ainda aquece o modelo, porque a
+busca semântica continua valendo. É o modo que o `eval --base` usa contra o snapshot.
 
 ## Registro no Claude Code
 

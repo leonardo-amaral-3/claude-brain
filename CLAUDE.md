@@ -66,9 +66,15 @@ que são deste repo:
    negócio; este é ferramenta de uma pessoa. Rota Completa só quando a mudança altera o **formato em
    disco** (o índice, o `conversations.json` da instalação, o formato das decisões) ou a superfície
    pública das tools — aí a migração é o assunto, e ela merece spec.
-2. **Toda mudança em `brain-mcp/src/` fecha com o índice provado, não com o `tsc` verde.** Há
-   `npm run smoke` e `npm run eval` (com `scripts/golden.json`) — é isso que responde se a busca
-   ainda acha o que achava.
+2. **Toda mudança em `brain-mcp/src/` fecha com o índice provado, não com o `tsc` verde.** Mudou
+   `brain-mcp/src/`? A suíte relevante para a precondição 4 do `/gm-ship` inclui `npm run smoke` e
+   `npm run eval -- --base origin/dev`. Código `1` é **vermelho**: a PR não abre. Código `2` não é
+   licença para seguir — é medição que não aconteceu, e a PR também não abre.
+
+   Nenhum hook barra essa PR: o portão existe porque está escrito aqui, e quem abre a PR é quem o
+   aplica. Rode com o `dist/` recompilado (`npm run build`) e com `BRAIN_DB`/`BRAIN_CONFIG` apontando
+   para o índice vivo. O que o eval mede, as guardas e os três códigos estão em
+   `brain-mcp/README.md`, `## Qualidade da busca`.
 
 Regras duras que **não** mudam: skills `gm-*` têm `disable-model-invocation: true` (peça o comando ao
 usuário, nunca reimplemente a skill na mão) · sem card não há implementação · nada de commit sem

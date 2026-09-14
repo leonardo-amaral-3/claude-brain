@@ -27,6 +27,7 @@ Escreva sabendo da fragilidade que a decisão técnica 4 assume por escrito — 
 ## Verification
 
 - Command(s) that must pass, na instalação: `npm run smoke` e `npm run eval -- --base origin/dev` saindo com código `0` — a rodada limpa, depois de desfeita a regressão forçada da task 6
+- **Emenda 2026-09-14 (task 7):** `--base origin/dev` sai com código `2` nesta branch, porque a `dev` ainda não tem o `_meta.brain`. A verificação passa a ser `npm run smoke` e `npm run eval -- --base 091c5c8`, os dois com código `0`. Nota completa na spec, `### CLAUDE.md do repo — onde o portão é declarado`.
 - Acceptance criteria covered: o "e o `/gm-ship` não abre a PR" do CA3, que é onde o portão vira norma executável.
 
 ## Completion Checklist
