@@ -1,6 +1,6 @@
 ---
 name: gm-release
-description: Cut the release train from the team board (the team board declared in the workspace CLAUDE.md) — read the validated queue in 🚂 Release, reconcile it against what is actually merged in dev, classify the train as trivial or sensitive (migrations / data treatment), open the dev→main PR, tag with calver, publish dual release notes, run the BLOCKING post-deploy verification for sensitive cards, move the cards to ✅ Produção and produce the list of requesters to notify. Use on the weekly train day, or whenever promoting dev to production.
+description: Cut the release train from the team board (the team board declared in the workspace CLAUDE.md) — read the validated queue (🚂 Release, plus cards closed while in 🧪 Validação em Dev), reconcile it against what is actually merged in dev, classify the train as trivial or sensitive (migrations / data treatment), open the dev→main PR, tag with calver, publish dual release notes, run the BLOCKING post-deploy verification for sensitive cards, move the cards to ✅ Produção and produce the list of requesters to notify. Use on the weekly train day, or whenever promoting dev to production.
 disable-model-invocation: true
 argument-hint: [vazio para o trem de hoje | dry-run]
 ---
@@ -87,8 +87,9 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
    ```
 
 3. **Reconcile and report the three sets, explicitly:**
-   - cards in 🚂 Release **and** in the diff → the intended train;
-   - cards in 🚂 Release **without** code in the diff → not ready, take them off the column;
+   - cards **validated** (in 🚂 Release, or closed while in 🧪 Validação em Dev — `/gm-ship` and
+     `/gm-correcao` close a validated card without moving it) **and** in the diff → the intended train;
+   - validated cards **without** code in the diff → not ready, take them off the train;
    - code in the diff **without** a validated card → *carona*: unvalidated work riding along. The
      **full** list goes in the message first — card by card, or commit by commit when there is no
      card, saying what each one touches — and then the decision is taken **one carona at a time**:
@@ -183,7 +184,7 @@ gh pr create --repo <owner>/<repo> --base main --head dev --title "release v<AAA
 - #<n> — <query/checagem tirada da spec do card>
 ```
 
-The body is the artifact, and it is the only place where what ships today is written down: it goes **whole** in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → open the PR with that body, exactly as shown. *Ajustar* → fix what the human named (a carona missing from the list, a migration described as harmless when it is not) and present it again. *Rejeitar* → no PR, and the train does not leave the station today. Check CI green (`gh pr checks`) before proposing the merge — and remember that a red check does not physically block the merge in these repos, so a green CI is **your** responsibility to confirm.
+The body is the artifact, and it is the only place where what ships today is written down: it goes **whole** in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → open the PR with that body, exactly as shown. *Ajustar* → fix what the human named (a carona missing from the list, a migration described as harmless when it is not) and present it again. *Rejeitar* → no PR, and the train does not leave the station today. Check CI green (`gh pr checks`) before proposing the merge — and remember that a red check does not physically block the merge in these repos, so a green CI is **your** responsibility to confirm. With no human in the session, CI pending or red is never waited out and never merged over: the PR stays open and the session closes with `PARADA: CI pendente na PR do trem`.
 
 ## Phase 5 — Merge, deploy, verify
 

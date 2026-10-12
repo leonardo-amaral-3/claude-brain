@@ -118,7 +118,7 @@ humano.
 
 ### Saída
 
-**`/gm-release`** — corta o trem: lê a fila validada em 🚂 Release, reconcilia contra o que está
+**`/gm-release`** — corta o trem: lê a fila validada (🚂 Release, mais os cards fechados em 🧪 Validação em Dev), reconcilia contra o que está
 mesmo mergeado em `dev`, classifica o trem como trivial ou sensível (migrations, tratamento de
 dados), abre o PR dev→main, tagueia com calver, publica notas de release duplas (técnica e para o
 cliente) e roda a verificação pós-deploy **bloqueante** quando o trem é sensível.
