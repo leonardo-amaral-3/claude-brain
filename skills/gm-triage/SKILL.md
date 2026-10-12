@@ -98,6 +98,25 @@ anything is written; header `Destino`, question and options in pt-BR:
 Then say the choice out loud in one line ("isso é suporte, não demanda — respondi X"), so it lives
 in the transcript and not only in the tool's answer.
 
+## Step 1b — Um escopo ou vários?
+
+A report that carries more than one point (several defects, a test run with a list, several asks in one message) is decided **before** dedup:
+
+- **One scope** — the points share the objective in one sentence (same flow, screen or feature) and are validated together → **one** card with the label `épico` and a `## Pontos` list in the body: one line per point, in the reporter's words, with its evidence. The phases are cut by `/gm-spec`, which owns slicing.
+- **Separate card** only for a point that is independent for real: another flow or module, another severity (an S1 among improvements leaves alone, by the hotfix track), another requester with another deadline.
+- **In doubt, one card**: merging cards later costs more than splitting a phase.
+
+With a human, the full list of points goes in the message and one `AskUserQuestion` call decides; header `Escopo`, question and options in pt-BR:
+
+> O relato traz <N> pontos: <lista curta>. Abrir um card por ponto espalha um objetivo só pelo
+> board, e alguém precisa reuni-los depois.
+>
+> - **Um card épico** — nasce um card com `## Pontos`; o `/gm-spec` corta as fases depois.
+> - **Cards separados** — cada ponto é independente de verdade (outro fluxo, outra severidade ou
+>   outro solicitante) e nasce sozinho.
+
+Then dedup (Step 2) runs once per card that will be born. The épico's Severidade is the highest among its points. The label may not exist in the repo yet: `gh label list --repo <owner>/<repo> --search épico` empty → `gh label create épico --repo <owner>/<repo> --description "Um escopo com vários pontos; as fases nascem no /gm-spec"`. Publish (Step 5) passes `--label épico`.
+
 ## Step 2 — Deduplicate
 
 Search **open and closed** issues, 2–3 keyword variations in pt-BR (omit `--state` to search both — `--state all` is not a valid value):
@@ -185,6 +204,8 @@ The card is the artifact. Put repo, title, the whole body and the four field val
 run the *artefato* set from `## Como perguntar e como aprovar`. *Ajustar* comes back here with the
 correction and asks again; *Rejeitar* creates nothing, and the report says the demand was dropped
 at the door.
+
+Épico (Step 1b) → `gh issue create` also takes `--label épico`, and the body carries `## Pontos` after the report.
 
 ```
 gh issue create --repo <owner>/<repo> --title "..." --body-file <file> --assignee @me

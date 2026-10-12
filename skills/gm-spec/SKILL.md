@@ -256,6 +256,8 @@ gh project item-edit --project-id <project-id> --id <item-id> \
 
 A spec whose implementation cannot fit **6–8 tasks** is an epic, and slicing it is this skill's job — not `gm-card`'s (before the spec, nobody knew the phases existed; the phase structure is an *output* of specification) and not `gm-plan-tasks`'s (it is downstream, and its job is tasks). Signals: the spec declares phases; `## Execution` wants more than one feature branch; one section alone would fill the whole ceiling.
 
+**An épico from triage.** A card that arrives with the label `épico` and `## Pontos` was declared one scope at the door; slicing starts from its points, whatever the size. Each point goes to a phase — or several points to one — and the `## Fases` table gains a `Pontos` column naming which. If every point fits one phase within 6–8 tasks, there are no sub-issues: remove the label, keep `## Pontos` as the checklist of the single card, and say so in one line.
+
 The spec is **not** split — one feature, one `spec.md`, one folder. Only the **card** is.
 
 1. **The parent becomes the epic.** Label `épico`, and a `## Fases` table appended to its body: one row per phase, each with a one-line *pronto quando…* objective and the number of its sub-issue. It keeps the `gm:spec` comment. Its `gm:tasks` comment becomes a pointer to the child in flight — an epic has no tasks of its own. It does not move through the 8 stations.

@@ -80,6 +80,8 @@ Both end with the same product: a card that satisfies G1.
    > - **Criar card separado** — são problemas diferentes apesar da semelhança. O novo cita o #<n>
    >   no corpo, para o próximo leitor não tropeçar na mesma dúvida.
 
+2b. **One scope or several** (Criar only). A direction that carries more than one point follows the rule of `gm-triage`, Step 1b: the points share the objective in one sentence and are validated together → **one** card, label `épico`, with `## Pontos` (one line per point) after `## Direção`; a point independent for real (another flow or module, another severity, another requester) → its own card; in doubt, one card. With a human, the same `Escopo` call as there. **Promover** an `épico` keeps `## Pontos` as it is — G1 does not split it — and leaves the `Rota` field empty: the route belongs to each phase, declared at its promotion.
+
 3. **Draft in pt-BR, template by type.** Title short and imperative.
 
    **Melhoria / Direção / Débito:**

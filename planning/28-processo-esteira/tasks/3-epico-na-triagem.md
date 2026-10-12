@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: um escopo com vários pontos nasce épico — triagem, `gm-card` e Phase 6
 
