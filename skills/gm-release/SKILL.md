@@ -47,7 +47,12 @@ and every `description` — is written in pt-BR.**
 ## Hard rules
 
 - **The queue is what was validated; the diff is what actually ships.** Reconcile the two before anything else. Work merged into `dev` that never passed 🧪 Validação em Dev rides the same train — surface it, never let it board silently.
-- **A sensitive train does not promote on hope.** Migration or data treatment → it needs the release environment (clone of prod). That environment does not exist yet (Fase 3). No pretending: stop and put the three ways out to the human as a choice — the question is written out in `## Phase 3 — Ensaio`, and that is the only place this decision is taken — then **record the chosen one in the release notes**.
+- **A sensitive train does not promote on hope.** Migration or data treatment → it needs the release
+  environment (a copy of prod). Whether one exists, and how to run the payload against it, is read
+  from the workspace `CLAUDE.md` (`## Convenções da esteira`, item *Ambiente de ensaio*); none
+  declared → no pretending: stop and put the three ways out to the human as a choice — the question
+  is written out in `## Phase 3 — Ensaio`, and that is the only place this decision is taken — then
+  **record the chosen one in the release notes**.
 - **Verification is blocking** for every card whose spec has a `## Verificação pós-deploy`. Red → the release is not done; it is an incident.
 - Merging into `main` deploys production immediately (`deploy.yml`, `yarn deploy -p`) and applies Prisma migrations on container boot. There is no manual step between merge and production.
 - Nothing is merged, tagged or published unless the human chose it, and every one of those choices arrives by the mechanics of `## Como perguntar e como aprovar`: the *ação irreversível* set for the merge and the tag, the *artefato* set for the PR body and the release notes, hand-written options for everything else. Never as free text for the human to type.
@@ -133,16 +138,16 @@ For a sensitive train, list every migration by name and say what each does — a
 
 ## Phase 3 — Ensaio (sensitive trains only)
 
-The design calls for a **release environment**: prod snapshot restored into a `release` stack, accumulated migrations plus the data treatment run there, and acceptance queries comparing faturamento before and after. Only what passes gets promoted.
+A **release environment** is a copy of production where the accumulated migrations and the data treatment run before they count, with acceptance queries comparing faturamento before and after; only what passes gets promoted. The workspace `CLAUDE.md` says whether one exists and how to run the payload against it (`## Convenções da esteira`, item *Ambiente de ensaio*). **Declared:** run it as declared, put the result under `### Ensaio` in the release notes, and a red result holds the train. **Not declared, or declared `não`:** do not pretend it happened. Stop: name every migration and data treatment in the payload in the message — what each one does, against which table, how much data — and then one `AskUserQuestion` call, header `Ensaio` (the tool caps `header` at 12 characters), question and options in pt-BR:
 
-**That environment does not exist yet** (Fase 3 of the rollout: CDK stack with `ENVIRONMENT=release` + RDS snapshot). Do not pretend it happened. Stop: name every migration and data treatment in the payload in the message — what each one does, against which table, how much data — and then one `AskUserQuestion` call, header `Ensaio` (the tool caps `header` at 12 characters), question and options in pt-BR:
-
-> Este trem carrega <as migrations/tratamentos, pelo nome>, e o ambiente de ensaio — a cópia de
-> produção onde isto rodaria antes de valer — ainda não existe. Não há como provar hoje como a
-> migration se comporta contra o dado real; o que você escolhe aqui é o que fazer sem essa prova.
+> Este trem carrega <as migrations/tratamentos, pelo nome>, e este workspace não declara — ou declara
+> que não há — um ambiente de ensaio, a cópia de produção onde isto rodaria antes de valer. Não há
+> como provar hoje como a migration se comporta contra o dado real; o que você escolhe aqui é o que
+> fazer sem essa prova.
 >
-> - **Segurar o trem** — nada sobe; os cards ficam em 🚂 Release até a stack de ensaio existir.
->   É o caminho correto quando o trem toca faturamento ou reescreve dado.
+> - **Segurar o trem** — nada sobe; os cards ficam em 🚂 Release até um ambiente de ensaio ser
+>   declarado no `CLAUDE.md` do workspace. É o caminho correto quando o trem toca faturamento ou
+>   reescreve dado.
 > - **Partir o trem** — a parte trivial sobe hoje por uma branch `release/<data>` (cherry-pick a
 >   partir de `origin/main`; o `pr-branch-check` aceita `release/*` em `main`) e os cards sensíveis
 >   ficam parados. Sobe menos, e o que sobe não carrega migration.
@@ -156,7 +161,7 @@ identity, and the train PR carries the identity better anyway — whoever approv
 recorded by GitHub, checkable months later, which a name typed into release notes never is.
 
 Never argue one option into being the obvious one. When the train touches data or faturamento, say
-in the message that holding or splitting is what the design recommends — as information, before the
+in the message that holding or splitting is what this skill recommends — as information, before the
 call, never as pressure inside it.
 
 ## Phase 4 — Open the train PR

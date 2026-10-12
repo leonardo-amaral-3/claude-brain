@@ -80,8 +80,14 @@ As skills `gm-*` não conhecem as regras deste workspace; elas leem daqui. Decla
 - **Segundo humano**: há alguém, além de você, para revisar spec sensível (dado, faturamento,
   migration)? `sim` / `não`. Com `não`, o `/gm-spec` dispara um revisor de IA independente antes
   do G2.
+- **Ambiente de ensaio**: existe uma cópia de produção onde migration e tratamento de dado rodam
+  antes de valer? `não`, ou o comando que o `/gm-release` roda contra ela e onde lê o resultado.
+  Sem esta linha, trem sensível para e pergunta — nunca assume que ensaiou.
 - **Despacho**: se sessões headless (`claude -p`) rodam a esteira, lembre que a última linha da
-  resposta é `PROXIMO: /gm-<skill> <argumento>` ou `PARADA: <motivo>`.
+  resposta é `PROXIMO: /gm-<skill> <argumento>` ou `PARADA: <motivo>`. E se uma sessão orquestradora
+  despacha as outras, as instruções dela — como despachar, os freios, o que decide sozinha — ficam
+  num arquivo que só ela lê, **não neste `CLAUDE.md`**: ele é carregado por toda sessão despachada,
+  e cada parágrafo aqui é pago em cada uma delas.
 
 ## Onde ficam as coisas
 

@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `gm-release` lê o ensaio do `CLAUDE.md`, e o template declara o campo
 
