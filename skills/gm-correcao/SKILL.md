@@ -145,7 +145,7 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
 2. **Rodar a suíte completa** dos pacotes tocados (api/web + typecheck), como o `gm-ship` exige.
    Vermelho → parar e mostrar.
 3. Push na mesma branch. **Não** alternar draft→ready: isso redispara a revisão inteira e queima
-   cota. Re-revisão é sob demanda, mencionando `@claude`, e só se o diff mudou o bastante para valer.
+   cota. A regra é **uma revisão por PR e um `/gm-correcao`**: não peça re-revisão (nem mencionando `@claude`). Despachado (`claude -p`), não espere o CI nem agende `ScheduleWakeup`: o fecho do despacho espera por você.
 
 ## Responder na PR
 
@@ -193,7 +193,7 @@ E um comentário-resumo, sticky por `<!-- gm:correcao -->` (create-or-update pel
 Tabela dos achados com a decisão de cada um, os commits, o resultado da suíte, e os cards abertos.
 
 Depois diga o que falta: PR pronta para a validação humana → merge em `dev` → o card vai para
-🧪 Validação em Dev, onde uma **pessoa nomeada** roda o checklist da PR (SLA 7 dias). Se algum achado
+🧪 Validação em Dev, onde uma **pessoa nomeada** roda o checklist da PR (SLA 7 dias). Validado em dev → feche o card na hora (`gh issue close <n> --repo <owner>/<repo> --reason completed`); ele **fica em 🧪 Validação em Dev** (não espera 🚂 Release, ✅ Produção nem `/gm-release`) — confira o Status depois de fechar e devolva a 🧪 se o fechamento o moveu. Se algum achado
 virou desvio e a spec mudou, diga que o checklist de validação mudou junto.
 
 ## Convenções de saída

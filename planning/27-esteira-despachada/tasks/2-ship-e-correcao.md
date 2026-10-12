@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `gm-ship` e `gm-correcao` — correções do mantenedor
 
