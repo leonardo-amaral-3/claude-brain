@@ -16,10 +16,11 @@ The PRD lives in two places: `planning/<folder>/PRD.md` locally (meta-repo) and 
 
 ## Como perguntar e como aprovar
 
-This section is identical in all eleven `gm-*` skills that have an interaction point — it is
-copied, never rewritten, and any improvement to it lands in the eleven at once. The long version,
-for a human reading from outside the pipeline, is in `docs/esteira-gm.md`, section
-`## Como as skills perguntam`.
+This section is stamped from `_comum/convencoes.md` — the folder beside this skill's; in the
+`claude-brain` repo, `skills/_comum/convencoes.md` — into every `gm-*` skill that has an interaction
+point. Never edit this copy: edit the source there and run `node scripts/skills-comum.mjs` in that
+repo (its `--check` catches a copy that drifted). The long version, for a human reading from outside
+the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section `## Como as skills perguntam`.
 
 1. **Context before jargon.** Open with what is at stake and what changes down each path, in
    pt-BR. Spec section, file path, board field and option id come *after* that, when they add
@@ -170,8 +171,9 @@ Report the local path and the comment URL, then offer exactly one follow-up: `/g
 
 ## Convenções de saída
 
-This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
-rewritten; an improvement lands in the eleven at once.
+This section is stamped from the same `_comum/convencoes.md` as `## Como perguntar e como aprovar`,
+into every `gm-*` skill that has a closing point. Edit the source in the `claude-brain` repo and run
+`node scripts/skills-comum.mjs` there — never this copy.
 
 1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
    session) can chain the pipeline without reading prose. Exactly one of:
@@ -183,10 +185,9 @@ rewritten; an improvement lands in the eleven at once.
    the line comes only after the answer; with no human to answer, close with
    `PARADA: <the gate left open>`.
 2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
-   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
-   characters. A long
-   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
-   `-F` (`git commit`).
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one
+   above 1500 characters. A long body (issue comment, PR body, commit message) goes to a file first,
+   then `--body-file` (`gh`) or `-F` (`git commit`).
 3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
    whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
    does not declare them — with no human in the session, that stop is
