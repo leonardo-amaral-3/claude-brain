@@ -142,6 +142,8 @@ for (const nome of nomesSkills) {
   }
 
   if (!check && substituicoes.length > 0) {
+    // Na ordem em que os blocos aparecem na skill, não na da fonte.
+    substituicoes.sort((a, b) => a.h - b.h);
     const partes = [];
     let cursor = 0;
     for (const s of substituicoes) {
