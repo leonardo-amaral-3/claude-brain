@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: `docs/`, o `CLAUDE.md` deste repo e o `README.md`
 

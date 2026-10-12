@@ -145,8 +145,9 @@ token que o `WebFetch`. Precisa de `npm install -g defuddle`.
 ## Como as skills perguntam
 
 Toda skill `gm-*` com ponto de interação carrega, logo depois da prosa de missão, um bloco
-`## Como perguntar e como aprovar` — idêntico ao caractere nas onze que têm um. Esta é a versão
-longa dele, para ler de fora da esteira; se as duas divergirem, a das skills é a que roda.
+`## Como perguntar e como aprovar` — carimbado byte a byte, a partir de `skills/_comum/convencoes.md`,
+em toda skill que tem um. Esta é a versão longa dele, para ler de fora da esteira; se as duas
+divergirem, a das skills é a que roda.
 
 **O problema que isto resolve.** Um portão que se atravessa digitando "aprovo" não é portão, é
 carimbo. Esta esteira já abre mão de dois controles que a norma completa tem — o segundo humano no
@@ -186,7 +187,8 @@ Mudou o gesto de responder, não quem manda.
 
 ## Convenções de saída
 
-As onze skills com ponto final (todas menos `gm-tech-spec`) carregam o mesmo bloco, no fim:
+Toda skill com ponto final (hoje todas menos `gm-tech-spec`) carrega o mesmo bloco no fim, carimbado
+da mesma fonte:
 
 - **A última linha da resposta é legível por máquina**: `PROXIMO: /gm-<skill> <argumento>` quando a
   esteira continua, ou `PARADA: <motivo em uma frase>` quando não. Quem despacha (um script, outra
@@ -199,6 +201,14 @@ As onze skills com ponto final (todas menos `gm-tech-spec`) carregam o mesmo blo
 - **Despachado, não espera CI nem agenda retorno.** O `gm-correcao` roda uma vez por PR e não pede
   nova revisão; "entregue" no `gm-ship` exige CI verde e revisão tratada, e card validado em dev
   fecha na hora.
+
+**Uma fonte, várias cópias.** Os dois blocos vivem em `skills/_comum/convencoes.md`;
+`node scripts/skills-comum.mjs` carimba cada seção na skill que tem o cabeçalho, e `--check` acusa
+cópia divergente — é a suíte do `/gm-ship` para mudança em `skills/`. Carimbar, e não citar: medido
+em 2026-10-12, nenhuma das 480 sessões `/gm-*` do mantenedor leu o doc que o bloco citava, e
+`@arquivo` dentro de `SKILL.md` só expande com caminho absoluto ou relativo ao `cwd`, calando quando
+não acha. Regra que a sessão precisa seguir fica no texto da skill; a fonte única garante que ela
+seja escrita uma vez.
 
 ## Uma worktree por card
 
