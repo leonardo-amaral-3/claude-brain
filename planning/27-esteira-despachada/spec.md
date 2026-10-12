@@ -12,7 +12,7 @@
 
 ## Requisitos & critérios de aceite
 1. **Fecho.** Dado qualquer uma das 11 skills `gm-*` que têm ponto final e `## Como perguntar e como aprovar`, quando se lê o arquivo, então há a seção `## Convenções de saída` dizendo que a última linha da resposta final é `PROXIMO: /gm-<skill> <argumento>` (esteira continua) ou `PARADA: <motivo em uma frase>` (não continua). `gm-correcao` diz, além disso, que despachado **não espera CI** (nem `ScheduleWakeup`).
-2. **Heredoc.** Dado a mesma seção, então ela diz "arquivo novo: Write; arquivo existente: Edit; heredoc só curto", cita o limite de 1.500 caracteres como o do hook de custo de contexto e manda corpo longo (comentário, PR, commit) por arquivo + `--body-file`/`-F`. Nenhum nome de workspace.
+2. **Heredoc.** Dado a mesma seção, então ela diz "arquivo novo: Write; arquivo existente: Edit; heredoc só curto", cita o limite de 1500 caracteres como o do hook de custo de contexto e manda corpo longo (comentário, PR, commit) por arquivo + `--body-file`/`-F`. Nenhum nome de workspace.
 3. **Correções do mantenedor.**
    - `gm-ship`: o typecheck da precondição 4 é o **mesmo comando do CI**, lido do `CLAUDE.md` do workspace (a skill não nomeia tsconfig); "entregue" só com CI verde e revisão tratada, PR aberta não é entregue.
    - `gm-correcao`: não autoriza pedir re-revisão com `@claude`; a regra é uma revisão por PR e um `/gm-correcao`.
@@ -54,7 +54,7 @@ N/A — texto; nenhum formato em disco.
 N/A — não toca dados nem faturamento; a verificação é a de cada task (grep, leitura cruzada).
 
 ## Plano de testes
-- CA1/CA2: `grep -L "## Convenções de saída" skills/gm-*/SKILL.md` lista só `gm-tech-spec`; `grep -c "PROXIMO:"` e `grep -c "1.500"` ≥1 nas 11; diff entre os blocos das 11 vazio.
+- CA1/CA2: `grep -L "## Convenções de saída" skills/gm-*/SKILL.md` lista só `gm-tech-spec`; `grep -c "PROXIMO:"` e `grep -c "1500"` ≥1 nas 11; diff entre os blocos das 11 vazio.
 - CA3: `grep -n "@claude" skills/gm-correcao/SKILL.md` não autoriza pedir; `grep -n "mesmo comando do CI" skills/gm-ship/SKILL.md`; `grep -in "tsconfig" skills/` vazio.
 - CA4: `grep -n "independente" skills/gm-spec/SKILL.md` na Phase 4.
 - CA5: leitura cruzada docs/template vs skills.

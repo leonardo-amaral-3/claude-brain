@@ -192,7 +192,7 @@ As onze skills com ponto final (todas menos `gm-tech-spec`) carregam o mesmo blo
   esteira continua, ou `PARADA: <motivo em uma frase>` quando não. Quem despacha (um script, outra
   sessão) encadeia sem ler prosa.
 - **Conteúdo de arquivo não viaja em argumento de comando.** Arquivo novo: `Write`; existente:
-  `Edit`; heredoc só curto — o hook de custo de contexto nega acima de 1.500 caracteres. Corpo longo
+  `Edit`; heredoc só curto — o hook de custo de contexto nega acima de 1500 caracteres. Corpo longo
   (comentário, PR, commit) vai para um arquivo e daí para `--body-file` ou `git commit -F`.
 - **Regra de um workspace não entra na skill.** O comando de typecheck do CI e a existência de
   segundo humano são lidos do `CLAUDE.md` do workspace; se não estiverem lá, a skill pergunta.
