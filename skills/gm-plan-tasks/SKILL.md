@@ -2,7 +2,7 @@
 name: gm-plan-tasks
 description: Break a spec into ordered, independent implementation tasks — each task file is the complete prompt for a fresh agent. Proposes the whole breakdown at once for the user to veto/adjust; enforces the 6-8 task ceiling; mirrors the task list on the card. Use after gm-spec, before /gm-implement.
 disable-model-invocation: true
-model: claude-opus-5
+model: claude-opus-5-5
 argument-hint: [feature-folder]
 ---
 

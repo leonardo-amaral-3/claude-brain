@@ -2,7 +2,7 @@
 name: gm-correcao
 description: Turn the CI review's parecer on a PR into decisions on the record - every finding verified against the spec, then fixed, refuted, or promoted to a card, with a reply on each inline comment. Use after the review workflow posts its findings on a PR that is already in code review, before handing the PR to a human validator.
 disable-model-invocation: true
-model: claude-opus-5
+model: claude-opus-5-5
 argument-hint: [pr-number | owner/repo#pr | feature-folder]
 ---
 

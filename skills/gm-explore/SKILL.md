@@ -2,7 +2,7 @@
 name: gm-explore
 description: Exploratory, read-only investigation of how something currently works in the codebase. Use when the user wants to understand the current state of a behavior, rule, or flow ("how is X today?", "can a user do Y?") before deciding whether it should change. Checks the team board for existing cards on the topic, answers with file:line evidence, never proposes or implements solutions, and — when the question came from a ❓ Dúvida card — publishes the finding on it and closes it as answered knowledge.
 disable-model-invocation: true
-model: claude-sonnet-5
+model: claude-sonnet-5-5
 argument-hint: [pergunta ou tema]
 ---
 
