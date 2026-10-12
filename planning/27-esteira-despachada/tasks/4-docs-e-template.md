@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: `docs/esteira-gm.md` e `templates/CLAUDE.example.md`
 

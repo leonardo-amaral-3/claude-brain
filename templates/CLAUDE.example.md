@@ -71,6 +71,18 @@ dentro delas. Mudou campo ou opcao no Project? Atualize esta secao, nao a skill.
 - **auto-add**: `<project-id>` engole todo issue novo do repo — sub-issue de fase precisa ser
   removida com `deleteProjectV2Item`
 
+## Convenções da esteira
+
+As skills `gm-*` não conhecem as regras deste workspace; elas leem daqui. Declare:
+
+- **Typecheck do CI**: o comando exato que o CI roda (`<comando>`). O `/gm-ship` o executa na
+  precondição 4 e não aceita outro; sem esta linha, ele pergunta.
+- **Segundo humano**: há alguém, além de você, para revisar spec sensível (dado, faturamento,
+  migration)? `sim` / `não`. Com `não`, o `/gm-spec` dispara um revisor de IA independente antes
+  do G2.
+- **Despacho**: se sessões headless (`claude -p`) rodam a esteira, lembre que a última linha da
+  resposta é `PROXIMO: /gm-<skill> <argumento>` ou `PARADA: <motivo>`.
+
 ## Onde ficam as coisas
 
 - `<repo>/` — descreva cada repo em uma linha.
