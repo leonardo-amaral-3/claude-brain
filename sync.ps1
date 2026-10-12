@@ -134,7 +134,8 @@ foreach ($s in Get-ChildItem (Join-Path $repo 'skills') -Directory) {
 # Lista fixa, e nao a pasta inteira: a instalacao guarda copia de seguranca (.bak, .pre-detach)
 # e pode ter hook de terceiro. A mesma lista e o gabarito do relato de orfao la embaixo.
 $hooksVersionados = @('brain-config.js', 'brain-briefing.js', 'brain-contexto.js',
-                      'obsidian-diario.js', 'obsidian-diario-titulo.js')
+                      'obsidian-diario.js', 'obsidian-diario-titulo.js',
+                      'custo-contexto.js', 'grafo-espelho.js')
 $pares += @{ nome = 'hooks'; repo = Join-Path $repo 'hooks'; vivo = Join-Path $claudeHome 'hooks'
              arquivos = $hooksVersionados }
 

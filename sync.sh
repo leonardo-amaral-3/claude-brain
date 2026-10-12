@@ -84,7 +84,7 @@ for d in "$REPO"/skills/*/; do
 done
 # Lista fixa, e nao a pasta inteira: a instalacao guarda copia de seguranca (.bak, .pre-detach)
 # e pode ter hook de terceiro. A mesma lista e o gabarito do relato de orfao la embaixo.
-HOOKS_VERSIONADOS='brain-config.js brain-briefing.js brain-contexto.js obsidian-diario.js obsidian-diario-titulo.js'
+HOOKS_VERSIONADOS='brain-config.js brain-briefing.js brain-contexto.js obsidian-diario.js obsidian-diario-titulo.js custo-contexto.js grafo-espelho.js'
 pares+=("$REPO/hooks::$CLAUDE_HOME/hooks::$HOOKS_VERSIONADOS")
 
 if [ "$(cd "$REPO/brain-mcp" && pwd)" = "$(cd "$BRAIN_DIR" 2>/dev/null && pwd || echo x)" ]; then
