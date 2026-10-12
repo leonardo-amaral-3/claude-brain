@@ -193,7 +193,7 @@ E um comentário-resumo, sticky por `<!-- gm:correcao -->` (create-or-update pel
 Tabela dos achados com a decisão de cada um, os commits, o resultado da suíte, e os cards abertos.
 
 Depois diga o que falta: PR pronta para a validação humana → merge em `dev` → o card vai para
-🧪 Validação em Dev, onde uma **pessoa nomeada** roda o checklist da PR (SLA 7 dias). Validado em dev → feche o card na hora (`gh issue close <n> --repo <owner>/<repo> --reason completed`); ele **fica em 🧪 Validação em Dev** (não espera 🚂 Release, ✅ Produção nem `/gm-release`) — confira o Status depois de fechar e devolva a 🧪 se o fechamento o moveu. Se algum achado
+🧪 Validação em Dev, onde uma **pessoa nomeada** roda o checklist da PR (SLA 7 dias). Validado em dev → este Report não fecha o card, porque nada roda no momento da validação: quem recebe o "validado" da pessoa fecha (`gh issue close <n> --repo <owner>/<repo> --reason completed`). O card **fica em 🧪 Validação em Dev** (não espera 🚂 Release, ✅ Produção nem `/gm-release`), mas o workflow *Item closed* do board, se ligado, pode movê-lo ao fechar: releia o Status depois e, se mudou, devolva com `updateProjectV2ItemFieldValue` (id da opção Status no `CLAUDE.md` do workspace). Se algum achado
 virou desvio e a spec mudou, diga que o checklist de validação mudou junto.
 
 ## Convenções de saída

@@ -134,7 +134,7 @@ worktree to remove: `git worktree list` says so, and nothing in this section app
 
 PR URL + board move. **"Entregue" means green CI and the review handled — not an open PR**; until then say "PR aberta, CI/revisão pendentes". If the CI review workflow is active in the repo, mention it will comment using the card's spec; if not, the "Validação em dev" checklist is the reviewer's guide.
 
-Then say what happens next, so the card does not stall in 👀 Revisão: merged into `dev` → the card goes to 🧪 Validação em Dev, where a **named person** runs the checklist above (SLA 7 dias); validated in dev → close the card at once (`gh issue close <n> --repo <owner>/<repo> --reason completed`); it **stays in 🧪 Validação em Dev** — closing does not move it, and it does not wait for 🚂 Release, ✅ Produção or `/gm-release`. After closing, re-read the card's Status and confirm it is still 🧪; if closing moved it, put it back. The train is cut later with `/gm-release`.
+Then say what happens next, so the card does not stall in 👀 Revisão: merged into `dev` → the card goes to 🧪 Validação em Dev, where a **named person** runs the checklist above (SLA 7 dias); validated in dev → this Report does not close the card, because nothing runs at validation time: the session that receives the person's "validado" closes it (`gh issue close <n> --repo <owner>/<repo> --reason completed`). The card **stays in 🧪 Validação em Dev** (it does not wait for 🚂 Release, ✅ Produção or `/gm-release`), but the board's *Item closed* workflow, when enabled, may move it on close: re-read its Status afterwards and, if it moved, set it back with `updateProjectV2ItemFieldValue` (Status option id from the workspace `CLAUDE.md`). The train is cut later with `/gm-release`.
 
 ## Convenções de saída
 
