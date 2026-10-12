@@ -185,6 +185,7 @@ Put on the critic hat (or spawn a fresh review pass) and attack the draft:
 - Contradictions between sections; requirements without a covering test; acceptance criteria not verifiable.
 - **Claims about the current code without verified evidence** — every "hoje o sistema faz X" needs `file:line` checked in this session.
 - Missing edge cases the card or the code imply; migrations/rollback/verificação declared N/A without a defensible reason.
+- **E2E and catalog premises.** In an e2e plan, a slow external system is simulated at the edge, never waited on. A premise inherited from a catalog (a list of endpoints, codes, fixtures) is checked against the actual environment in this session before the spec leans on it.
 
 Fix what the critique finds; what can't be resolved alone goes to the user as an open point.
 
@@ -204,6 +205,18 @@ workspace whose `CLAUDE.md` declares there is no second human skips this call an
 >   🎯 Especificação e nada é implementado em cima dela nesse intervalo.
 > - **Seguir sem segundo revisor** — a spec vai ao gate agora e a implementação pode começar hoje.
 >   O contrapeso passa a ser a verificação pós-deploy, que vira obrigatória e bloqueante.
+
+**Independent AI reviewer.** When the spec is sensitive (data, faturamento, migration) and the workspace
+declares no second human — or the human chose *Seguir sem segundo revisor* — the counterweight cannot
+depend on the declaration: dispatch an independent AI agent (fresh context; it receives only the path
+of `spec.md`, never this conversation) to attack the spec, with every finding carrying `file:line`.
+Bring its findings to the human together with the spec, before the gate below.
+
+How it runs: the draft is already saved (`spec.md`, Phase 2; for an epic, the file in the epic's
+`planning/` folder before it is posted), and the agent is read-only (an exploration/read-only agent
+type, no `Edit`/`Write`). It runs in both answers of the *2º revisor* call — waiting for a human does
+not replace it — and its findings go into the same message as the spec. With no human in the session,
+the findings go in the final answer and the session closes with `PARADA: spec aguardando o gate`.
 
 **Then the spec itself.** It goes in the message — the full document plus a short list of what the
 critique caught and how each finding was resolved, since the tool renders no long body — and then
@@ -238,9 +251,9 @@ A spec whose implementation cannot fit **6–8 tasks** is an epic, and slicing i
 
 The spec is **not** split — one feature, one `spec.md`, one folder. Only the **card** is.
 
-1. **The parent becomes the epic.** Label `épico`, and a `## Fases` table appended to its body: one row per phase, each with a one-line *pronto quando…* objective and the number of its sub-issue. It keeps the `gm:spec` comment. Its `gm:tasks` comment becomes a pointer to the child in flight — an epic has no tasks of its own. It does not move through the 8 stations and does not consume WIP.
+1. **The parent becomes the epic.** Label `épico`, and a `## Fases` table appended to its body: one row per phase, each with a one-line *pronto quando…* objective and the number of its sub-issue. It keeps the `gm:spec` comment. Its `gm:tasks` comment becomes a pointer to the child in flight — an epic has no tasks of its own. It does not move through the 8 stations.
 2. **EVERY phase becomes a sub-issue, right now — thin.** Create one issue per phase and link them all with `addSubIssue`, so `Sub-issues progress` tracks the epic and the roadmap is legible to someone who was not in the conversation. Each is born with title, the *pronto quando…* objective, **why this phase exists**, what is deliberately out of scope (naming which phase owns each excluded piece) and the link to the parent's spec — carried in a `<!-- gm:fase -->` comment. **No acceptance criteria, no route, no tasks**: writing those today for a phase nobody has touched is speculation, and a phase's real shape changes with what the previous one reveals.
-3. **Only the phase in flight goes on the board.** A sub-issue does not need to be on the board to exist or to feed `Sub-issues progress`. Off the board it consumes no WIP, does not clutter the kanban and **does not age** — which is what kills the honest-backlog objection (card idle ≥90 days is promoted or closed) without inventing a column or a `Classe` option. Add the phase to the board only when it is promoted. **Not adding it is not enough** when the workspace has auto-add boards: the `## Board` section of the workspace CLAUDE.md lists them under `auto-add` — those boards swallow every new issue in the repo, so right after creating each phase, delete its item from each one with `deleteProjectV2Item`, reading the item ids from `issue.projectItems`. No `auto-add` line in that section → nothing to clean up.
+3. **Only the phase in flight goes on the board.** A sub-issue does not need to be on the board to exist or to feed `Sub-issues progress`. Off the board it does not clutter the kanban and **does not age** — which is what kills the honest-backlog objection (card idle ≥90 days is promoted or closed) without inventing a column or a `Classe` option. Add the phase to the board only when it is promoted. **Not adding it is not enough** when the workspace has auto-add boards: the `## Board` section of the workspace CLAUDE.md lists them under `auto-add` — those boards swallow every new issue in the repo, so right after creating each phase, delete its item from each one with `deleteProjectV2Item`, reading the item ids from `issue.projectItems`. No `auto-add` line in that section → nothing to clean up.
 4. **Promotion is the step that has an owner.** When the previous phase closes, promote the next one: put it on the board in 🎯 Especificação, give it 1–3 verifiable acceptance criteria carved from the spec's `## Requisitos & critérios de aceite`, a **declared route — never inherited** (a test-infrastructure phase and a migration phase are not the same risk), and replace `gm:fase` with the full `<!-- gm:spec-ref -->` comment. Promotion is also where the phase gets re-cut in light of what the previous one revealed — including splitting it into two cards. **Without promotion, `gm-plan-tasks` refuses to plan.**
 5. **The `<!-- gm:spec-ref -->` comment** is what keeps the G4 CI review from degrading in silence: the PR trailer names the *child*, the child has no spec of its own, and a reviewer that finds an empty card reviews the diff blind. It must give: the link to the parent's `gm:spec` comment · which spec sections and decisions this phase covers · which acceptance criteria it closes · and a **deliberately-out-of-scope** table saying which phase owns each excluded piece. That last part is what makes scope-creep detection mechanical instead of instinctive.
 6. **The spec is never split.** One feature, one `spec.md`, one folder — each sub-issue only names the sections it covers. `tasks/` gains one subfolder per phase (`tasks/fase-0/1-…md`), and later phases reuse the numbering.
@@ -248,3 +261,29 @@ The spec is **not** split — one feature, one `spec.md`, one folder. Only the *
 Board: the promoted child gets the fields (`Status`, `Tipo`, `Classe`, `Rota`, `Módulo`) per `gm-card`'s reference; the parent keeps whatever it had; the phases not yet promoted get **nothing** — they stay off the project. **Do not add a `🧭 Épico` option to `Classe` or a 9th `Status` column** — editing single-select options via the API regenerates the option IDs hardcoded in `gm-card`, `gm-hotfix` and `gm-triage`. The `épico` label plus a saved board view filtered on it gives the same roadmap at no risk.
 
 Report paths and offer exactly one follow-up: `/gm-plan-tasks <folder>` (for an epic, aimed at the phase you just promoted — the others are roadmap, not work).
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
+   the line comes only after the answer; with no human to answer, close with
+   `PARADA: <the gate left open>`.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
+   characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them — with no human in the session, that stop is
+   `PARADA: <what the CLAUDE.md must declare>`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.

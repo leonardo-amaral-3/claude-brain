@@ -47,7 +47,7 @@ and every `description` — is written in pt-BR.**
 1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
 2. Every file in `tasks/` (epic: `tasks/<fase>/`, only the phase in flight) starts with `✅ Status: Complete`; otherwise stop and point to `/gm-implement $ARGUMENTS`.
 3. Inside the module repo (nested git repository): on the feature branch, `git status` clean.
-4. **Run the full relevant suite** (api/web tests + typecheck of the touched packages). Red → stop and show; a PR never opens on red. **Verde não encerra a checagem** — leia o resultado contra as decisões da spec; se a suíte ou uma medição derruba alguma, vale a regra do `## Open the PR` abaixo.
+4. **Run the full relevant suite** (api/web tests + typecheck of the touched packages). The typecheck is **the same command the CI runs**, read from the workspace `CLAUDE.md` — a looser local check has already broken `dev`; the workspace declares no such command → stop and ask. Red → stop and show; a PR never opens on red. **Verde não encerra a checagem** — leia o resultado contra as decisões da spec; se a suíte ou uma medição derruba alguma, vale a regra do `## Open the PR` abaixo.
 
 ## Open the PR
 
@@ -133,6 +133,32 @@ worktree to remove: `git worktree list` says so, and nothing in this section app
 
 ## Report
 
-PR URL + board move. If the CI review workflow is active in the repo, mention it will comment using the card's spec; if not, the "Validação em dev" checklist is the reviewer's guide.
+PR URL + board move. **"Entregue" means green CI and the review handled — not an open PR**; until then say "PR aberta, CI/revisão pendentes". If the CI review workflow is active in the repo, mention it will comment using the card's spec; if not, the "Validação em dev" checklist is the reviewer's guide.
 
-Then say what happens next, so the card does not stall in 👀 Revisão: merged into `dev` → the card goes to 🧪 Validação em Dev, where a **named person** runs the checklist above (SLA 7 dias); validated → 🚂 Release, and the train is cut with `/gm-release`.
+Then say what happens next, so the card does not stall in 👀 Revisão: merged into `dev` → the card goes to 🧪 Validação em Dev, where a **named person** runs the checklist above (SLA 7 dias); validated in dev → this Report does not close the card, because nothing runs at validation time: the session that receives the person's "validado" closes it (`gh issue close <n> --repo <owner>/<repo> --reason completed`). The card **stays in 🧪 Validação em Dev** (it does not wait for 🚂 Release, ✅ Produção or `/gm-release`), but the board's *Item closed* workflow, when enabled, may move it on close: re-read its Status afterwards and, if it moved, set it back with `updateProjectV2ItemFieldValue` (Status option id from the workspace `CLAUDE.md`). The train is cut later with `/gm-release`.
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
+   the line comes only after the answer; with no human to answer, close with
+   `PARADA: <the gate left open>`.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
+   characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them — with no human in the session, that stop is
+   `PARADA: <what the CLAUDE.md must declare>`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.

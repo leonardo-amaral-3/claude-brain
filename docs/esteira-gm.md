@@ -81,6 +81,12 @@ pelo card, construída com exploração do código e perguntas focadas, endureci
 adversarial e liberada por uma escolha sua no portão. Publicada como comentário no card, para que
 os passos seguintes a encontrem no GitHub.
 
+Em spec sensível (dado, faturamento, migration), o portão G2 pede um segundo olhar. Se o workspace
+declara que **não há segundo humano**, ou se você escolhe seguir sem ele, a skill dispara um
+**revisor de IA independente**: um agente de contexto novo, que recebe só o caminho da spec — não a
+conversa — e devolve achados com `file:line`. Os achados chegam a você junto da spec, antes da
+aprovação. O contrapeso não depende de o workspace tê-lo declarado.
+
 É **spec viva**: emenda aprovada durante a implementação (protocolo de desvio do `/gm-implement`)
 atualiza o `spec.md` *e* o comentário, com nota datada. A spec publicada nunca vira mentira
 histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a última task e a PR.
@@ -112,7 +118,7 @@ humano.
 
 ### Saída
 
-**`/gm-release`** — corta o trem: lê a fila validada em 🚂 Release, reconcilia contra o que está
+**`/gm-release`** — corta o trem: lê a fila validada (🚂 Release, mais os cards fechados em 🧪 Validação em Dev), reconcilia contra o que está
 mesmo mergeado em `dev`, classifica o trem como trivial ou sensível (migrations, tratamento de
 dados), abre o PR dev→main, tagueia com calver, publica notas de release duplas (técnica e para o
 cliente) e roda a verificação pós-deploy **bloqueante** quando o trem é sensível.
@@ -248,6 +254,22 @@ ao lado, obriga a comparar antes de clicar.
 
 **O que isto não muda.** Os gates continuam os mesmos — quantos são, onde ficam e quem responde.
 Mudou o gesto de responder, não quem manda.
+
+## Convenções de saída
+
+As onze skills com ponto final (todas menos `gm-tech-spec`) carregam o mesmo bloco, no fim:
+
+- **A última linha da resposta é legível por máquina**: `PROXIMO: /gm-<skill> <argumento>` quando a
+  esteira continua, ou `PARADA: <motivo em uma frase>` quando não. Quem despacha (um script, outra
+  sessão) encadeia sem ler prosa.
+- **Conteúdo de arquivo não viaja em argumento de comando.** Arquivo novo: `Write`; existente:
+  `Edit`; heredoc só curto — o hook de custo de contexto nega acima de 1500 caracteres. Corpo longo
+  (comentário, PR, commit) vai para um arquivo e daí para `--body-file` ou `git commit -F`.
+- **Regra de um workspace não entra na skill.** O comando de typecheck do CI e a existência de
+  segundo humano são lidos do `CLAUDE.md` do workspace; se não estiverem lá, a skill pergunta.
+- **Despachado, não espera CI nem agenda retorno.** O `gm-correcao` roda uma vez por PR e não pede
+  nova revisão; "entregue" no `gm-ship` exige CI verde e revisão tratada, e card validado em dev
+  fecha na hora.
 
 ## Uma worktree por card
 
