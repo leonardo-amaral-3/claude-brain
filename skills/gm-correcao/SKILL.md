@@ -50,6 +50,25 @@ up to 12 characters, `label` 1–5 words, "Other" appended automatically (never 
 Instructions in this file stay in English; **everything the human reads — the question, the labels
 and every `description` — is written in pt-BR.**
 
+## Ambiente na entrada
+
+Before the first test, build or commit — a broken environment found halfway costs the minutes
+already spent. Read the item *Ambiente* of `## Convenções da esteira` in the workspace `CLAUDE.md`
+and check, in this order; stop at the first failure with the reason and the output that proves it
+(no human → `PARADA: ambiente — <o que falta>`):
+
+1. **Disk.** Free space where the working tree lives (`df -Pk .`, column *Available*) is at least
+   the minimum the item declares — 2 GB when it declares none.
+2. **Dependencies.** Every package the diff touches that has a lockfile next to its `package.json`
+   has its `node_modules/` (a folder or a junction). Missing → do what the item declares for
+   providing them; nothing declared → stop. Never install by default: installing is what fills the
+   disk.
+3. **Services.** Each service the item declares, by the command it gives to prove it is up. None
+   declared → nothing to check.
+
+No *Ambiente* item at all → checks 1 and 2 with the defaults, and one line saying the workspace
+declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that needs a checkout.
+
 ## Preconditions
 
 1. **Resolver PR e repo** — o workspace tem cinco repos (`modulo-processos`, `shd-rpa`,
@@ -144,8 +163,9 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
    `--repo <owner>/<repo>` explícito. Card anterior à regra, ainda no checkout principal → siga
    onde ele está, sem mover: card em voo não se muda de chão.
 1. Um commit por achado, mensagem dizendo qual achado fecha e por quê — não "corrige review".
-2. **Rodar a suíte completa** dos pacotes tocados (api/web + typecheck), como o `gm-ship` exige.
-   Vermelho → parar e mostrar.
+2. **Rodar o portão de teste do workspace** — o item *Portão de teste* do `CLAUDE.md`, como na
+   precondição 4 do `gm-ship`: a parte local sempre; a suíte inteira aqui quando o portão é `local`
+   ou quando o item não existe. Vermelho → parar e mostrar.
 3. Push na mesma branch. **Não** alternar draft→ready: isso redispara a revisão inteira e queima
    cota. A regra é **uma revisão por PR e um `/gm-correcao`**: não peça re-revisão (nem mencionando `@claude`).
 

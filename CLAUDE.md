@@ -81,6 +81,10 @@ A mesma rota completa e os mesmos 5 gates da norma
    `node scripts/skills-comum.mjs --check`. Código `1` é **vermelho**: a PR não abre. Mudou um bloco?
    Edite a fonte e rode o script sem `--check`; nunca a cópia.
 
+**Portão de teste**: `local` — a suíte da área tocada (itens 2 e 3 acima); não há CI de teste.
+**Ambiente**: nenhum serviço; mínimo de disco padrão; numa worktree nova, `brain-mcp/node_modules`
+vem por junction ao checkout principal ou `npm ci`, nunca dentro do `/gm-ship`.
+
 Regras duras que **não** mudam: skills `gm-*` têm `disable-model-invocation: true` (peça o comando ao
 usuário, nunca reimplemente a skill na mão) · sem card não há implementação · nada de commit sem
 aprovação explícita · o PR nasce com `Card: #n` na primeira linha e **nunca** com `Closes`.

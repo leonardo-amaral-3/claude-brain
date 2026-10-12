@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: ambiente na entrada e portão de teste lido do `CLAUDE.md`
 
