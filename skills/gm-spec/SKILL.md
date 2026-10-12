@@ -247,3 +247,26 @@ The spec is **not** split — one feature, one `spec.md`, one folder. Only the *
 Board: the promoted child gets the fields (`Status`, `Tipo`, `Classe`, `Rota`, `Módulo`) per `gm-card`'s reference; the parent keeps whatever it had; the phases not yet promoted get **nothing** — they stay off the project. **Do not add a `🧭 Épico` option to `Classe` or a 9th `Status` column** — editing single-select options via the API regenerates the option IDs hardcoded in `gm-card`, `gm-hotfix` and `gm-triage`. The `épico` label plus a saved board view filtered on it gives the same roadmap at no risk.
 
 Report paths and offer exactly one follow-up: `/gm-plan-tasks <folder>` (for an epic, aimed at the phase you just promoted — the others are roadmap, not work).
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. Interactive sessions keep it too: it costs one line and removes the
+   guessing.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: the context-cost hook denies one above 1.500 characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.

@@ -135,3 +135,26 @@ Publish the task list as a checklist comment on the card (create-or-update, firs
 1. Tasks cover the whole spec — nothing missed. 2. Each leaves the code compilable. 3. No forward dependencies. 4. Each file works as a standalone prompt. 5. No duplication of spec content. 6. Every task names its verification command.
 
 Then offer exactly one follow-up: `/gm-implement $ARGUMENTS` (uma task por sessão, de preferência com `/clear` entre elas).
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. Interactive sessions keep it too: it costs one line and removes the
+   guessing.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: the context-cost hook denies one above 1.500 characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.
