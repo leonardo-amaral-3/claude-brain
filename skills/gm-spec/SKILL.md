@@ -15,8 +15,9 @@ Mission: close **every** decision before code exists. The spec will be executed 
 This section is stamped from `_comum/convencoes.md` — the folder beside this skill's; in the
 `claude-brain` repo, `skills/_comum/convencoes.md` — into every `gm-*` skill that has an interaction
 point. Never edit this copy: edit the source there and run `node scripts/skills-comum.mjs` in that
-repo (its `--check` catches a copy that drifted). The long version, for a human reading from outside
-the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section `## Como as skills perguntam`.
+repo (its `--check` catches a copy that drifted). The long version, for a human reading from
+outside the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section
+`## Como as skills perguntam`.
 
 1. **Context before jargon.** Open with what is at stake and what changes down each path, in
    pt-BR. Spec section, file path, board field and option id come *after* that, when they add
@@ -39,6 +40,7 @@ the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section `## Co
 5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
    not argue one option into being the obvious one. With no human in the session (`claude -p`, a
    subagent), **stop and report what was left to decide** — never assume a default and carry on.
+   The one exception is `## Modo despachado` below.
 
 Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
 up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
@@ -150,6 +152,9 @@ Write `planning/<folder>/spec.md`. Keep the exact section names — downstream s
 ## Requisitos & critérios de aceite
 [a versão canônica e verificável dos critérios do card — Dado/Quando/Então onde couber. O review de IA, o plano de testes e a validação em dev leem DAQUI.]
 
+## Premissas medidas
+[toda premissa sobre dado, ambiente, rota ou código existente de que o desenho depende, uma linha cada: a premissa · a consulta, rota ou comando que a prova, rodado NESTA sessão contra o ambiente que a spec nomeia (dados da `dev`, o repo na base branch) · o resultado · a data. Premissa que não deu para medir é ponto aberto do G2, não premissa. Desenho que não depende de nenhuma → N/A + por quê]
+
 ## Technical Overview
 [abordagem e decisões-chave em poucas linhas]
 
@@ -183,6 +188,7 @@ Write `planning/<folder>/spec.md`. Keep the exact section names — downstream s
 
 Put on the critic hat (or spawn a fresh review pass) and attack the draft:
 
+- **Unmeasured premises.** Every premise the design leans on — a data shape, an empty month, a field some route exposes, how a profile sees a dialog — is a line of `## Premissas medidas` whose proof ran in this session against the environment the spec names. Proved only on paper or on a fixture, when the spec is about real data → it is an open point, not a premise. About ten cards needed a post-tasks amendment because a premise was right on paper and wrong against `dev`.
 - Contradictions between sections; requirements without a covering test; acceptance criteria not verifiable.
 - **Claims about the current code without verified evidence** — every "hoje o sistema faz X" needs `file:line` checked in this session.
 - Missing edge cases the card or the code imply; migrations/rollback/verificação declared N/A without a defensible reason.
@@ -216,8 +222,10 @@ Bring its findings to the human together with the spec, before the gate below.
 How it runs: the draft is already saved (`spec.md`, Phase 2; for an epic, the file in the epic's
 `planning/` folder before it is posted), and the agent is read-only (an exploration/read-only agent
 type, no `Edit`/`Write`). It runs in both answers of the *2º revisor* call — waiting for a human does
-not replace it — and its findings go into the same message as the spec. With no human in the session,
-the findings go in the final answer and the session closes with `PARADA: spec aguardando o gate`.
+not replace it — and its findings go into the same message as the spec. With no human in the session
+and no handover (`## Modo despachado`), the findings go in the final answer and the session closes
+with `PARADA: spec aguardando o gate`; with the handover, the session resolves each finding against
+the code, records how, and the gate is answered.
 
 **Then the spec itself.** It goes in the message — the full document plus a short list of what the
 critique caught and how each finding was resolved, since the tool renders no long body — and then
@@ -250,6 +258,8 @@ gh project item-edit --project-id <project-id> --id <item-id> \
 
 A spec whose implementation cannot fit **6–8 tasks** is an epic, and slicing it is this skill's job — not `gm-card`'s (before the spec, nobody knew the phases existed; the phase structure is an *output* of specification) and not `gm-plan-tasks`'s (it is downstream, and its job is tasks). Signals: the spec declares phases; `## Execution` wants more than one feature branch; one section alone would fill the whole ceiling.
 
+**An épico from triage.** A card that arrives with the label `épico` and `## Pontos` was declared one scope at the door; slicing starts from its points, whatever the size. Each point goes to a phase — or several points to one — and the `## Fases` table gains a `Pontos` column naming which. If every point fits one phase within 6–8 tasks, there are no sub-issues: remove the label, keep `## Pontos` as the checklist of the single card, and say so in one line. `gm-card` left that card's `Rota` field empty (the route belonged to the phases); with no phases, fill it now — by `gm-card`'s route rule, from this spec — and say which and why in the same line.
+
 The spec is **not** split — one feature, one `spec.md`, one folder. Only the **card** is.
 
 1. **The parent becomes the epic.** Label `épico`, and a `## Fases` table appended to its body: one row per phase, each with a one-line *pronto quando…* objective and the number of its sub-issue. It keeps the `gm:spec` comment. Its `gm:tasks` comment becomes a pointer to the child in flight — an epic has no tasks of its own. It does not move through the 8 stations.
@@ -271,13 +281,15 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
 
 1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
    session) can chain the pipeline without reading prose. Exactly one of:
-   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
-   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
-     what is waiting and on whom.
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its
+     argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR,
+     saying what is waiting and on whom.
 
    Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
    the line comes only after the answer; with no human to answer, close with
-   `PARADA: <the gate left open>`.
+   `PARADA: <the gate left open>`. Under `## Modo despachado`, a gate in its **decide** rows is
+   answered, not left open.
 2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
    `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one
    above 1500 characters. A long body (issue comment, PR body, commit message) goes to a file first,
@@ -286,5 +298,45 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
    whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
    does not declare them — with no human in the session, that stop is
    `PARADA: <what the CLAUDE.md must declare>`.
-4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
-   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
+   schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
+   was done and close with `PROXIMO` or `PARADA`.
+
+## Modo despachado
+
+This section is stamped from the same `_comum/convencoes.md` as the two above. Edit the source in
+the `claude-brain` repo and run `node scripts/skills-comum.mjs` there — never this copy.
+
+**When it applies:** no human in the session (`claude -p`, a subagent) **and** the argument hands
+over the front in words ("você decide sozinho o G2, o G3, o commit e o ship"). Both, or it does not
+apply: no human and no handover → item 5 of `## Como perguntar e como aprovar` (stop and report).
+A human in the session → never, whatever the argument says. When it applies, it replaces item 5
+for the rows marked **decide**; the rest of the skill runs as written. The argument may add stops;
+it never turns a **para** into a **decide** — except the one row below that says so, and only by
+naming it.
+
+| Ponto de decisão | Exemplo (skill · header) | Despachado |
+|---|---|---|
+| Aprovar artefato do próprio card: critérios, card, spec, tasks, corpo da PR, comentário | `gm-card`, `gm-spec`, `gm-plan-tasks`, `gm-ship`, `gm-explore`, `gm-prd` | **decide** — Aprovar, depois da crítica que a skill exige |
+| Caminho entre os que a skill oferece: rota, profundidade, recorte, escopo, abordagem | `gm-card` · `Rota`; `gm-spec` · `Profundidade`, `Recorte`; `gm-triage` · `Escopo` | **decide** pela regra da própria skill |
+| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **para** — salvo quando o argumento autoriza seguir sem ele, por nome; aí o revisor de IA independente roda igual. Workspace que declara não ter segundo humano: a pergunta nem existe |
+| Commit e push na branch do card | `gm-implement` · `Commit`; `gm-correcao` | **decide**, com a verificação verde |
+| Fila no fim, sem decisão da spec caída | `gm-implement` · `Fim da fila` | **decide**: fechar e abrir a PR |
+| Checkout principal com alteração | `gm-implement` · `Árvore suja` | **decide**: deixar onde estão |
+| Alvo ambíguo: repo, card, pasta, PR | `Repo`, `Card`, `Pasta`, `PR alvo`, `Destino` | **para** — o argumento nomeia o alvo |
+| Escolha de produto que card, spec, argumento e decisões registradas não respondem | qualquer | **para** |
+| Desvio da spec, decisão que caiu, emenda | `gm-implement`, `gm-ship`, `gm-correcao` | **para** |
+| Teste vermelho, ambiente quebrado, `CLAUDE.md` que não declara o que a skill exige | qualquer | **para**, com a saída que prova |
+| Merge, `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
+| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** |
+| Perguntar o que o card, a spec, o argumento ou o cofre já respondem | qualquer | **não pergunta** — lê |
+| Devolver comando `/gm-*` para alguém digitar | qualquer | **não faz** — vai na linha `PROXIMO:` |
+
+**Every decide is recorded on the spot:** the decision tool of the workspace
+(`mcp__brain__lembrar` where the `brain` MCP runs) with what, why and what was discarded, and one
+comment on the card per stage, with the prefix the argument gives.
+
+**What the argument still carries — only what belongs to the card:** card and repo; where to work
+(worktree, branch, PR base when stacked); the recorded decisions that bind it; stops beyond this
+table; environment facts the workspace `CLAUDE.md` does not declare. What this table says is not
+repeated there.
