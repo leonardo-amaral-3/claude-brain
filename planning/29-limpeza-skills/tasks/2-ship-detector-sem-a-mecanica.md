@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `gm-ship` fica com o detector, sem a mecânica da emenda
 
