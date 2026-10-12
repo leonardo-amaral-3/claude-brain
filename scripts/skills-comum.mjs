@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Carimba os dois blocos comuns de skills/_comum/convencoes.md em toda skills/gm-*/SKILL.md que já
-// tenha o cabeçalho correspondente. Sem flag: escreve o que mudou. `--check`: só compara.
+// Carimba as seções de skills/_comum/convencoes.md em toda skills/gm-*/SKILL.md que já tenha os
+// cabeçalhos — todos ou nenhum. Sem flag: escreve o que mudou. `--check`: só compara.
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,7 +97,7 @@ const nomesSkills = readdirSync(skillsDir, { withFileTypes: true })
   .sort();
 
 let algumDivergenteOuQuebrado = false;
-let skillsComDoisBlocos = 0;
+let skillsComBlocos = 0;
 
 for (const nome of nomesSkills) {
   const caminho = join(skillsDir, nome, "SKILL.md");
@@ -113,14 +113,16 @@ for (const nome of nomesSkills) {
     console.log(`${nome}: sem bloco`);
     continue;
   }
-  if (presentes === 1) {
-    const faltaIdx = posicoes.findIndex((p) => p === -1);
-    console.log(`${nome}: um bloco só (falta ${secoesFonte[faltaIdx].cabecalho.slice(3)})`);
+  // Todos ou nenhum: skill com parte dos cabeçalhos é cabeçalho digitado errado ou esquecido, e
+  // carimbá-la escreveria com posição -1.
+  if (presentes < secoesFonte.length) {
+    const faltam = secoesFonte.filter((_, k) => posicoes[k] === -1).map((s) => s.cabecalho.slice(3));
+    console.log(`${nome}: blocos incompletos (falta ${faltam.join(", ")})`);
     algumDivergenteOuQuebrado = true;
     continue;
   }
 
-  skillsComDoisBlocos++;
+  skillsComBlocos++;
   const substituicoes = [];
   for (let k = 0; k < secoesFonte.length; k++) {
     const secao = secoesFonte[k];
@@ -154,7 +156,7 @@ for (const nome of nomesSkills) {
 
 if (check) {
   if (!algumDivergenteOuQuebrado) {
-    console.log(`${skillsComDoisBlocos} skills × 2 blocos iguais à fonte`);
+    console.log(`${skillsComBlocos} skills × ${secoesFonte.length} blocos iguais à fonte`);
     process.exit(0);
   }
   process.exit(1);

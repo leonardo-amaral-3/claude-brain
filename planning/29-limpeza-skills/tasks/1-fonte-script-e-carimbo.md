@@ -27,7 +27,7 @@ The repo has no suite for skills — the proof is mechanical and goes in the com
 
 - `node scripts/skills-comum.mjs --check; echo $?` → `0`, last line `11 skills × 2 blocos iguais à fonte`.
 - Negative in the **body**: `sed -i 's/one question per call/one question per call!/' skills/gm-explore/SKILL.md` → `--check` exits `1` naming `gm-explore · Como perguntar e como aprovar · divergente`. Restore with `node scripts/skills-comum.mjs` — **not** `git checkout`, which before the commit would give back the unstamped copy.
-- Negative in the **header**: `sed -i 's/^## Convenções de saída$/## Convencoes de saida/' skills/gm-explore/SKILL.md` → `--check` exits `1` naming `gm-explore: um bloco só`. Undo with the inverse `sed` and stamp again.
+- Negative in the **header**: `sed -i 's/^## Convenções de saída$/## Convencoes de saida/' skills/gm-explore/SKILL.md` → `--check` exits `1` naming `gm-explore: blocos incompletos`. Undo with the inverse `sed` and stamp again.
 - Idempotence: stamp twice in a row — the second prints only `igual` and `git status --short` does not move.
 - `grep -L "_comum/convencoes.md" skills/gm-*/SKILL.md` → only `gm-tech-spec`.
 - `grep -rn "eleven" skills/` → empty (44 lines today); `grep -rn "esteira-gm.md" skills/ | grep -v "claude-brain"` → empty (11 today).

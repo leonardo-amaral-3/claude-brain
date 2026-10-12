@@ -203,8 +203,8 @@ da mesma fonte:
   fecha na hora.
 
 **Uma fonte, várias cópias.** Os dois blocos vivem em `skills/_comum/convencoes.md`;
-`node scripts/skills-comum.mjs` carimba cada seção na skill que tem o cabeçalho, e `--check` acusa
-cópia divergente — é a suíte do `/gm-ship` para mudança em `skills/`. Carimbar, e não citar: medido
+`node scripts/skills-comum.mjs` carimba as seções na skill que tem os cabeçalhos — todos ou nenhum —, e `--check` acusa
+cópia divergente ou skill com parte dos cabeçalhos — é a suíte do `/gm-ship` para mudança em `skills/`. Carimbar, e não citar: medido
 em 2026-10-12, nenhuma das 480 sessões `/gm-*` do mantenedor leu o doc que o bloco citava, e
 `@arquivo` dentro de `SKILL.md` só expande com caminho absoluto ou relativo ao `cwd`, calando quando
 não acha. Regra que a sessão precisa seguir fica no texto da skill; a fonte única garante que ela

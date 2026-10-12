@@ -2,7 +2,9 @@
 
 Este arquivo é a **fonte única** dos blocos que toda skill da esteira repete. Cada seção `##` daqui
 é um bloco; `node scripts/skills-comum.mjs` o carimba, byte a byte, em toda `skills/gm-*/SKILL.md`
-que já tenha o mesmo cabeçalho — a skill entra no bloco escrevendo o cabeçalho, e sai apagando-o.
+que já tenha os mesmos cabeçalhos — a skill entra nos blocos escrevendo os cabeçalhos, e sai
+apagando-os. **Todos ou nenhum:** skill com parte dos cabeçalhos sai com `1` nos dois modos e não é
+escrita, porque cabeçalho faltando é cabeçalho digitado errado, não opção.
 `node scripts/skills-comum.mjs --check` compara e sai com `1` se alguma cópia divergiu; é a suíte
 do `/gm-ship` para mudança em `skills/`, declarada no `CLAUDE.md` deste repo.
 
@@ -15,7 +17,8 @@ precisa seguir tem de estar no texto da skill; o que este arquivo garante é que
 uma vez.
 
 As seções abaixo são instruções de skill: ficam em inglês, e o que o humano lê fica em pt-BR, como
-nas skills. Seção nova = cabeçalho novo aqui, o mesmo cabeçalho nas skills que a recebem, e o script.
+nas skills. Seção nova = cabeçalho novo aqui, o mesmo cabeçalho em **toda** skill que já tem os blocos, e o
+script. Seção que só valha para algumas skills não entra aqui.
 **Reservado para a Fase 2 do épico #30 (#28):** a tabela de portões do modo despachado — o que cada
 skill decide sozinha numa sessão `claude -p` e onde para — entra aqui como terceira seção; até lá,
 vale o item 5 do primeiro bloco e o item 4 do segundo.
