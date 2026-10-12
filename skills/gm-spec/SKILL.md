@@ -2,7 +2,7 @@
 name: gm-spec
 description: Create the single specification (requirements + technical) for a board card — the contract that makes AI implementation safe. Seeded by the card, built through codebase exploration and focused Q&A, hardened by an adversarial critique, and gated by explicit human approval. Publishes the spec as a comment on the card. Replaces the old gm-prd + gm-tech-spec pair as the default path (gm-prd remains only for genuinely new product areas).
 disable-model-invocation: true
-model: claude-fable-5-1
+model: claude-opus-5-5
 argument-hint: [#issue]
 ---
 

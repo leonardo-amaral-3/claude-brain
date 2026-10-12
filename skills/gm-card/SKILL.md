@@ -2,7 +2,7 @@
 name: gm-card
 description: Qualify demand into a direction card on the team board (the team board declared in the workspace CLAUDE.md) — either creating it from a one-line direction, or promoting an issue that gm-triage left in Triagem. Captures current state with evidence, desired direction, motivation and MANDATORY acceptance criteria (gate G1), using the right template per type (bug vs melhoria vs débito), and suggests the route (completa/curta). Use right after a gm-explore or a gm-triage, or whenever registering demand on the board.
 disable-model-invocation: true
-model: claude-opus-5
+model: claude-opus-5-5
 argument-hint: [direção em uma frase | #issue da Triagem]
 ---
 

@@ -2,7 +2,7 @@
 name: gm-prd
 description: Create a Product Requirements Document (PRD) through deep conversational Q&A, seeded by a board card when one exists. Use when a card is picked up for implementation, or when planning any feature that needs clear requirements before coding. Writes planning/<folder>/PRD.md and publishes the PRD as a comment on the card so downstream steps (tech spec, CI review) can find it on GitHub.
 disable-model-invocation: true
-model: claude-fable-5-1
+model: claude-opus-5-5
 argument-hint: [#issue ou feature-name]
 ---
 

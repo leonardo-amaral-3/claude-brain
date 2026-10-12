@@ -145,8 +145,8 @@ token que o `WebFetch`. Precisa de `npm install -g defuddle`.
 ## Qual modelo roda cada estação
 
 Cada skill declara no próprio frontmatter o modelo em que roda (`model:`), escolhido pelo que a
-estação entrega: **Fable** onde sai documento que outros executam ao pé da letra, **Opus** onde se
-julga um artefato ou uma ação sem volta, **Sonnet** onde se lê ou se executa o que já foi decidido.
+estação entrega: **Opus** onde sai documento que outros executam ao pé da letra ou onde se julga um
+artefato ou uma ação sem volta, **Sonnet** onde se lê ou se executa o que já foi decidido.
 
 Esta tabela é a fonte da verdade, e `node scripts/prova-modelo.mjs` confere que os doze `SKILL.md` —
 no repo e na instalação — dizem o mesmo que ela. Mudou uma linha aqui? Mude o frontmatter junto, rode
@@ -154,22 +154,22 @@ no repo e na instalação — dizem o mesmo que ela. Mudou uma linha aqui? Mude 
 
 | Skill | Modelo | Por quê |
 |---|---|---|
-| `gm-triage` | `claude-sonnet-5` | classifica e deduplica; volume alto, nada sai dela como contrato |
-| `gm-explore` | `claude-sonnet-5` | só lê código e responde com evidência |
-| `gm-card` | `claude-opus-5` | escreve os critérios de aceite que o resto da esteira herda |
-| `gm-prd` | `claude-fable-5-1` | documento de produto que a spec vai seguir ao pé da letra |
-| `gm-spec` | `claude-fable-5-1` | o contrato que o implementador executa literalmente |
+| `gm-triage` | `claude-sonnet-5-5` | classifica e deduplica; volume alto, nada sai dela como contrato |
+| `gm-explore` | `claude-sonnet-5-5` | só lê código e responde com evidência |
+| `gm-card` | `claude-opus-5-5` | escreve os critérios de aceite que o resto da esteira herda |
+| `gm-prd` | `claude-opus-5-5` | documento de produto que a spec vai seguir ao pé da letra |
+| `gm-spec` | `claude-opus-5-5` | o contrato que o implementador executa literalmente |
 | `gm-tech-spec` | `inherit` | deprecated: só manda usar `/gm-spec`, e não vale trocar de modelo para isso |
-| `gm-plan-tasks` | `claude-opus-5` | cada task é o prompt inteiro de um agente novo; o recorte é julgamento |
-| `gm-implement` | `claude-sonnet-5` | executa uma task já decidida; é a estação que mais roda |
-| `gm-ship` | `claude-sonnet-5` | roda a suíte e monta a PR a partir do que já existe |
-| `gm-correcao` | `claude-opus-5` | julga cada achado do review contra a spec |
-| `gm-release` | `claude-opus-5` | reconcilia a fila e conduz merge e tag, que não têm volta |
-| `gm-hotfix` | `claude-opus-5` | emergência em produção: diagnóstico sob pressão e ações sem volta |
+| `gm-plan-tasks` | `claude-opus-5-5` | cada task é o prompt inteiro de um agente novo; o recorte é julgamento |
+| `gm-implement` | `claude-sonnet-5-5` | executa uma task já decidida; é a estação que mais roda |
+| `gm-ship` | `claude-sonnet-5-5` | roda a suíte e monta a PR a partir do que já existe |
+| `gm-correcao` | `claude-opus-5-5` | julga cada achado do review contra a spec |
+| `gm-release` | `claude-opus-5-5` | reconcilia a fila e conduz merge e tag, que não têm volta |
+| `gm-hotfix` | `claude-opus-5-5` | emergência em produção: diagnóstico sob pressão e ações sem volta |
 
 Ids completos, e não apelidos (`sonnet`, `opus`): a skill roda exatamente o modelo da tabela até
 alguém mudar a linha, e trocar de geração é um commit com prova nova — nunca uma troca silenciosa.
-Exige Claude Code 2.1.257 ou mais novo, o mínimo do Fable 5.1.
+Exige Claude Code 2.1.287 ou mais novo, a versão em que a geração 5.5 foi provada.
 
 ### Quanto tempo o modelo da skill vale
 
@@ -177,7 +177,7 @@ O `model:` troca o modelo **até o seu próximo prompt livre**, e não é salvo 
 
 - Dentro do turno, a skill segue no modelo dela a cada chamada de ferramenta e a cada resultado.
 - A resposta que você dá pelo `AskUserQuestion` chega como resultado de ferramenta, no mesmo turno,
-  então uma `/gm-spec` inteira fica no Fable enquanto a conversa passar pelas perguntas dela. Isto é
+  então uma `/gm-spec` inteira fica no Opus enquanto a conversa passar pelas perguntas dela. Isto é
   dedução: foi medido que a resposta chega no mesmo turno e que o modelo da skill atravessa
   resultados de ferramenta, mas não as duas coisas juntas.
 - Mensagem digitada livremente encerra o turno, e apertar Esc no meio de uma pergunta para escrever
@@ -201,12 +201,7 @@ A sessão fica no modelo em que está, sem erro, quando:
 
 - ela roda em **auto mode** (ou em plan mode com o classificador) e o modelo declarado não é
   suportado por ele — na API da Anthropic, Haiku e Sonnet/Opus anteriores ao 4.6;
-- o id está fora do `availableModels` da organização;
-- o seu plano cobra o Fable de créditos de uso e você recusa o pedido de consentimento no meio da
-  sessão: o turno continua no modelo padrão.
-
-Nesses planos, em `claude -p` e pelo Agent SDK — o chat do cartão do Operations Center roda por ele —,
-o Fable é cobrado dos créditos de uso sem pedido de consentimento.
+- o id está fora do `availableModels` da organização.
 
 Em Bedrock, Google Cloud's Agent Platform, Foundry ou atrás de um gateway, o Claude Code repassa o id
 sem conferir, e é o provedor quem decide o que fazer com um id que não serve. Quem usa outro provedor

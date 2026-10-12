@@ -37,8 +37,6 @@
 //   nenhum e hooks desligados: as skills de board param na falta do `## Board` antes de escrever, e
 //   o bloqueio é a segunda camada. Skill carregada dentro da sonda a torna inconclusiva, e não
 //   verde, porque o `attributionSkill` troca de dono.
-// - Em planos que cobram o Fable de créditos de uso, a sonda do Fable cobra sem perguntar: em `-p`
-//   não há quem consinta.
 import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -50,8 +48,8 @@ import { fileURLToPath } from "node:url";
 const USO = "uso: node scripts/prova-modelo.mjs [--viva] [--repo <dir>]";
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || join(os.homedir(), ".claude");
 const SECAO = "## Qual modelo roda cada estação";
-const IDS = ["claude-sonnet-5", "claude-opus-5", "claude-fable-5-1"];
-const VERSAO_MINIMA = [2, 1, 257]; // o mínimo do Fable 5.1
+const IDS = ["claude-sonnet-5-5", "claude-opus-5-5"];
+const VERSAO_MINIMA = [2, 1, 287]; // a versão em que a geração 5.5 foi provada
 // As que só leem ou param cedo vêm primeiro; gm-implement por último, porque cria branch e worktree.
 const PREFERENCIA = [
   "gm-explore", "gm-triage", "gm-card", "gm-spec", "gm-prd", "gm-plan-tasks", "gm-correcao",
@@ -236,7 +234,7 @@ function escolherSondas(tabela) {
     if (!IDS.includes(declarado)) continue;
     const skill = PREFERENCIA.find((s) => tabela.some(([sk, v]) => sk === s && v === declarado));
     if (!skill) falhas.push(`FALHA: nenhuma skill sondável para ${declarado}`);
-    else sondas.push({ skill, declarado, sessao: declarado === "claude-sonnet-5" ? "claude-opus-5" : "claude-sonnet-5" });
+    else sondas.push({ skill, declarado, sessao: declarado === "claude-sonnet-5-5" ? "claude-opus-5-5" : "claude-sonnet-5-5" });
   }
   return { sondas, falhas };
 }
