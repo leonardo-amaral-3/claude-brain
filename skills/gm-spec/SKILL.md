@@ -184,6 +184,7 @@ Put on the critic hat (or spawn a fresh review pass) and attack the draft:
 - Contradictions between sections; requirements without a covering test; acceptance criteria not verifiable.
 - **Claims about the current code without verified evidence** — every "hoje o sistema faz X" needs `file:line` checked in this session.
 - Missing edge cases the card or the code imply; migrations/rollback/verificação declared N/A without a defensible reason.
+- **E2E and catalog premises.** In an e2e plan, a slow external system is simulated at the edge, never waited on. A premise inherited from a catalog (a list of endpoints, codes, fixtures) is checked against the actual environment in this session before the spec leans on it.
 
 Fix what the critique finds; what can't be resolved alone goes to the user as an open point.
 
@@ -203,6 +204,18 @@ workspace whose `CLAUDE.md` declares there is no second human skips this call an
 >   🎯 Especificação e nada é implementado em cima dela nesse intervalo.
 > - **Seguir sem segundo revisor** — a spec vai ao gate agora e a implementação pode começar hoje.
 >   O contrapeso passa a ser a verificação pós-deploy, que vira obrigatória e bloqueante.
+
+**Independent AI reviewer.** When the spec is sensitive (data, faturamento, migration) and the workspace
+declares no second human — or the human chose *Seguir sem segundo revisor* — the counterweight cannot
+depend on the declaration: dispatch an independent AI agent (fresh context; it receives only the path
+of `spec.md`, never this conversation) to attack the spec, with every finding carrying `file:line`.
+Bring its findings to the human together with the spec, before the gate below.
+
+How it runs: the draft is already saved (`spec.md`, Phase 2; for an epic, the file in the epic's
+`planning/` folder before it is posted), and the agent is read-only (an exploration/read-only agent
+type, no `Edit`/`Write`). It runs in both answers of the *2º revisor* call — waiting for a human does
+not replace it — and its findings go into the same message as the spec. With no human in the session,
+the findings go in the final answer and the session closes with `PARADA: spec aguardando o gate`.
 
 **Then the spec itself.** It goes in the message — the full document plus a short list of what the
 critique caught and how each finding was resolved, since the tool renders no long body — and then
@@ -247,3 +260,29 @@ The spec is **not** split — one feature, one `spec.md`, one folder. Only the *
 Board: the promoted child gets the fields (`Status`, `Tipo`, `Classe`, `Rota`, `Módulo`) per `gm-card`'s reference; the parent keeps whatever it had; the phases not yet promoted get **nothing** — they stay off the project. **Do not add a `🧭 Épico` option to `Classe` or a 9th `Status` column** — editing single-select options via the API regenerates the option IDs hardcoded in `gm-card`, `gm-hotfix` and `gm-triage`. The `épico` label plus a saved board view filtered on it gives the same roadmap at no risk.
 
 Report paths and offer exactly one follow-up: `/gm-plan-tasks <folder>` (for an epic, aimed at the phase you just promoted — the others are roadmap, not work).
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
+   the line comes only after the answer; with no human to answer, close with
+   `PARADA: <the gate left open>`.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
+   characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them — with no human in the session, that stop is
+   `PARADA: <what the CLAUDE.md must declare>`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.

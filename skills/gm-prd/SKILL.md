@@ -166,3 +166,29 @@ Skip if there is no card. The comment is visible to the whole team, so it goes i
    ```
 
 Report the local path and the comment URL, then offer exactly one follow-up: `/gm-spec <folder>`.
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
+   the line comes only after the answer; with no human to answer, close with
+   `PARADA: <the gate left open>`.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
+   characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them — with no human in the session, that stop is
+   `PARADA: <what the CLAUDE.md must declare>`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.

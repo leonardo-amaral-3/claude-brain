@@ -98,7 +98,7 @@ and every `description` — is written in pt-BR.**
 
 ## Coletar
 
-- Parecer em prosa: o comentário **do autor `claude`** — o mais recente, se houver re-revisão.
+- Parecer em prosa: o comentário **do autor `claude`** — a revisão é única por PR.
   Identifique pelo autor, **não** pelo texto: ele não tem marcador HTML (só o `gm:revisao-status`,
   que é do autor `github-actions`, tem). Traz conformidade · divergências · bugs e riscos · sugestões.
 - Inline: `gh api "repos/<owner>/<repo>/pulls/<n>/comments"` — cada um tem `id`, `path`, `line`.
@@ -145,7 +145,7 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
 2. **Rodar a suíte completa** dos pacotes tocados (api/web + typecheck), como o `gm-ship` exige.
    Vermelho → parar e mostrar.
 3. Push na mesma branch. **Não** alternar draft→ready: isso redispara a revisão inteira e queima
-   cota. Re-revisão é sob demanda, mencionando `@claude`, e só se o diff mudou o bastante para valer.
+   cota. A regra é **uma revisão por PR e um `/gm-correcao`**: não peça re-revisão (nem mencionando `@claude`).
 
 ## Responder na PR
 
@@ -193,5 +193,31 @@ E um comentário-resumo, sticky por `<!-- gm:correcao -->` (create-or-update pel
 Tabela dos achados com a decisão de cada um, os commits, o resultado da suíte, e os cards abertos.
 
 Depois diga o que falta: PR pronta para a validação humana → merge em `dev` → o card vai para
-🧪 Validação em Dev, onde uma **pessoa nomeada** roda o checklist da PR (SLA 7 dias). Se algum achado
+🧪 Validação em Dev, onde uma **pessoa nomeada** roda o checklist da PR (SLA 7 dias). Validado em dev → este Report não fecha o card, porque nada roda no momento da validação: quem recebe o "validado" da pessoa fecha (`gh issue close <n> --repo <owner>/<repo> --reason completed`). O card **fica em 🧪 Validação em Dev** (não espera 🚂 Release, ✅ Produção nem `/gm-release`), mas o workflow *Item closed* do board, se ligado, pode movê-lo ao fechar: releia o Status depois e, se mudou, devolva com `updateProjectV2ItemFieldValue` (id da opção Status no `CLAUDE.md` do workspace). Se algum achado
 virou desvio e a spec mudou, diga que o checklist de validação mudou junto.
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
+   the line comes only after the answer; with no human to answer, close with
+   `PARADA: <the gate left open>`.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
+   characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them — with no human in the session, that stop is
+   `PARADA: <what the CLAUDE.md must declare>`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.
