@@ -49,6 +49,8 @@ and every `description` — is written in pt-BR.**
 
 Read `planning/$ARGUMENTS/spec.md` (older folders: `tech-spec.md` + `PRD.md`). Note `## Execution` (target repo, feature branch — branch management belongs to `/gm-implement`, not to the tasks) and `## Plano de testes`. Then explore the current state of the files that will change.
 
+**The spec's premises are measured, or there is no plan.** The spec has a `## Premissas medidas` section, and every line in it carries its proof and result (or the section is `N/A` with a reason). Missing section, or a line without proof → stop and point to `/gm-spec <n>`: planning on an unmeasured premise is how a task stops halfway on a deviation. The same when the breakdown reveals a premise the section does not list. Each task's `Context` names the lines of `## Premissas medidas` it leans on.
+
 ## Phase 1: Propose the breakdown — whole, at once
 
 Present the **entire** proposed breakdown in one message — numbered list, each task with title +

@@ -150,6 +150,9 @@ Write `planning/<folder>/spec.md`. Keep the exact section names — downstream s
 ## Requisitos & critérios de aceite
 [a versão canônica e verificável dos critérios do card — Dado/Quando/Então onde couber. O review de IA, o plano de testes e a validação em dev leem DAQUI.]
 
+## Premissas medidas
+[toda premissa sobre dado, ambiente, rota ou código existente de que o desenho depende, uma linha cada: a premissa · a consulta, rota ou comando que a prova, rodado NESTA sessão contra o ambiente que a spec nomeia (dados da `dev`, o repo na base branch) · o resultado · a data. Premissa que não deu para medir é ponto aberto do G2, não premissa. Desenho que não depende de nenhuma → N/A + por quê]
+
 ## Technical Overview
 [abordagem e decisões-chave em poucas linhas]
 
@@ -183,6 +186,7 @@ Write `planning/<folder>/spec.md`. Keep the exact section names — downstream s
 
 Put on the critic hat (or spawn a fresh review pass) and attack the draft:
 
+- **Unmeasured premises.** Every premise the design leans on — a data shape, an empty month, a field some route exposes, how a profile sees a dialog — is a line of `## Premissas medidas` whose proof ran in this session against the environment the spec names. Proved only on paper or on a fixture, when the spec is about real data → it is an open point, not a premise. About ten cards needed a post-tasks amendment because a premise was right on paper and wrong against `dev`.
 - Contradictions between sections; requirements without a covering test; acceptance criteria not verifiable.
 - **Claims about the current code without verified evidence** — every "hoje o sistema faz X" needs `file:line` checked in this session.
 - Missing edge cases the card or the code imply; migrations/rollback/verificação declared N/A without a defensible reason.
@@ -216,8 +220,10 @@ Bring its findings to the human together with the spec, before the gate below.
 How it runs: the draft is already saved (`spec.md`, Phase 2; for an epic, the file in the epic's
 `planning/` folder before it is posted), and the agent is read-only (an exploration/read-only agent
 type, no `Edit`/`Write`). It runs in both answers of the *2º revisor* call — waiting for a human does
-not replace it — and its findings go into the same message as the spec. With no human in the session,
-the findings go in the final answer and the session closes with `PARADA: spec aguardando o gate`.
+not replace it — and its findings go into the same message as the spec. With no human in the session
+and no handover (`## Modo despachado`), the findings go in the final answer and the session closes
+with `PARADA: spec aguardando o gate`; with the handover, the session resolves each finding against
+the code, records how, and the gate is answered.
 
 **Then the spec itself.** It goes in the message — the full document plus a short list of what the
 critique caught and how each finding was resolved, since the tool renders no long body — and then

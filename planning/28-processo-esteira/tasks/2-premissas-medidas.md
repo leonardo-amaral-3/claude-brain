@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `gm-spec` exige premissas medidas e `gm-plan-tasks` recusa sem elas
 
