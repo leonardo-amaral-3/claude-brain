@@ -2,6 +2,7 @@
 name: gm-implement
 description: Execute the next pending task of a planned feature - right branch in the right repo (created linked to the card via Development field), task file as the prompt, tests run BEFORE presenting, risk-ranked summary, commit only after explicit approval, deviation protocol when reality contradicts the spec. Use after gm-plan-tasks, once per task, preferably in a fresh session.
 disable-model-invocation: true
+model: claude-sonnet-5
 argument-hint: [feature-folder]
 ---
 

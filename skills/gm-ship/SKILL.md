@@ -2,6 +2,7 @@
 name: gm-ship
 description: Close the implementation loop - verify every task complete, run the full suite, push, open the PR carrying the acceptance-criteria contract and the dev-validation checklist, referencing the board card, and move the card to code review. Use after the last gm-implement task is approved and committed.
 disable-model-invocation: true
+model: claude-sonnet-5
 argument-hint: [feature-folder]
 ---
 
