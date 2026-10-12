@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 5: `docs/esteira-gm.md` conta o modo despachado, e a prova final
 

@@ -66,6 +66,10 @@ template do tipo, registra origem e solicitante, e estaciona em 📥 Triagem.
 Também roteia para fora o que não é demanda. "Isso não é demanda" é um desfecho legítimo e
 frequente — criar card para tudo é como um board se enche de ruído.
 
+Relato com vários pontos do mesmo escopo (mesmo objetivo numa frase, validados juntos) nasce **um**
+card `épico` com `## Pontos`, não um card por ponto; só o ponto independente de verdade vira card
+próprio, e na dúvida é um card só. Quem corta as fases é o `/gm-spec`.
+
 **`/gm-explore [pergunta]`** — investigação read-only: "como isso funciona hoje?", "um usuário
 consegue fazer X?". Responde com evidência `arquivo:linha`, confere se já existe card sobre o
 assunto, e **não propõe nem implementa solução**. Use antes de decidir se algo deve mudar.
@@ -87,13 +91,19 @@ declara que **não há segundo humano**, ou se você escolhe seguir sem ele, a s
 conversa — e devolve achados com `file:line`. Os achados chegam a você junto da spec, antes da
 aprovação. O contrapeso não depende de o workspace tê-lo declarado.
 
+Toda premissa de que o desenho depende (formato de dado, mês vazio, campo de uma rota, código
+existente) vira uma linha de `## Premissas medidas`, com a prova rodada na própria sessão contra o
+ambiente que a spec nomeia; premissa só provada no papel é ponto aberto do G2. Um épico vindo da
+triagem é fatiado pelos seus `## Pontos`, qualquer que seja o tamanho.
+
 É **spec viva**: emenda aprovada durante a implementação (protocolo de desvio do `/gm-implement`)
 atualiza o `spec.md` *e* o comentário, com nota datada. A spec publicada nunca vira mentira
 histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a última task e a PR.
 
 **`/gm-plan-tasks [pasta-da-feature]`** — quebra a spec em tasks ordenadas e independentes. Cada
 arquivo de task é o **prompt completo** de um agente novo, que não viu a conversa. Apresenta a
-quebra inteira como **um** artefato — você responde *Aprovar*, *Ajustar* ou *Rejeitar*, e não uma
+quebra inteira como **um** artefato — e recusa planejar spec sem `## Premissas medidas`, ou com
+linha sem prova, devolvendo ao `/gm-spec` — — você responde *Aprovar*, *Ajustar* ou *Rejeitar*, e não uma
 pergunta por task —, respeita o teto de 6–8 tasks e espelha a lista no card.
 
 ### Implementação
@@ -115,6 +125,11 @@ validação em dev, referencia o card e move para 👀 Revisão.
 registrada: verificado contra a spec, e então corrigido, refutado ou promovido a card — com
 resposta em cada comentário inline. Roda depois do review e antes de entregar o PR ao validador
 humano.
+
+`/gm-ship` e `/gm-correcao` abrem com **`## Ambiente na entrada`**: disco livre, dependências
+instaladas e os serviços que o `CLAUDE.md` declara, parando cedo com o motivo antes do primeiro
+teste. O portão de teste também é lido de lá (*Portão de teste*: `local` ou `CI`); sem a linha, vale
+a suíte inteira local, como antes.
 
 ### Saída
 
@@ -202,13 +217,42 @@ da mesma fonte:
   nova revisão; "entregue" no `gm-ship` exige CI verde e revisão tratada, e card validado em dev
   fecha na hora.
 
-**Uma fonte, várias cópias.** Os dois blocos vivem em `skills/_comum/convencoes.md`;
+**Uma fonte, várias cópias.** Os três blocos (os dois acima e o `## Modo despachado`, abaixo) vivem em `skills/_comum/convencoes.md`;
 `node scripts/skills-comum.mjs` carimba as seções na skill que tem os cabeçalhos — todos ou nenhum —, e `--check` acusa
 cópia divergente ou skill com parte dos cabeçalhos — é a suíte do `/gm-ship` para mudança em `skills/`. Carimbar, e não citar: medido
 em 2026-10-12, nenhuma das 480 sessões `/gm-*` do mantenedor leu o doc que o bloco citava, e
 `@arquivo` dentro de `SKILL.md` só expande com caminho absoluto ou relativo ao `cwd`, calando quando
 não acha. Regra que a sessão precisa seguir fica no texto da skill; a fonte única garante que ela
 seja escrita uma vez.
+
+## Modo despachado
+
+Para quem lê de fora: é a seção que diz o que uma skill decide sozinha quando ninguém está na
+sessão. Antes dela, cada despacho repetia no argumento os freios, o formato da última linha e a
+identidade do commit — e cada pasta de despacho divergia das outras.
+
+**Quando vale — as duas condições juntas.** Não há humano na sessão (`claude -p`, subagente) **e**
+o argumento entrega a frente em palavras ("você decide sozinho o G2, o G3, o commit e o ship").
+Sem humano e sem entrega, vale o item 5 de `## Como as skills perguntam`: parar e relatar. Com
+humano, nunca vale, diga o argumento o que disser. O argumento pode acrescentar paradas; nunca
+transforma um **para** em **decide**.
+
+**As três colunas.** *Decide*: aprovar artefato do próprio card (depois da crítica que a skill
+exige), escolher entre os caminhos que a skill oferece, commit e push na branch do card, dispensar
+o segundo revisor (o de IA roda igual). *Para*: alvo ambíguo, escolha de produto que nada
+registrado responde, desvio da spec, teste vermelho ou ambiente quebrado, e tudo que leva a
+produção — merge, `main`, tag, release, deploy, instalação viva, apagar; `gm-release` e `gm-hotfix`
+ficam inteiras aqui. *Não faz*: esperar CI, agendar retorno, rodar em segundo plano, devolver
+comando `/gm-*` para alguém digitar (vai na linha `PROXIMO:`) e perguntar o que o card, a spec ou o
+cofre já respondem.
+
+**Todo decide é registrado na hora**: a ferramenta de decisão do workspace (`lembrar`, onde o MCP
+`brain` roda), com o quê, o porquê e o descartado, e um comentário no card por etapa.
+
+**O que o argumento ainda carrega**: card e repo, onde trabalhar (worktree, branch, base da PR
+empilhada), as decisões registradas que o obrigam, paradas além da tabela e fatos de ambiente que o
+`CLAUDE.md` não declara. Medido: o texto-base do despacho da #29 caiu de 2.871 para 1.718 bytes sem
+perder nada que a tabela não diga.
 
 ## Uma worktree por card
 
