@@ -211,6 +211,12 @@ depend on the declaration: dispatch an independent AI agent (fresh context; it r
 of `spec.md`, never this conversation) to attack the spec, with every finding carrying `file:line`.
 Bring its findings to the human together with the spec, before the gate below.
 
+How it runs: the draft is already saved (`spec.md`, Phase 2; for an epic, the file in the epic's
+`planning/` folder before it is posted), and the agent is read-only (an exploration/read-only agent
+type, no `Edit`/`Write`). It runs in both answers of the *2º revisor* call — waiting for a human does
+not replace it — and its findings go into the same message as the spec. With no human in the session,
+the findings go in the final answer and the session closes with `PARADA: spec aguardando o gate`.
+
 **Then the spec itself.** It goes in the message — the full document plus a short list of what the
 critique caught and how each finding was resolved, since the tool renders no long body — and then
 the *artefato* set from `## Como perguntar e como aprovar`. Silence is not a yes here and never
