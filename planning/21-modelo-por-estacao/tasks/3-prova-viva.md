@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `scripts/prova-modelo.mjs` — parte viva
 
