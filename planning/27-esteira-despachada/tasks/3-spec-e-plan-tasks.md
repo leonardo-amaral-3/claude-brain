@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `gm-spec` e `gm-plan-tasks` — e2e/catálogo e 2º revisor de IA
 

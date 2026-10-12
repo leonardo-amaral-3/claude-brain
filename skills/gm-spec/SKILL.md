@@ -184,6 +184,7 @@ Put on the critic hat (or spawn a fresh review pass) and attack the draft:
 - Contradictions between sections; requirements without a covering test; acceptance criteria not verifiable.
 - **Claims about the current code without verified evidence** — every "hoje o sistema faz X" needs `file:line` checked in this session.
 - Missing edge cases the card or the code imply; migrations/rollback/verificação declared N/A without a defensible reason.
+- **E2E and catalog premises.** In an e2e plan, a slow external system is simulated at the edge, never waited on. A premise inherited from a catalog (a list of endpoints, codes, fixtures) is checked against the actual environment in this session before the spec leans on it.
 
 Fix what the critique finds; what can't be resolved alone goes to the user as an open point.
 
@@ -203,6 +204,12 @@ workspace whose `CLAUDE.md` declares there is no second human skips this call an
 >   🎯 Especificação e nada é implementado em cima dela nesse intervalo.
 > - **Seguir sem segundo revisor** — a spec vai ao gate agora e a implementação pode começar hoje.
 >   O contrapeso passa a ser a verificação pós-deploy, que vira obrigatória e bloqueante.
+
+**Independent AI reviewer.** When the spec is sensitive (data, faturamento, migration) and the workspace
+declares no second human — or the human chose *Seguir sem segundo revisor* — the counterweight cannot
+depend on the declaration: dispatch an independent AI agent (fresh context; it receives only the path
+of `spec.md`, never this conversation) to attack the spec, with every finding carrying `file:line`.
+Bring its findings to the human together with the spec, before the gate below.
 
 **Then the spec itself.** It goes in the message — the full document plus a short list of what the
 critique caught and how each finding was resolved, since the tool renders no long body — and then

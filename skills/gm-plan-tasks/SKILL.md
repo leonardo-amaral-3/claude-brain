@@ -132,7 +132,7 @@ Publish the task list as a checklist comment on the card (create-or-update, firs
 
 ### Quality checks before presenting
 
-1. Tasks cover the whole spec — nothing missed. 2. Each leaves the code compilable. 3. No forward dependencies. 4. Each file works as a standalone prompt. 5. No duplication of spec content. 6. Every task names its verification command.
+1. Tasks cover the whole spec — nothing missed. 2. Each leaves the code compilable. 3. No forward dependencies. 4. Each file works as a standalone prompt. 5. No duplication of spec content. 6. Every task names its verification command. 7. An e2e task simulates a slow external system at the edge, and a premise inherited from a catalog is checked against the environment, not assumed.
 
 Then offer exactly one follow-up: `/gm-implement $ARGUMENTS` (uma task por sessão, de preferência com `/clear` entre elas).
 
