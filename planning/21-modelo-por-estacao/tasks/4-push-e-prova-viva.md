@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: O push pelo protocolo e a prova viva
 
@@ -55,4 +55,36 @@ If T5 fails because of the script and you fix it, run **T6**, **T7** and **T12**
 
 ## Evidência
 
-_(vazia até o T5 rodar — a saída entra aqui literal, dentro de um bloco de código, e é daqui que o `/gm-ship` a leva para a PR)_
+T5 rodado do Git Bash em 2026-10-12, 11:28:32–11:30:28, depois de `./sync.sh push --sobrescrever` (12 skills; `./sync.sh status` → `Tudo igual entre repo e maquina.`). Segunda execução: a primeira, em segundo plano, morreu junto com a sessão `-p` antes de terminar e não deixou saída.
+
+Versão: a spec registrou `2.1.266`, a versão da máquina quando foi escrita. O critério real é o piso `≥ 2.1.257`, e hoje a máquina tem `2.1.287`.
+
+```
+ok  gm-triage  claude-sonnet-5
+ok  gm-explore  claude-sonnet-5
+ok  gm-card  claude-opus-5
+ok  gm-prd  claude-fable-5-1
+ok  gm-spec  claude-fable-5-1
+ok  gm-tech-spec  inherit
+ok  gm-plan-tasks  claude-opus-5
+ok  gm-implement  claude-sonnet-5
+ok  gm-ship  claude-sonnet-5
+ok  gm-correcao  claude-opus-5
+ok  gm-release  claude-opus-5
+ok  gm-hotfix  claude-opus-5
+estática: 12 ok
+bin: C:\Users\lokin\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe (2.1.287)
+gm-explore  declarado claude-sonnet-5  sessão claude-opus-5  init auto  skill: 6 msgs em {claude-sonnet-5}  livre: 1 msgs em {claude-opus-5}  ok
+apaguei C:\Users\lokin\AppData\Local\Temp\prova-modelo-8Nuni8
+apaguei C:\Users\lokin\.claude\projects\C--Users-lokin-AppData-Local-Temp-prova-modelo-8Nuni8
+gm-card  declarado claude-opus-5  sessão claude-sonnet-5  init auto  skill: 6 msgs em {claude-opus-5}  livre: 1 msgs em {claude-sonnet-5}  ok
+apaguei C:\Users\lokin\AppData\Local\Temp\prova-modelo-VKCAbR
+apaguei C:\Users\lokin\.claude\projects\C--Users-lokin-AppData-Local-Temp-prova-modelo-VKCAbR
+gm-spec  declarado claude-fable-5-1  sessão claude-sonnet-5  init auto  skill: 7 msgs em {claude-fable-5-1}  livre: 1 msgs em {claude-sonnet-5}  ok
+apaguei C:\Users\lokin\AppData\Local\Temp\prova-modelo-5hR8Zt
+apaguei C:\Users\lokin\.claude\projects\C--Users-lokin-AppData-Local-Temp-prova-modelo-5hR8Zt
+viva: 3 ok
+saiu 0
+```
+
+T9 depois do T5: `1` e `1`. Os dois são `prova-modelo-tvSBFA`, resto da execução morta, que não passou da limpeza. As três pastas desta execução foram apagadas pelo próprio script (linhas `apaguei` acima).
