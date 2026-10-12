@@ -59,8 +59,8 @@ esta seção, nunca a skill. (São as coordenadas do board do mantenedor; quem c
 
 A mesma rota completa e os mesmos 5 gates da norma
 (`../../notoria/planning/fluxo-gm-desenvolvimento.md`), com os **mesmos deltas do workspace
-`pessoal`** — G2 sem segundo humano, release sem trem semanal, G4 só com revisão de IA — e mais dois
-que são deste repo:
+`pessoal`** — G2 sem segundo humano, release sem trem semanal, G4 só com revisão de IA — e mais
+**três** que são deste repo:
 
 1. **Rota Curta é o padrão aqui.** PRD e tech-spec pressupõem produto com usuários e trade-off de
    negócio; este é ferramenta de uma pessoa. Rota Completa só quando a mudança altera o **formato em
@@ -75,10 +75,27 @@ que são deste repo:
    aplica. Rode com o `dist/` recompilado (`npm run build`) e com `BRAIN_DB`/`BRAIN_CONFIG` apontando
    para o índice vivo. O que o eval mede, as guardas e os três códigos estão em
    `brain-mcp/README.md`, `## Qualidade da busca`.
+3. **Toda mudança em `skills/` fecha com os blocos comuns provados.** Os três blocos `## Como
+   perguntar e como aprovar`, `## Convenções de saída` e `## Modo despachado` são carimbados de `skills/_comum/convencoes.md` por
+   `node scripts/skills-comum.mjs`; a suíte relevante para a precondição 4 do `/gm-ship` é
+   `node scripts/skills-comum.mjs --check`. Código `1` é **vermelho**: a PR não abre. Mudou um bloco?
+   Edite a fonte e rode o script sem `--check`; nunca a cópia.
 
 Regras duras que **não** mudam: skills `gm-*` têm `disable-model-invocation: true` (peça o comando ao
 usuário, nunca reimplemente a skill na mão) · sem card não há implementação · nada de commit sem
 aprovação explícita · o PR nasce com `Card: #n` na primeira linha e **nunca** com `Closes`.
+
+## Convenções da esteira
+
+As skills `gm-*` leem daqui o que é deste repo:
+
+- **Portão de teste**: `local` — a suíte da área tocada (itens 2 e 3 de `## A esteira`).
+- **Typecheck do CI**: não há CI — nenhum workflow de teste ou typecheck roda na PR; a parte local é
+  o portão inteiro.
+- **Ambiente**: nenhum serviço; mínimo de disco padrão (2 GB). Numa worktree nova,
+  `brain-mcp/node_modules` faltando → parar com o motivo; prover fora do `/gm-ship` (junction ao
+  checkout principal ou `npm ci`).
+- **Segundo humano**: não.
 
 ## Branches
 
@@ -94,8 +111,10 @@ principal — a regra e o porquê estão em `docs/esteira-gm.md`, `## Uma worktr
   que o código não conta. Leia antes de abrir `brain-mcp/src/` (ou busque com `source: "mapa"`)
 - `brain-mcp/` — o servidor MCP (`src/`) e os `scripts/`: smoke, concorrência, eval e a colheita do
   golden set, uso e o replay de prompts contra o hook de contexto
-- `skills/` — uma pasta por skill; `hooks/` — os três hooks (`SessionStart`, `UserPromptSubmit`,
-  `SessionEnd`), o enriquecedor do diário que o `SessionEnd` dispara e o `brain-config.js` comum
+- `skills/` — uma pasta por skill — e `skills/_comum/convencoes.md`, a fonte dos blocos comuns,
+  carimbada por `scripts/skills-comum.mjs`; `hooks/` — os três hooks (`SessionStart`,
+  `UserPromptSubmit`, `SessionEnd`), o enriquecedor do diário que o `SessionEnd` dispara e o
+  `brain-config.js` comum
 - `docs/`, `templates/`, `install.*`, `sync.*` — o que faz o setup instalável por outra pessoa
 - Specs: `planning/<n>-<slug>/spec.md` e `tasks/` **dentro deste repo** (é público — nada de dado
   de cliente ali)

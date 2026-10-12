@@ -66,6 +66,10 @@ template do tipo, registra origem e solicitante, e estaciona em 📥 Triagem.
 Também roteia para fora o que não é demanda. "Isso não é demanda" é um desfecho legítimo e
 frequente — criar card para tudo é como um board se enche de ruído.
 
+Relato com vários pontos do mesmo escopo (mesmo objetivo numa frase, validados juntos) nasce **um**
+card `épico` com `## Pontos`, não um card por ponto; só o ponto independente de verdade vira card
+próprio, e na dúvida é um card só. Quem corta as fases é o `/gm-spec`.
+
 **`/gm-explore [pergunta]`** — investigação read-only: "como isso funciona hoje?", "um usuário
 consegue fazer X?". Responde com evidência `arquivo:linha`, confere se já existe card sobre o
 assunto, e **não propõe nem implementa solução**. Use antes de decidir se algo deve mudar.
@@ -87,6 +91,11 @@ declara que **não há segundo humano**, ou se você escolhe seguir sem ele, a s
 conversa — e devolve achados com `file:line`. Os achados chegam a você junto da spec, antes da
 aprovação. O contrapeso não depende de o workspace tê-lo declarado.
 
+Toda premissa de que o desenho depende (formato de dado, mês vazio, campo de uma rota, código
+existente) vira uma linha de `## Premissas medidas`, com a prova rodada na própria sessão contra o
+ambiente que a spec nomeia; premissa só provada no papel é ponto aberto do G2. Um épico vindo da
+triagem é fatiado pelos seus `## Pontos`, qualquer que seja o tamanho.
+
 É **spec viva**: emenda aprovada durante a implementação (protocolo de desvio do `/gm-implement`)
 atualiza o `spec.md` *e* o comentário, com nota datada. A spec publicada nunca vira mentira
 histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a última task e a PR.
@@ -94,7 +103,10 @@ histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a �
 **`/gm-plan-tasks [pasta-da-feature]`** — quebra a spec em tasks ordenadas e independentes. Cada
 arquivo de task é o **prompt completo** de um agente novo, que não viu a conversa. Apresenta a
 quebra inteira como **um** artefato — você responde *Aprovar*, *Ajustar* ou *Rejeitar*, e não uma
-pergunta por task —, respeita o teto de 6–8 tasks e espelha a lista no card.
+pergunta por task —, respeita o teto de 6–8 tasks e espelha a lista no card. Spec escrita a partir
+de 2026-10-12 sem `## Premissas medidas`, ou com linha sem prova, é recusada e volta ao `/gm-spec`,
+que escreve a seção. Contrato aprovado antes dela — spec antiga, `tech-spec.md`, fase de épico —
+segue: o próprio `/gm-plan-tasks` mede as premissas de que as tasks dependem e avisa em uma linha.
 
 ### Implementação
 
@@ -115,6 +127,11 @@ validação em dev, referencia o card e move para 👀 Revisão.
 registrada: verificado contra a spec, e então corrigido, refutado ou promovido a card — com
 resposta em cada comentário inline. Roda depois do review e antes de entregar o PR ao validador
 humano.
+
+`/gm-ship` e `/gm-correcao` abrem com **`## Ambiente na entrada`**: disco livre, dependências
+instaladas e os serviços que o `CLAUDE.md` declara, parando cedo com o motivo antes do primeiro
+teste. O portão de teste também é lido de lá (*Portão de teste*: `local` ou `CI`); sem a linha, vale
+a suíte inteira local, como antes.
 
 ### Saída
 
@@ -142,11 +159,78 @@ para consertar uma nota que ficou pela metade.
 **`/defuddle <url>`** — lê uma página web já limpa de navegação e anúncio, gastando bem menos
 token que o `WebFetch`. Precisa de `npm install -g defuddle`.
 
+## Qual modelo roda cada estação
+
+Cada skill declara no próprio frontmatter o modelo em que roda (`model:`), escolhido pelo que a
+estação entrega: **Opus** onde sai documento que outros executam ao pé da letra ou onde se julga um
+artefato ou uma ação sem volta, **Sonnet** onde se lê ou se executa o que já foi decidido.
+
+Esta tabela é a fonte da verdade, e `node scripts/prova-modelo.mjs` confere que os doze `SKILL.md` —
+no repo e na instalação — dizem o mesmo que ela. Mudou uma linha aqui? Mude o frontmatter junto, rode
+`./sync.sh push` e depois `node scripts/prova-modelo.mjs --viva`.
+
+| Skill | Modelo | Por quê |
+|---|---|---|
+| `gm-triage` | `claude-sonnet-5-5` | classifica e deduplica; volume alto, nada sai dela como contrato |
+| `gm-explore` | `claude-sonnet-5-5` | só lê código e responde com evidência |
+| `gm-card` | `claude-opus-5-5` | escreve os critérios de aceite que o resto da esteira herda |
+| `gm-prd` | `claude-opus-5-5` | documento de produto que a spec vai seguir ao pé da letra |
+| `gm-spec` | `claude-opus-5-5` | o contrato que o implementador executa literalmente |
+| `gm-tech-spec` | `inherit` | deprecated: só manda usar `/gm-spec`, e não vale trocar de modelo para isso |
+| `gm-plan-tasks` | `claude-opus-5-5` | cada task é o prompt inteiro de um agente novo; o recorte é julgamento |
+| `gm-implement` | `claude-sonnet-5-5` | executa uma task já decidida; é a estação que mais roda |
+| `gm-ship` | `claude-sonnet-5-5` | roda a suíte e monta a PR a partir do que já existe |
+| `gm-correcao` | `claude-opus-5-5` | julga cada achado do review contra a spec |
+| `gm-release` | `claude-opus-5-5` | reconcilia a fila e conduz merge e tag, que não têm volta |
+| `gm-hotfix` | `claude-opus-5-5` | emergência em produção: diagnóstico sob pressão e ações sem volta |
+
+Ids completos, e não apelidos (`sonnet`, `opus`): a skill roda exatamente o modelo da tabela até
+alguém mudar a linha, e trocar de geração é um commit com prova nova — nunca uma troca silenciosa.
+Exige Claude Code 2.1.287 ou mais novo, a versão em que a geração 5.5 foi provada.
+
+### Quanto tempo o modelo da skill vale
+
+O `model:` troca o modelo **até o seu próximo prompt livre**, e não é salvo em settings.
+
+- Dentro do turno, a skill segue no modelo dela a cada chamada de ferramenta e a cada resultado.
+- A resposta que você dá pelo `AskUserQuestion` chega como resultado de ferramenta, no mesmo turno,
+  então uma `/gm-spec` inteira fica no Opus enquanto a conversa passar pelas perguntas dela. Isto é
+  dedução: foi medido que a resposta chega no mesmo turno e que o modelo da skill atravessa
+  resultados de ferramenta, mas não as duas coisas juntas.
+- Mensagem digitada livremente encerra o turno, e apertar Esc no meio de uma pergunta para escrever
+  outra coisa também. Dali em diante vale o modelo da sessão, mesmo no meio da `/gm-spec`: a
+  resposta a um "por que isso?" e tudo o que vier depois rodam nele.
+- Para voltar ao modelo da estação, invoque a skill de novo. Ela é carregada outra vez e recomeça o
+  procedimento dela, com o que já está na conversa como contexto.
+
+### Trocar de modelo custa cache
+
+O cache de prompt é separado por modelo. Numa sessão que já carregou muito contexto, a primeira
+resposta da skill lê tudo sem cache no modelo dela, e na volta ao modelo da sessão o que estava em
+cache antes da skill só é aproveitado se ainda não tiver expirado. Numa sessão longa, isso come a
+economia que motivou declarar o modelo. Por isso, **quando a sessão atual já estiver longa, abra a
+estação numa sessão nova**: é a orientação que o caminho acima dá ao `/gm-implement`, agora valendo
+para todas.
+
+### Quando o modelo declarado não é usado
+
+A sessão fica no modelo em que está, sem erro, quando:
+
+- ela roda em **auto mode** (ou em plan mode com o classificador) e o modelo declarado não é
+  suportado por ele — na API da Anthropic, Haiku e Sonnet/Opus anteriores ao 4.6;
+- o id está fora do `availableModels` da organização.
+
+Em Bedrock, Google Cloud's Agent Platform, Foundry ou atrás de um gateway, o Claude Code repassa o id
+sem conferir, e é o provedor quem decide o que fazer com um id que não serve. Quem usa outro provedor
+troca a tabela, o frontmatter e a lista `IDS` do topo de `scripts/prova-modelo.mjs` pelos ids de lá, e
+roda a prova.
+
 ## Como as skills perguntam
 
 Toda skill `gm-*` com ponto de interação carrega, logo depois da prosa de missão, um bloco
-`## Como perguntar e como aprovar` — idêntico ao caractere nas onze que têm um. Esta é a versão
-longa dele, para ler de fora da esteira; se as duas divergirem, a das skills é a que roda.
+`## Como perguntar e como aprovar` — carimbado byte a byte, a partir de `skills/_comum/convencoes.md`,
+em toda skill que tem um. Esta é a versão longa dele, para ler de fora da esteira; se as duas
+divergirem, a das skills é a que roda.
 
 **O problema que isto resolve.** Um portão que se atravessa digitando "aprovo" não é portão, é
 carimbo. Esta esteira já abre mão de dois controles que a norma completa tem — o segundo humano no
@@ -186,7 +270,8 @@ Mudou o gesto de responder, não quem manda.
 
 ## Convenções de saída
 
-As onze skills com ponto final (todas menos `gm-tech-spec`) carregam o mesmo bloco, no fim:
+Toda skill com ponto final (hoje todas menos `gm-tech-spec`) carrega o mesmo bloco no fim, carimbado
+da mesma fonte:
 
 - **A última linha da resposta é legível por máquina**: `PROXIMO: /gm-<skill> <argumento>` quando a
   esteira continua, ou `PARADA: <motivo em uma frase>` quando não. Quem despacha (um script, outra
@@ -199,6 +284,45 @@ As onze skills com ponto final (todas menos `gm-tech-spec`) carregam o mesmo blo
 - **Despachado, não espera CI nem agenda retorno.** O `gm-correcao` roda uma vez por PR e não pede
   nova revisão; "entregue" no `gm-ship` exige CI verde e revisão tratada, e card validado em dev
   fecha na hora.
+
+**Uma fonte, várias cópias.** Os três blocos (os dois acima e o `## Modo despachado`, abaixo) vivem em `skills/_comum/convencoes.md`;
+`node scripts/skills-comum.mjs` carimba as seções na skill que tem os cabeçalhos — todos ou nenhum —, e `--check` acusa
+cópia divergente ou skill com parte dos cabeçalhos — é a suíte do `/gm-ship` para mudança em `skills/`. Carimbar, e não citar: medido
+em 2026-10-12, nenhuma das 480 sessões `/gm-*` do mantenedor leu o doc que o bloco citava, e
+`@arquivo` dentro de `SKILL.md` só expande com caminho absoluto ou relativo ao `cwd`, calando quando
+não acha. Regra que a sessão precisa seguir fica no texto da skill; a fonte única garante que ela
+seja escrita uma vez.
+
+## Modo despachado
+
+Para quem lê de fora: é a seção que diz o que uma skill decide sozinha quando ninguém está na
+sessão. Antes dela, cada despacho repetia no argumento os freios, o formato da última linha e a
+identidade do commit — e cada pasta de despacho divergia das outras.
+
+**Quando vale — as duas condições juntas.** Não há humano na sessão (`claude -p`, subagente) **e**
+o argumento entrega a frente em palavras ("você decide sozinho o G2, o G3, o commit e o ship").
+Sem humano e sem entrega, vale o item 5 de `## Como as skills perguntam`: parar e relatar. Com
+humano, nunca vale, diga o argumento o que disser. O argumento pode acrescentar paradas; nunca
+transforma um **para** em **decide** — salvo a linha do segundo revisor, e só nomeando-a.
+
+**As três colunas.** *Decide*: aprovar artefato do próprio card (depois da crítica que a skill
+exige), escolher entre os caminhos que a skill oferece, commit e push na branch do card. *Para*:
+o segundo revisor de spec sensível — salvo quando o argumento autoriza seguir sem ele, por nome (o
+de IA roda igual), e é a única parada que o argumento pode abrir; no workspace que declara não ter
+segundo humano a pergunta nem existe —, alvo ambíguo, escolha de produto que nada
+registrado responde, desvio da spec, teste vermelho ou ambiente quebrado, e tudo que leva a
+produção — merge, `main`, tag, release, deploy, instalação viva, apagar; `gm-release` e `gm-hotfix`
+ficam inteiras aqui. *Não faz*: esperar CI, agendar retorno, rodar em segundo plano, devolver
+comando `/gm-*` para alguém digitar (vai na linha `PROXIMO:`) e perguntar o que o card, a spec ou o
+cofre já respondem.
+
+**Todo decide é registrado na hora**: a ferramenta de decisão do workspace (`lembrar`, onde o MCP
+`brain` roda), com o quê, o porquê e o descartado, e um comentário no card por etapa.
+
+**O que o argumento ainda carrega**: card e repo, onde trabalhar (worktree, branch, base da PR
+empilhada), as decisões registradas que o obrigam, paradas além da tabela e fatos de ambiente que o
+`CLAUDE.md` não declara. Medido: o texto-base do despacho da #29 caiu de 2.871 para 1.718 bytes sem
+perder nada que a tabela não diga.
 
 ## Uma worktree por card
 

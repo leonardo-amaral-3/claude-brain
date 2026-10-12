@@ -2,6 +2,7 @@
 name: gm-tech-spec
 description: DEPRECATED - superseded by gm-spec, which fuses requirements + technical specification into a single document with adversarial critique and a human approval gate. Use /gm-spec instead.
 disable-model-invocation: true
+model: inherit
 argument-hint: [use /gm-spec]
 ---
 

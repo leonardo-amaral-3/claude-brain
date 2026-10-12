@@ -2,6 +2,7 @@
 name: gm-correcao
 description: Turn the CI review's parecer on a PR into decisions on the record - every finding verified against the spec, then fixed, refuted, or promoted to a card, with a reply on each inline comment. Use after the review workflow posts its findings on a PR that is already in code review, before handing the PR to a human validator.
 disable-model-invocation: true
+model: claude-opus-5-5
 argument-hint: [pr-number | owner/repo#pr | feature-folder]
 ---
 
@@ -16,9 +17,11 @@ falso positivo é pior que ignorá-lo, porque entra no diff com ar de correção
 
 ## Como perguntar e como aprovar
 
-This section is identical in all eleven `gm-*` skills that have an interaction point — it is
-copied, never rewritten, and any improvement to it lands in the eleven at once. The long version,
-for a human reading from outside the pipeline, is in `docs/esteira-gm.md`, section
+This section is stamped from `_comum/convencoes.md` — the folder beside this skill's; in the
+`claude-brain` repo, `skills/_comum/convencoes.md` — into every `gm-*` skill that has an interaction
+point. Never edit this copy: edit the source there and run `node scripts/skills-comum.mjs` in that
+repo (its `--check` catches a copy that drifted). The long version, for a human reading from
+outside the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section
 `## Como as skills perguntam`.
 
 1. **Context before jargon.** Open with what is at stake and what changes down each path, in
@@ -42,11 +45,31 @@ for a human reading from outside the pipeline, is in `docs/esteira-gm.md`, secti
 5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
    not argue one option into being the obvious one. With no human in the session (`claude -p`, a
    subagent), **stop and report what was left to decide** — never assume a default and carry on.
+   The one exception is `## Modo despachado` below.
 
 Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
 up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
 Instructions in this file stay in English; **everything the human reads — the question, the labels
 and every `description` — is written in pt-BR.**
+
+## Ambiente na entrada
+
+Before the first test, build or commit — a broken environment found halfway costs the minutes
+already spent. Read the item *Ambiente* of the workspace `CLAUDE.md`, wherever it sits (by
+convention under `## Convenções da esteira`), and check, in this order; stop at the first failure
+with the reason and the output that proves it (no human → `PARADA: ambiente — <o que falta>`):
+
+1. **Disk.** Free space where the working tree lives (`df -Pk .`, column *Available*) is at least
+   the minimum the item declares — 2 GB when it declares none.
+2. **Dependencies.** Every package the diff touches that has a lockfile next to its `package.json`
+   has its `node_modules/` (a folder or a junction). Missing → do what the item declares for
+   providing them; nothing declared → stop. Never install by default: installing is what fills the
+   disk.
+3. **Services.** Each service the item declares, by the command it gives to prove it is up. None
+   declared → nothing to check.
+
+No *Ambiente* item at all → checks 1 and 2 with the defaults, and one line saying the workspace
+declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that needs a checkout.
 
 ## Preconditions
 
@@ -142,8 +165,9 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
    `--repo <owner>/<repo>` explícito. Card anterior à regra, ainda no checkout principal → siga
    onde ele está, sem mover: card em voo não se muda de chão.
 1. Um commit por achado, mensagem dizendo qual achado fecha e por quê — não "corrige review".
-2. **Rodar a suíte completa** dos pacotes tocados (api/web + typecheck), como o `gm-ship` exige.
-   Vermelho → parar e mostrar.
+2. **Rodar o portão de teste do workspace** — o item *Portão de teste* do `CLAUDE.md`, como na
+   precondição 4 do `gm-ship`: a parte local sempre; a suíte inteira aqui quando o portão é `local`
+   ou quando o item não existe. Vermelho → parar e mostrar.
 3. Push na mesma branch. **Não** alternar draft→ready: isso redispara a revisão inteira e queima
    cota. A regra é **uma revisão por PR e um `/gm-correcao`**: não peça re-revisão (nem mencionando `@claude`).
 
@@ -198,26 +222,68 @@ virou desvio e a spec mudou, diga que o checklist de validação mudou junto.
 
 ## Convenções de saída
 
-This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
-rewritten; an improvement lands in the eleven at once.
+This section is stamped from the same `_comum/convencoes.md` as `## Como perguntar e como aprovar`,
+into every `gm-*` skill that has a closing point. Edit the source in the `claude-brain` repo and run
+`node scripts/skills-comum.mjs` there — never this copy.
 
 1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
    session) can chain the pipeline without reading prose. Exactly one of:
-   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
-   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
-     what is waiting and on whom.
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its
+     argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR,
+     saying what is waiting and on whom.
 
    Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
    the line comes only after the answer; with no human to answer, close with
-   `PARADA: <the gate left open>`.
+   `PARADA: <the gate left open>`. Under `## Modo despachado`, a gate in its **decide** rows is
+   answered, not left open.
 2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
-   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
-   characters. A long
-   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
-   `-F` (`git commit`).
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one
+   above 1500 characters. A long body (issue comment, PR body, commit message) goes to a file first,
+   then `--body-file` (`gh`) or `-F` (`git commit`).
 3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
    whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
    does not declare them — with no human in the session, that stop is
    `PARADA: <what the CLAUDE.md must declare>`.
-4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
-   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
+   schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
+   was done and close with `PROXIMO` or `PARADA`.
+
+## Modo despachado
+
+This section is stamped from the same `_comum/convencoes.md` as the two above. Edit the source in
+the `claude-brain` repo and run `node scripts/skills-comum.mjs` there — never this copy.
+
+**When it applies:** no human in the session (`claude -p`, a subagent) **and** the argument hands
+over the front in words ("você decide sozinho o G2, o G3, o commit e o ship"). Both, or it does not
+apply: no human and no handover → item 5 of `## Como perguntar e como aprovar` (stop and report).
+A human in the session → never, whatever the argument says. When it applies, it replaces item 5
+for the rows marked **decide**; the rest of the skill runs as written. The argument may add stops;
+it never turns a **para** into a **decide** — except the one row below that says so, and only by
+naming it.
+
+| Ponto de decisão | Exemplo (skill · header) | Despachado |
+|---|---|---|
+| Aprovar artefato do próprio card: critérios, card, spec, tasks, corpo da PR, comentário | `gm-card`, `gm-spec`, `gm-plan-tasks`, `gm-ship`, `gm-explore`, `gm-prd` | **decide** — Aprovar, depois da crítica que a skill exige |
+| Caminho entre os que a skill oferece: rota, profundidade, recorte, escopo, abordagem | `gm-card` · `Rota`; `gm-spec` · `Profundidade`, `Recorte`; `gm-triage` · `Escopo` | **decide** pela regra da própria skill |
+| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **para** — salvo quando o argumento autoriza seguir sem ele, por nome; aí o revisor de IA independente roda igual. Workspace que declara não ter segundo humano: a pergunta nem existe |
+| Commit e push na branch do card | `gm-implement` · `Commit`; `gm-correcao` | **decide**, com a verificação verde |
+| Fila no fim, sem decisão da spec caída | `gm-implement` · `Fim da fila` | **decide**: fechar e abrir a PR |
+| Checkout principal com alteração | `gm-implement` · `Árvore suja` | **decide**: deixar onde estão |
+| Alvo ambíguo: repo, card, pasta, PR | `Repo`, `Card`, `Pasta`, `PR alvo`, `Destino` | **para** — o argumento nomeia o alvo |
+| Escolha de produto que card, spec, argumento e decisões registradas não respondem | qualquer | **para** |
+| Desvio da spec, decisão que caiu, emenda | `gm-implement`, `gm-ship`, `gm-correcao` | **para** |
+| Teste vermelho, ambiente quebrado, `CLAUDE.md` que não declara o que a skill exige | qualquer | **para**, com a saída que prova |
+| Merge, `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
+| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** |
+| Perguntar o que o card, a spec, o argumento ou o cofre já respondem | qualquer | **não pergunta** — lê |
+| Devolver comando `/gm-*` para alguém digitar | qualquer | **não faz** — vai na linha `PROXIMO:` |
+
+**Every decide is recorded on the spot:** the decision tool of the workspace
+(`mcp__brain__lembrar` where the `brain` MCP runs) with what, why and what was discarded, and one
+comment on the card per stage, with the prefix the argument gives.
+
+**What the argument still carries — only what belongs to the card:** card and repo; where to work
+(worktree, branch, PR base when stacked); the recorded decisions that bind it; stops beyond this
+table; environment facts the workspace `CLAUDE.md` does not declare. What this table says is not
+repeated there.

@@ -76,12 +76,25 @@ dentro delas. Mudou campo ou opcao no Project? Atualize esta secao, nao a skill.
 As skills `gm-*` não conhecem as regras deste workspace; elas leem daqui. Declare:
 
 - **Typecheck do CI**: o comando exato que o CI roda (`<comando>`). O `/gm-ship` o executa na
-  precondição 4 e não aceita outro; sem esta linha, ele pergunta.
+  precondição 4 e não aceita outro; com CI e sem esta linha, ele pergunta. Sem CI: `não há CI`.
+- **Portão de teste**: o que roda local antes de abrir a PR (`<comandos>`, sempre com o typecheck
+  do CI) e onde roda a suíte inteira: `local` ou `CI`. Com `CI`, o `/gm-ship` abre a PR com a parte
+  local verde e "entregue" é o CI verde. Sem esta linha, ele roda a suíte inteira local.
+- **Ambiente**: espaço livre mínimo (padrão 2 GB), como prover dependências numa worktree nova
+  (ex.: junction para uma que já tem) e cada serviço de teste com o comando que prova que está de
+  pé. O `/gm-ship` e o `/gm-correcao` checam na entrada e param cedo com o motivo.
 - **Segundo humano**: há alguém, além de você, para revisar spec sensível (dado, faturamento,
   migration)? `sim` / `não`. Com `não`, o `/gm-spec` dispara um revisor de IA independente antes
   do G2.
+- **Ambiente de ensaio**: existe uma cópia de produção onde migration e tratamento de dado rodam
+  antes de valer? `não`, ou o comando que o `/gm-release` roda contra ela e onde lê o resultado.
+  Sem esta linha, trem sensível para e pergunta — nunca assume que ensaiou.
 - **Despacho**: se sessões headless (`claude -p`) rodam a esteira, lembre que a última linha da
-  resposta é `PROXIMO: /gm-<skill> <argumento>` ou `PARADA: <motivo>`.
+  resposta é `PROXIMO: /gm-<skill> <argumento>` ou `PARADA: <motivo>`. E se uma sessão orquestradora
+  despacha as outras, as instruções dela — como despachar, os freios, o que decide sozinha — ficam
+  num arquivo que só ela lê, **não neste `CLAUDE.md`**: ele é carregado por toda sessão despachada,
+  e cada parágrafo aqui é pago em cada uma delas. O que a sessão decide sozinha e onde para está no
+  `## Modo despachado` das skills; o texto do despacho carrega só o que é do card.
 
 ## Onde ficam as coisas
 
