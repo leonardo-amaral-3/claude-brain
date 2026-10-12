@@ -98,7 +98,7 @@ and every `description` — is written in pt-BR.**
 
 ## Coletar
 
-- Parecer em prosa: o comentário **do autor `claude`** — o mais recente, se houver re-revisão.
+- Parecer em prosa: o comentário **do autor `claude`** — a revisão é única por PR.
   Identifique pelo autor, **não** pelo texto: ele não tem marcador HTML (só o `gm:revisao-status`,
   que é do autor `github-actions`, tem). Traz conformidade · divergências · bugs e riscos · sugestões.
 - Inline: `gh api "repos/<owner>/<repo>/pulls/<n>/comments"` — cada um tem `id`, `path`, `line`.
@@ -145,7 +145,7 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
 2. **Rodar a suíte completa** dos pacotes tocados (api/web + typecheck), como o `gm-ship` exige.
    Vermelho → parar e mostrar.
 3. Push na mesma branch. **Não** alternar draft→ready: isso redispara a revisão inteira e queima
-   cota. A regra é **uma revisão por PR e um `/gm-correcao`**: não peça re-revisão (nem mencionando `@claude`). Despachado (`claude -p`), não espere o CI nem agende `ScheduleWakeup`: o fecho do despacho espera por você.
+   cota. A regra é **uma revisão por PR e um `/gm-correcao`**: não peça re-revisão (nem mencionando `@claude`).
 
 ## Responder na PR
 
