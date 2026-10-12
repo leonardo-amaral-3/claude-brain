@@ -186,7 +186,7 @@ escrever.
 ```sh
 cd brain-mcp
 npm run index     # varre as roots e indexa (segundos a poucos minutos)
-npm run embed     # gera os embeddings — a 1ª vez baixa o modelo (~120 MB) e demora
+npm run embed     # gera os embeddings — a 1ª vez baixa o modelo (~470 MB) e demora
 npm run grafo     # monta o grafo card ↔ PR ↔ spec ↔ arquivo ↔ commit
 
 node dist/cli.js --github   # puxa cards e PRs (precisa de gh autenticado)
@@ -304,16 +304,19 @@ que recompilar.
 ```
 claude-brain/
 ├── brain-mcp/                  servidor MCP (TypeScript)
-│   ├── src/                    15 módulos: indexer, search, grafo, memoria, hooks de sync
-│   ├── scripts/                smoke, eval (golden set), uso
+│   ├── src/                    index, tools, indexer, search, grafo, memoria, lease, syncs de git/GitHub
+│   ├── scripts/                smoke, concorrencia, eval + colher-golden (golden set), uso, injecao
 │   └── brain.config.example.json
 ├── skills/                     15 skills → ~/.claude/skills/
-├── hooks/                      5 arquivos → ~/.claude/hooks/
+├── hooks/                      7 arquivos → ~/.claude/hooks/
 │   ├── brain-config.js         lê o brain-workspaces.json (compartilhado pelos outros)
 │   ├── brain-briefing.js       SessionStart: injeta o briefing
 │   ├── brain-contexto.js       UserPromptSubmit: injeta o contexto do prompt
 │   ├── obsidian-diario.js      SessionEnd: escreve a nota (em milissegundos)
-│   └── obsidian-diario-titulo.js   processo destacado que enriquece a nota depois
+│   ├── obsidian-diario-titulo.js   processo destacado que enriquece a nota depois
+│   ├── custo-contexto.js       PreToolUse (opcional): nega heredoc e Write grandes em arquivo existente
+│   └── grafo-espelho.js        SessionEnd (opcional): regenera o espelho do grafo no Obsidian, se o
+│                               workspace tiver claude/grafo/_gerador/gerar-grafo.mjs
 ├── templates/                  para copiar no seu workspace
 │   ├── CLAUDE.example.md       o CLAUDE.md do workspace, com a seção ## Board
 │   ├── Sessões.base            tabela do Obsidian sobre as notas de sessão
@@ -328,6 +331,11 @@ claude-brain/
 ```
 
 **Não incluídas** (são de terceiros, instale por fora): `tlc-spec-driven` e `obsidian-bases`.
+
+Os dois hooks opcionais são copiados pelo `install`, mas **não** ligados no `settings.json`: o
+`custo-contexto.js` muda o comportamento do agente (nega chamadas) e o `grafo-espelho.js` só faz
+sentido com um gerador do grafo no workspace. Para ligar, acrescente o bloco no `settings.json` como
+os outros (`PreToolUse` com matcher `Bash|PowerShell|Write`, e `SessionEnd`).
 
 ---
 

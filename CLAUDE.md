@@ -1,9 +1,9 @@
 # claude-brain
 
 O setup que este repo **distribui**: o servidor MCP `brain` (índice híbrido sobre specs, docs,
-diário, decisões, cards, PRs, commits e código), as 14 skills `gm-*` da esteira, os hooks de
-briefing/diário e os templates. Público, de Leonardo, e é o que roda nos dois workspaces desta
-máquina — `pessoal` e `notoria`.
+diário, decisões, cards, PRs, commits e código), as skills `gm-*` da esteira (e mais `/mapear`,
+`/diario` e `/defuddle`), os hooks de briefing, contexto e diário e os templates. Público, de
+Leonardo, e é o que roda nos dois workspaces desta máquina — `pessoal` e `notoria`.
 
 Este arquivo governa **este repo**. O `../CLAUDE.md` governa o workspace `pessoal` inteiro e traz o
 board do `operations-center`; quando o diretório de trabalho for aqui, **vale a seção `## Board`
@@ -82,16 +82,24 @@ aprovação explícita · o PR nasce com `Card: #n` na primeira linha e **nunca*
 
 ## Branches
 
-Hoje só existe `main`, com 2 commits. A esteira pressupõe `dev` como base de integração: **crie a
-`dev` a partir da `main` antes da primeira branch de feature**, e a partir daí `main` é produção e
-recebe PR da `dev` no release.
+`dev` é a base de integração e `main` é produção. Branch de card (`feat/<n>-<slug>`) sai da `dev` e
+volta para ela por PR; `main` só recebe PR da `dev`, no `/gm-release`.
+
+Card em voo trabalha numa worktree irmã, `~/pessoal/claude-brain-<n>-<slug>`, e não no checkout
+principal — a regra e o porquê estão em `docs/esteira-gm.md`, `## Uma worktree por card`.
 
 ## Onde ficam as coisas
 
-- `brain-mcp/` — o servidor MCP (15 módulos TypeScript, ~3.200 linhas) e os `scripts/` de smoke/eval
-- `skills/` — as 14 skills, uma pasta por skill; `hooks/` — os 4 hooks
+- **Mapa de arquitetura: `../claude/mapas/claude-brain.md`** — entrypoints, fluxos e as pegadinhas
+  que o código não conta. Leia antes de abrir `brain-mcp/src/` (ou busque com `source: "mapa"`)
+- `brain-mcp/` — o servidor MCP (`src/`) e os `scripts/`: smoke, concorrência, eval e a colheita do
+  golden set, uso e o replay de prompts contra o hook de contexto
+- `skills/` — uma pasta por skill; `hooks/` — os três hooks (`SessionStart`, `UserPromptSubmit`,
+  `SessionEnd`), o enriquecedor do diário que o `SessionEnd` dispara e o `brain-config.js` comum
 - `docs/`, `templates/`, `install.*`, `sync.*` — o que faz o setup instalável por outra pessoa
-- Specs desta feature em diante: `planning/<feature>/spec.md` **dentro deste repo** (é público —
-  nada de dado de cliente ali)
-- Diário e decisões: cofre do workspace `pessoal`, em `../claude/` — porque o `doCwd` resolve por
-  prefixo de caminho, e esta pasta está sob `~/pessoal`
+- Specs: `planning/<n>-<slug>/spec.md` e `tasks/` **dentro deste repo** (é público — nada de dado
+  de cliente ali)
+- Diário: cofre do workspace `pessoal`, em `../claude/diario/` — o hook acha o cofre pelo `doCwd`,
+  que resolve por prefixo de caminho, e esta pasta está sob `~/pessoal`
+- Decisões do `lembrar`: **não** seguem o `doCwd`. Vão para o primeiro root `source: "decisao"` do
+  `brain.config.json` da instalação, que hoje é o cofre da Notoria (`~/notoria/claude/decisoes/`)
