@@ -1,6 +1,6 @@
 ---
 name: gm-release
-description: Cut the release train from the team board (the team board declared in the workspace CLAUDE.md) — read the validated queue in 🚂 Release, reconcile it against what is actually merged in dev, classify the train as trivial or sensitive (migrations / data treatment), open the dev→main PR, tag with calver, publish dual release notes, run the BLOCKING post-deploy verification for sensitive cards, move the cards to ✅ Produção and produce the list of requesters to notify. Use on the weekly train day, or whenever promoting dev to production.
+description: Cut the release train from the team board (the team board declared in the workspace CLAUDE.md) — read the validated queue (🚂 Release, plus cards closed while in 🧪 Validação em Dev), reconcile it against what is actually merged in dev, classify the train as trivial or sensitive (migrations / data treatment), open the dev→main PR, tag with calver, publish dual release notes, run the BLOCKING post-deploy verification for sensitive cards, move the cards to ✅ Produção and produce the list of requesters to notify. Use on the weekly train day, or whenever promoting dev to production.
 disable-model-invocation: true
 argument-hint: [vazio para o trem de hoje | dry-run]
 ---
@@ -87,8 +87,9 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
    ```
 
 3. **Reconcile and report the three sets, explicitly:**
-   - cards in 🚂 Release **and** in the diff → the intended train;
-   - cards in 🚂 Release **without** code in the diff → not ready, take them off the column;
+   - cards **validated** (in 🚂 Release, or closed while in 🧪 Validação em Dev — `/gm-ship` and
+     `/gm-correcao` close a validated card without moving it) **and** in the diff → the intended train;
+   - validated cards **without** code in the diff → not ready, take them off the train;
    - code in the diff **without** a validated card → *carona*: unvalidated work riding along. The
      **full** list goes in the message first — card by card, or commit by commit when there is no
      card, saying what each one touches — and then the decision is taken **one carona at a time**:
@@ -183,7 +184,7 @@ gh pr create --repo <owner>/<repo> --base main --head dev --title "release v<AAA
 - #<n> — <query/checagem tirada da spec do card>
 ```
 
-The body is the artifact, and it is the only place where what ships today is written down: it goes **whole** in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → open the PR with that body, exactly as shown. *Ajustar* → fix what the human named (a carona missing from the list, a migration described as harmless when it is not) and present it again. *Rejeitar* → no PR, and the train does not leave the station today. Check CI green (`gh pr checks`) before proposing the merge — and remember that a red check does not physically block the merge in these repos, so a green CI is **your** responsibility to confirm.
+The body is the artifact, and it is the only place where what ships today is written down: it goes **whole** in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → open the PR with that body, exactly as shown. *Ajustar* → fix what the human named (a carona missing from the list, a migration described as harmless when it is not) and present it again. *Rejeitar* → no PR, and the train does not leave the station today. Check CI green (`gh pr checks`) before proposing the merge — and remember that a red check does not physically block the merge in these repos, so a green CI is **your** responsibility to confirm. With no human in the session, CI pending or red is never waited out and never merged over: the PR stays open and the session closes with `PARADA: CI pendente na PR do trem`.
 
 ## Phase 5 — Merge, deploy, verify
 
@@ -297,3 +298,29 @@ Hand the list to the user; sending is theirs. This is the loop that makes triage
 ## Report
 
 Tag, release URL, PR, verification output, cards closed, cards held, notification list. Offer exactly one follow-up: "quer registrar o que ficou de fora como carga do próximo trem?"
+
+## Convenções de saída
+
+This section is identical in the eleven `gm-*` skills that have a closing point — copied, never
+rewritten; an improvement lands in the eleven at once.
+
+1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
+   session) can chain the pipeline without reading prose. Exactly one of:
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
+     what is waiting and on whom.
+
+   Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
+   the line comes only after the answer; with no human to answer, close with
+   `PARADA: <the gate left open>`.
+2. **File content never travels inside a command argument.** New file → `Write`. Existing file →
+   `Edit`. A heredoc only when short: if your workspace has a context-cost hook, it may deny one above 1500
+   characters. A long
+   body (issue comment, PR body, commit message) goes to a file first, then `--body-file` (`gh`) or
+   `-F` (`git commit`).
+3. **A rule that belongs to one workspace never enters a skill.** Typecheck command, CI command,
+   whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
+   does not declare them — with no human in the session, that stop is
+   `PARADA: <what the CLAUDE.md must declare>`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
+   a wake-up** (`ScheduleWakeup`, `/loop`): report what was done and close with `PROXIMO` or `PARADA`.

@@ -237,7 +237,10 @@ claude mcp add --scope user brain -- node <caminho>/brain-mcp/dist/index.js
 ```
 
 Depois de mudar o código: `npm run build` (o servidor novo sobe na próxima sessão). Depois de mudar
-só a config: nada a fazer — o watcher e a varredura periódica cobrem.
+a config: **reinicie todas as sessões abertas.** Cada servidor lê o `brain.config.json` uma vez, no
+boot, e o watcher e a varredura periódica só varrem os roots que ele leu. Um líder que subiu com a
+config antiga não enxerga root novo, e a varredura seguinte dele remove do índice tudo o que estiver
+fora dos roots que conhece, inclusive o que um `node dist/cli.js --force` acabou de indexar.
 
 ## Próximos passos possíveis
 
