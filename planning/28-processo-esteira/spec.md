@@ -27,7 +27,7 @@
 | As 11 skills com blocos estão iguais à fonte antes da mudança | `node scripts/skills-comum.mjs --check` | `11 skills × 2 blocos iguais à fonte`, exit 0 |
 | O teste do carimbo está verde antes | `node scripts/skills-comum-teste.mjs` | exit 0 |
 | O script carimba qualquer número de seções e exige todas em cada skill | leitura de `scripts/skills-comum.mjs:101-128` (sem contagem fixa; `presentes < secoesFonte.length` → incompleta) | confirmado |
-| O teste do carimbo fixa só os 2 cabeçalhos antigos e continua válido com uma 3ª seção no fim | leitura de `scripts/skills-comum-teste.mjs:14,75-105` (inverte os 2 blocos; o 3º fica no fim) | a confirmar rodando, na task 1 |
+| O teste do carimbo fixa só os 2 cabeçalhos antigos e continua válido com uma 3ª seção no fim | leitura de `scripts/skills-comum-teste.mjs:14,75-105` (inverte os 2 blocos; o 3º fica no fim) | confirmado rodando: `node scripts/skills-comum-teste.mjs` com a fonte de 3 seções sai `todos os cenários passam`, exit 0 (o cenário 1 já monta a fonte com 3 seções); `--check` sai `11 skills × 3 blocos iguais à fonte`, exit 0 |
 | `## Convenções de saída` é a última seção de todas as 11 | Explore, `## Convenções` seguida de EOF nas 11 | confirmado — a seção nova vai no EOF |
 | Nenhum heredoc nas skills | `grep -c "<<" skills/*/SKILL.md` | 0 em todas |
 | O label `épico` existe neste repo | `gh api repos/leonardo-amaral-3/claude-brain/labels --jq '.[].name'` | existe (outros repos podem não ter: o trecho cria) |
@@ -89,7 +89,11 @@ Números de linha da `feat/29-limpeza-skills` em `0180591`. Localize **pelo text
 - `planning/28-processo-esteira/` — esta spec, `trechos/`, `tasks/`
 
 ## Migrations & compatibilidade
-N/A para dado — só markdown. Compatibilidade de comportamento: workspace sem *Portão de teste* segue a regra de hoje (suíte inteira local), e sem *Ambiente* checa só disco (2 GB) e dependências — nada para ao primeiro `sync push`. Spec antiga sem `## Premissas medidas` faz o `gm-plan-tasks` parar: é o efeito pedido pelo card, e afeta só card entre G2 e G3.
+N/A para dado — só markdown. Compatibilidade de comportamento: workspace sem *Portão de teste* segue a regra de hoje (suíte inteira local), e sem *Ambiente* checa só disco (2 GB) e dependências — nada para ao primeiro `sync push`. ~~Spec antiga sem `## Premissas medidas` faz o `gm-plan-tasks` parar: é o efeito pedido pelo card, e afeta só card entre G2 e G3.~~
+
+> **Emenda 2026-10-12 (correção da PR #37, achado B1 do G4).** A recusa dura prendia em laço uma fase de épico (o `gm-spec` pula as Phases 1–5 para `gm:fase` e nunca escreve a seção) e recusava sempre pasta com `tech-spec.md`, que o `gm-tech-spec` declara válida. Agora: a recusa vale só para `spec.md` cujo primeiro commit é de 2026-10-12 em diante e que não é fase de épico; aí ela aponta para `/gm-spec <n>`, cujas Phases 1–5 escrevem a seção. Spec anterior, `tech-spec.md` ou contrato de épico aprovado sem a seção seguem: o `gm-plan-tasks` mede ali mesmo as premissas de que as tasks dependem, lista no resumo da quebra e abre o resumo com um aviso de uma linha. Premissa que falha na medição é desvio → `/gm-spec <n>` para emenda.
+>
+> **Na mesma correção:** B2 — o segundo revisor de spec sensível vira **para** no modo despachado, salvo autorização nominal do argumento; B3 — a precondição 4 do `gm-ship` exige *Typecheck do CI* só quando o workspace declara CI, e lê os itens onde quer que estejam no `CLAUDE.md` (o deste repo ganhou `## Convenções da esteira`). Os trechos em `trechos/` foram ajustados junto; a fonte carimbada continua sendo a autoridade.
 
 ## Rollback
 `git revert` do merge na `dev` e `sync push` da versão anterior (o `sync push` é do Leonardo). Nenhum estado fora do repo é criado.

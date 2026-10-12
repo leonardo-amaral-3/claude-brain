@@ -12,8 +12,9 @@ argument-hint: [feature-folder]
 This section is stamped from `_comum/convencoes.md` — the folder beside this skill's; in the
 `claude-brain` repo, `skills/_comum/convencoes.md` — into every `gm-*` skill that has an interaction
 point. Never edit this copy: edit the source there and run `node scripts/skills-comum.mjs` in that
-repo (its `--check` catches a copy that drifted). The long version, for a human reading from outside
-the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section `## Como as skills perguntam`.
+repo (its `--check` catches a copy that drifted). The long version, for a human reading from
+outside the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section
+`## Como as skills perguntam`.
 
 1. **Context before jargon.** Open with what is at stake and what changes down each path, in
    pt-BR. Spec section, file path, board field and option id come *after* that, when they add
@@ -35,8 +36,8 @@ the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section `## Co
    Never drop a candidate without saying that it was dropped.
 5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
    not argue one option into being the obvious one. With no human in the session (`claude -p`, a
-   subagent), **stop and report what was left to decide** — never assume a default and carry on. The one exception is
-   `## Modo despachado` below.
+   subagent), **stop and report what was left to decide** — never assume a default and carry on.
+   The one exception is `## Modo despachado` below.
 
 Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
 up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
@@ -46,9 +47,9 @@ and every `description` — is written in pt-BR.**
 ## Ambiente na entrada
 
 Before the first test, build or commit — a broken environment found halfway costs the minutes
-already spent. Read the item *Ambiente* of `## Convenções da esteira` in the workspace `CLAUDE.md`
-and check, in this order; stop at the first failure with the reason and the output that proves it
-(no human → `PARADA: ambiente — <o que falta>`):
+already spent. Read the item *Ambiente* of the workspace `CLAUDE.md`, wherever it sits (by
+convention under `## Convenções da esteira`), and check, in this order; stop at the first failure
+with the reason and the output that proves it (no human → `PARADA: ambiente — <o que falta>`):
 
 1. **Disk.** Free space where the working tree lives (`df -Pk .`, column *Available*) is at least
    the minimum the item declares — 2 GB when it declares none.
@@ -67,11 +68,12 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
 1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
 2. Every file in `tasks/` (epic: `tasks/<fase>/`, only the phase in flight) starts with `✅ Status: Complete`; otherwise stop and point to `/gm-implement $ARGUMENTS`.
 3. Inside the module repo (nested git repository): on the feature branch, `git status` clean.
-4. **Run the test gate the workspace declares** — the item *Portão de teste* of
-   `## Convenções da esteira` in the workspace `CLAUDE.md`. It says what runs **locally before the
-   PR** and **where the full suite runs**: `local` or `CI`. The local part always includes the
-   typecheck the CI runs (item *Typecheck do CI*) — a looser local check has already broken `dev`;
-   no such item → stop and ask.
+4. **Run the test gate the workspace declares** — the item *Portão de teste* of the workspace
+   `CLAUDE.md`, wherever it sits (by convention under `## Convenções da esteira`). It says what runs
+   **locally before the PR** and **where the full suite runs**: `local` or `CI`. When the workspace
+   has a CI, the local part always includes the typecheck the CI runs (item *Typecheck do CI*,
+   wherever it sits) — a looser local check has already broken `dev`; CI declared and no such item
+   → stop and ask. A workspace that declares no CI needs no *Typecheck do CI* item.
    - `local` → the full relevant suite runs here.
    - `CI` → only the local part runs here; the PR body names the CI checks that are the gate, and
      "entregue" is still green CI (`## Report`). With no human, the CI is not waited on.
@@ -178,9 +180,10 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
 
 1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
    session) can chain the pipeline without reading prose. Exactly one of:
-   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
-   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
-     what is waiting and on whom.
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its
+     argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR,
+     saying what is waiting and on whom.
 
    Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
    the line comes only after the answer; with no human to answer, close with
@@ -194,8 +197,9 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
    whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
    does not declare them — with no human in the session, that stop is
    `PARADA: <what the CLAUDE.md must declare>`.
-4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
-   a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what was done and close with `PROXIMO` or `PARADA`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
+   schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
+   was done and close with `PROXIMO` or `PARADA`.
 
 ## Modo despachado
 
@@ -207,13 +211,14 @@ over the front in words ("você decide sozinho o G2, o G3, o commit e o ship"). 
 apply: no human and no handover → item 5 of `## Como perguntar e como aprovar` (stop and report).
 A human in the session → never, whatever the argument says. When it applies, it replaces item 5
 for the rows marked **decide**; the rest of the skill runs as written. The argument may add stops;
-it never turns a **para** into a **decide**.
+it never turns a **para** into a **decide** — except the one row below that says so, and only by
+naming it.
 
 | Ponto de decisão | Exemplo (skill · header) | Despachado |
 |---|---|---|
 | Aprovar artefato do próprio card: critérios, card, spec, tasks, corpo da PR, comentário | `gm-card`, `gm-spec`, `gm-plan-tasks`, `gm-ship`, `gm-explore`, `gm-prd` | **decide** — Aprovar, depois da crítica que a skill exige |
 | Caminho entre os que a skill oferece: rota, profundidade, recorte, escopo, abordagem | `gm-card` · `Rota`; `gm-spec` · `Profundidade`, `Recorte`; `gm-triage` · `Escopo` | **decide** pela regra da própria skill |
-| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **decide**: seguir sem; o revisor de IA independente roda igual |
+| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **para** — salvo quando o argumento autoriza seguir sem ele, por nome; aí o revisor de IA independente roda igual. Workspace que declara não ter segundo humano: a pergunta nem existe |
 | Commit e push na branch do card | `gm-implement` · `Commit`; `gm-correcao` | **decide**, com a verificação verde |
 | Fila no fim, sem decisão da spec caída | `gm-implement` · `Fim da fila` | **decide**: fechar e abrir a PR |
 | Checkout principal com alteração | `gm-implement` · `Árvore suja` | **decide**: deixar onde estão |

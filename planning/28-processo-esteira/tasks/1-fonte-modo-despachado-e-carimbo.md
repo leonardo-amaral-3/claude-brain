@@ -33,9 +33,9 @@ Acceptance criteria covered: **3**.
 
 ## Completion Checklist
 
-- [ ] Everything in scope implemented per the spec
-- [ ] Every verification command above run, with its output pasted into the commit body
-- [ ] Skill bodies changed only by the script
+- [x] Everything in scope implemented per the spec
+- [x] Every verification command above run, with its output pasted into the commit body
+- [x] Skill bodies changed only by the script
 
 ## Workflow
 

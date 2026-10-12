@@ -31,9 +31,9 @@ Acceptance criteria covered: **5, 6** (and the final re-run of 3).
 
 ## Completion Checklist
 
-- [ ] Everything in scope implemented per the spec
-- [ ] Every verification command above run, with its output pasted into the commit body
-- [ ] The doc section agrees with the source, row by row
+- [x] Everything in scope implemented per the spec
+- [x] Every verification command above run, with its output pasted into the commit body
+- [x] The doc section agrees with the source, row by row
 
 ## Workflow
 

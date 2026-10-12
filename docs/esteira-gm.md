@@ -102,9 +102,11 @@ histórica. Isso inclui a **emenda pós-tasks**, quando a decisão cai entre a �
 
 **`/gm-plan-tasks [pasta-da-feature]`** — quebra a spec em tasks ordenadas e independentes. Cada
 arquivo de task é o **prompt completo** de um agente novo, que não viu a conversa. Apresenta a
-quebra inteira como **um** artefato — e recusa planejar spec sem `## Premissas medidas`, ou com
-linha sem prova, devolvendo ao `/gm-spec` — — você responde *Aprovar*, *Ajustar* ou *Rejeitar*, e não uma
-pergunta por task —, respeita o teto de 6–8 tasks e espelha a lista no card.
+quebra inteira como **um** artefato — você responde *Aprovar*, *Ajustar* ou *Rejeitar*, e não uma
+pergunta por task —, respeita o teto de 6–8 tasks e espelha a lista no card. Spec escrita a partir
+de 2026-10-12 sem `## Premissas medidas`, ou com linha sem prova, é recusada e volta ao `/gm-spec`,
+que escreve a seção. Contrato aprovado antes dela — spec antiga, `tech-spec.md`, fase de épico —
+segue: o próprio `/gm-plan-tasks` mede as premissas de que as tasks dependem e avisa em uma linha.
 
 ### Implementação
 
@@ -235,11 +237,13 @@ identidade do commit — e cada pasta de despacho divergia das outras.
 o argumento entrega a frente em palavras ("você decide sozinho o G2, o G3, o commit e o ship").
 Sem humano e sem entrega, vale o item 5 de `## Como as skills perguntam`: parar e relatar. Com
 humano, nunca vale, diga o argumento o que disser. O argumento pode acrescentar paradas; nunca
-transforma um **para** em **decide**.
+transforma um **para** em **decide** — salvo a linha do segundo revisor, e só nomeando-a.
 
 **As três colunas.** *Decide*: aprovar artefato do próprio card (depois da crítica que a skill
-exige), escolher entre os caminhos que a skill oferece, commit e push na branch do card, dispensar
-o segundo revisor (o de IA roda igual). *Para*: alvo ambíguo, escolha de produto que nada
+exige), escolher entre os caminhos que a skill oferece, commit e push na branch do card. *Para*:
+o segundo revisor de spec sensível — salvo quando o argumento autoriza seguir sem ele, por nome (o
+de IA roda igual), e é a única parada que o argumento pode abrir; no workspace que declara não ter
+segundo humano a pergunta nem existe —, alvo ambíguo, escolha de produto que nada
 registrado responde, desvio da spec, teste vermelho ou ambiente quebrado, e tudo que leva a
 produção — merge, `main`, tag, release, deploy, instalação viva, apagar; `gm-release` e `gm-hotfix`
 ficam inteiras aqui. *Não faz*: esperar CI, agendar retorno, rodar em segundo plano, devolver

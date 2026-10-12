@@ -76,7 +76,7 @@ dentro delas. Mudou campo ou opcao no Project? Atualize esta secao, nao a skill.
 As skills `gm-*` não conhecem as regras deste workspace; elas leem daqui. Declare:
 
 - **Typecheck do CI**: o comando exato que o CI roda (`<comando>`). O `/gm-ship` o executa na
-  precondição 4 e não aceita outro; sem esta linha, ele pergunta.
+  precondição 4 e não aceita outro; com CI e sem esta linha, ele pergunta. Sem CI: `não há CI`.
 - **Portão de teste**: o que roda local antes de abrir a PR (`<comandos>`, sempre com o typecheck
   do CI) e onde roda a suíte inteira: `local` ou `CI`. Com `CI`, o `/gm-ship` abre a PR com a parte
   local verde e "entregue" é o CI verde. Sem esta linha, ele roda a suíte inteira local.

@@ -31,9 +31,9 @@ Acceptance criteria covered: **1**.
 
 ## Completion Checklist
 
-- [ ] Everything in scope implemented per the spec
-- [ ] Every verification command above run, with its output pasted into the commit body
-- [ ] Trechos verbatim; new prose lines ≤ 100 columns
+- [x] Everything in scope implemented per the spec
+- [x] Every verification command above run, with its output pasted into the commit body
+- [x] Trechos verbatim; new prose lines ≤ 100 columns where the target file wraps (gm-spec, gm-plan-tasks and gm-card keep one-line paragraphs, and the trecho follows the file)
 
 ## Workflow
 

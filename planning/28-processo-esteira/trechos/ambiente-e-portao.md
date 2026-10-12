@@ -10,9 +10,9 @@ Posição: logo antes de `## Preconditions`, nas duas skills.
 ## Ambiente na entrada
 
 Before the first test, build or commit — a broken environment found halfway costs the minutes
-already spent. Read the item *Ambiente* of `## Convenções da esteira` in the workspace `CLAUDE.md`
-and check, in this order; stop at the first failure with the reason and the output that proves it
-(no human → `PARADA: ambiente — <o que falta>`):
+already spent. Read the item *Ambiente* of the workspace `CLAUDE.md`, wherever it sits (by
+convention under `## Convenções da esteira`), and check, in this order; stop at the first failure
+with the reason and the output that proves it (no human → `PARADA: ambiente — <o que falta>`):
 
 1. **Disk.** Free space where the working tree lives (`df -Pk .`, column *Available*) is at least
    the minimum the item declares — 2 GB when it declares none.
@@ -30,11 +30,12 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
 
 ---
 
-4. **Run the test gate the workspace declares** — the item *Portão de teste* of
-   `## Convenções da esteira` in the workspace `CLAUDE.md`. It says what runs **locally before the
-   PR** and **where the full suite runs**: `local` or `CI`. The local part always includes the
-   typecheck the CI runs (item *Typecheck do CI*) — a looser local check has already broken `dev`;
-   no such item → stop and ask.
+4. **Run the test gate the workspace declares** — the item *Portão de teste* of the workspace
+   `CLAUDE.md`, wherever it sits (by convention under `## Convenções da esteira`). It says what runs
+   **locally before the PR** and **where the full suite runs**: `local` or `CI`. When the workspace
+   has a CI, the local part always includes the typecheck the CI runs (item *Typecheck do CI*,
+   wherever it sits) — a looser local check has already broken `dev`; CI declared and no such item
+   → stop and ask. A workspace that declares no CI needs no *Typecheck do CI* item.
    - `local` → the full relevant suite runs here.
    - `CI` → only the local part runs here; the PR body names the CI checks that are the gate, and
      "entregue" is still green CI (`## Report`). With no human, the CI is not waited on.

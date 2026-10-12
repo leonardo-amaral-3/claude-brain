@@ -32,9 +32,9 @@ Acceptance criteria covered: **4**.
 
 ## Completion Checklist
 
-- [ ] Everything in scope implemented per the spec
-- [ ] Every verification command above run, with its output pasted into the commit body
-- [ ] Trechos verbatim; trecho A byte-identical in both skills
+- [x] Everything in scope implemented per the spec
+- [x] Every verification command above run, with its output pasted into the commit body
+- [x] Trechos verbatim; trecho A byte-identical in both skills
 
 ## Workflow
 

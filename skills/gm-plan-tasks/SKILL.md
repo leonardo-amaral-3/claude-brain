@@ -14,8 +14,9 @@ You are a senior engineer breaking a planned implementation into discrete, order
 This section is stamped from `_comum/convencoes.md` — the folder beside this skill's; in the
 `claude-brain` repo, `skills/_comum/convencoes.md` — into every `gm-*` skill that has an interaction
 point. Never edit this copy: edit the source there and run `node scripts/skills-comum.mjs` in that
-repo (its `--check` catches a copy that drifted). The long version, for a human reading from outside
-the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section `## Como as skills perguntam`.
+repo (its `--check` catches a copy that drifted). The long version, for a human reading from
+outside the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section
+`## Como as skills perguntam`.
 
 1. **Context before jargon.** Open with what is at stake and what changes down each path, in
    pt-BR. Spec section, file path, board field and option id come *after* that, when they add
@@ -37,8 +38,8 @@ the pipeline, is `docs/esteira-gm.md` of the `claude-brain` repo, section `## Co
    Never drop a candidate without saying that it was dropped.
 5. **Silence is never a yes.** "Other" is always available, so free text is never taken away. Do
    not argue one option into being the obvious one. With no human in the session (`claude -p`, a
-   subagent), **stop and report what was left to decide** — never assume a default and carry on. The one exception is
-   `## Modo despachado` below.
+   subagent), **stop and report what was left to decide** — never assume a default and carry on.
+   The one exception is `## Modo despachado` below.
 
 Tool limits, so a question is never rejected or silently cut: 2–4 options per question, `header`
 up to 12 characters, `label` 1–5 words, "Other" appended automatically (never write it yourself).
@@ -49,7 +50,12 @@ and every `description` — is written in pt-BR.**
 
 Read `planning/$ARGUMENTS/spec.md` (older folders: `tech-spec.md` + `PRD.md`). Note `## Execution` (target repo, feature branch — branch management belongs to `/gm-implement`, not to the tasks) and `## Plano de testes`. Then explore the current state of the files that will change.
 
-**The spec's premises are measured, or there is no plan.** The spec has a `## Premissas medidas` section, and every line in it carries its proof and result (or the section is `N/A` with a reason). Missing section, or a line without proof → stop and point to `/gm-spec <n>`: planning on an unmeasured premise is how a task stops halfway on a deviation. The same when the breakdown reveals a premise the section does not list. Each task's `Context` names the lines of `## Premissas medidas` it leans on.
+**The spec's premises are measured, or there is no plan.** The spec has a `## Premissas medidas` section, and every line in it carries its proof and result (or the section is `N/A` with a reason): planning on an unmeasured premise is how a task stops halfway on a deviation. Which path applies depends on who could have written the section:
+
+- **A spec written by today's `gm-spec`** — a `spec.md` whose first commit (`git log --diff-filter=A --format=%cs -- planning/<pasta>/spec.md | tail -1`) is on or after 2026-10-12, when the section became mandatory, and that is not one of the cases below. Missing section, or a line without proof → stop and point to `/gm-spec <n>`, whose Phases 1–5 write it. The same when the breakdown reveals a premise the section does not list.
+- **A contract that was approved without the section** — a `spec.md` older than that date, a folder with `tech-spec.md`, or the card is a phase of an epic (`gm:spec-ref`), whose contract lives in the parent and was approved as a whole. Never stop here: `/gm-spec` on a phase jumps to promotion and never writes the section, and rewriting an approved contract is what it refuses. Instead measure here, in this session, each premise the tasks depend on, list them with proof and result in the summary of the breakdown, and open that summary with one line: `Contrato aprovado sem ## Premissas medidas — as premissas das tasks foram medidas aqui.` A premise that fails its measurement is a deviation from the contract → stop and point to `/gm-spec <n>` for an amendment.
+
+Each task's `Context` names the premise lines it leans on — from the spec's section or from the breakdown summary.
 
 ## Phase 1: Propose the breakdown — whole, at once
 
@@ -148,9 +154,10 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
 
 1. **The last line of the final answer is machine-readable**, so a dispatcher (a script, another
    session) can chain the pipeline without reading prose. Exactly one of:
-   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its argument.
-   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR, saying
-     what is waiting and on whom.
+   - `PROXIMO: /gm-<skill> <argumento>` — the pipeline continues; name the next skill and its
+     argument.
+   - `PARADA: <motivo em uma frase>` — the pipeline does not continue; one sentence, in pt-BR,
+     saying what is waiting and on whom.
 
    Nothing follows that line. If the skill ends on a gate the human must answer (`AskUserQuestion`),
    the line comes only after the answer; with no human to answer, close with
@@ -164,8 +171,9 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
    whether a second human exists: read them from the workspace `CLAUDE.md`, and stop to ask when it
    does not declare them — with no human in the session, that stop is
    `PARADA: <what the CLAUDE.md must declare>`.
-4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not schedule
-   a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what was done and close with `PROXIMO` or `PARADA`.
+4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
+   schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
+   was done and close with `PROXIMO` or `PARADA`.
 
 ## Modo despachado
 
@@ -177,13 +185,14 @@ over the front in words ("você decide sozinho o G2, o G3, o commit e o ship"). 
 apply: no human and no handover → item 5 of `## Como perguntar e como aprovar` (stop and report).
 A human in the session → never, whatever the argument says. When it applies, it replaces item 5
 for the rows marked **decide**; the rest of the skill runs as written. The argument may add stops;
-it never turns a **para** into a **decide**.
+it never turns a **para** into a **decide** — except the one row below that says so, and only by
+naming it.
 
 | Ponto de decisão | Exemplo (skill · header) | Despachado |
 |---|---|---|
 | Aprovar artefato do próprio card: critérios, card, spec, tasks, corpo da PR, comentário | `gm-card`, `gm-spec`, `gm-plan-tasks`, `gm-ship`, `gm-explore`, `gm-prd` | **decide** — Aprovar, depois da crítica que a skill exige |
 | Caminho entre os que a skill oferece: rota, profundidade, recorte, escopo, abordagem | `gm-card` · `Rota`; `gm-spec` · `Profundidade`, `Recorte`; `gm-triage` · `Escopo` | **decide** pela regra da própria skill |
-| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **decide**: seguir sem; o revisor de IA independente roda igual |
+| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **para** — salvo quando o argumento autoriza seguir sem ele, por nome; aí o revisor de IA independente roda igual. Workspace que declara não ter segundo humano: a pergunta nem existe |
 | Commit e push na branch do card | `gm-implement` · `Commit`; `gm-correcao` | **decide**, com a verificação verde |
 | Fila no fim, sem decisão da spec caída | `gm-implement` · `Fim da fila` | **decide**: fechar e abrir a PR |
 | Checkout principal com alteração | `gm-implement` · `Árvore suja` | **decide**: deixar onde estão |

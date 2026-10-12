@@ -14,13 +14,14 @@ over the front in words ("você decide sozinho o G2, o G3, o commit e o ship"). 
 apply: no human and no handover → item 5 of `## Como perguntar e como aprovar` (stop and report).
 A human in the session → never, whatever the argument says. When it applies, it replaces item 5
 for the rows marked **decide**; the rest of the skill runs as written. The argument may add stops;
-it never turns a **para** into a **decide**.
+it never turns a **para** into a **decide** — except the one row below that says so, and only by
+naming it.
 
 | Ponto de decisão | Exemplo (skill · header) | Despachado |
 |---|---|---|
 | Aprovar artefato do próprio card: critérios, card, spec, tasks, corpo da PR, comentário | `gm-card`, `gm-spec`, `gm-plan-tasks`, `gm-ship`, `gm-explore`, `gm-prd` | **decide** — Aprovar, depois da crítica que a skill exige |
 | Caminho entre os que a skill oferece: rota, profundidade, recorte, escopo, abordagem | `gm-card` · `Rota`; `gm-spec` · `Profundidade`, `Recorte`; `gm-triage` · `Escopo` | **decide** pela regra da própria skill |
-| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **decide**: seguir sem; o revisor de IA independente roda igual |
+| Segundo revisor de spec sensível | `gm-spec` · `2º revisor` | **para** — salvo quando o argumento autoriza seguir sem ele, por nome; aí o revisor de IA independente roda igual. Workspace que declara não ter segundo humano: a pergunta nem existe |
 | Commit e push na branch do card | `gm-implement` · `Commit`; `gm-correcao` | **decide**, com a verificação verde |
 | Fila no fim, sem decisão da spec caída | `gm-implement` · `Fim da fila` | **decide**: fechar e abrir a PR |
 | Checkout principal com alteração | `gm-implement` · `Árvore suja` | **decide**: deixar onde estão |
