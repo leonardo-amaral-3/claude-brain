@@ -198,8 +198,9 @@ re-roda o `/gm-plan-tasks`, que propõe a quebra inteira de uma vez e re-propori
    `## Como perguntar e como aprovar` — o artefato é a nota que vai ser escrita. Só com *Aprovar*
    se escreve a nota datada
    ("Emenda AAAA-MM-DD: …") em `spec.md` **e** no comentário `<!-- gm:spec -->` do card. Os dois,
-   sempre — o caminho curto não compra velocidade com rastro. **Épico:** o `gm:spec` mora no **pai**;
-   o card em voo só tem `gm:spec-ref`, então é no pai que a nota entra.
+   sempre — o caminho curto não compra velocidade com rastro. **Épico:** a fase tem `gm:spec` próprio
+   e a nota entra nele; se a emenda mexe numa peça compartilhada, entra também no `gm:escopo` do
+   pai. Épico da regra antiga (card em voo só com `gm:spec-ref`): é no `gm:spec` do pai que a nota entra.
 3. **Uma emenda, uma task.** A unidade é a task, não a decisão: uma medição que derruba duas
    decisões de uma vez é **uma** emenda, se uma task fecha as duas. Escreva a task **N+1** como
    arquivo novo e numerado (`tasks/<N+1>-….md`; épico: `tasks/<fase>/`, e N é o maior número

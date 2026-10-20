@@ -60,33 +60,35 @@ The argument is an issue number (`#1072` / `1072`) or an existing planning folde
    > - **`<repo-a>`** — <o que vive nele, em meia linha>. Foi o último citado nesta conversa.
    > - **`<repo-b>`** — <o que vive nele>. Escolha esta se o #<n> for de lá.
 
-**First branch, before anything else: is this card a phase of an epic awaiting promotion?** If its comments carry `<!-- gm:fase -->`, the spec already exists — it lives in the parent epic and covers every phase. Do **not** run Phases 1–5: exploring and re-writing `spec.md` would overwrite an approved contract. Jump straight to **Phase 6's promotion path** (item 4), which is a short human-facing exchange, not a specification:
+**First branch, before anything else: is this card an epic, or a phase of one?**
 
-   a. Read the parent's `gm:spec` comment and the phase's `gm:fase` comment (what it covers, what is out of scope, the note left for promotion by whoever sliced).
-   b. Check the predecessor phase is actually closed — its card closed **and** its PRs merged. If not, say so and stop: promoting early is how a phase inherits work that is still moving.
-   c. Re-cut the phase in light of what the predecessor revealed. Put the two things side by side
-      in the message — o recorte como a fase nasceu, e o que a fase anterior de fato mudou — and
+- **An epic** (label `épico`, or `## Pontos` in the body) **without** a `<!-- gm:escopo -->` comment → do **not** run Phases 1–5. Run the **scope path** of Phase 6 below: the epic gets a short scope spec, never a full one.
+- **A phase** (its comments carry `<!-- gm:fase -->`) → this card gets **its own full spec**, Phases 1–5 as for any card. Before Phase 1:
+
+   a. Read the parent's `gm:escopo` comment and the phase's `gm:fase` comment. The scope is a **fixed input**: what it decided about shared pieces (tables, contracts, the cut) binds this spec. A phase spec that needs to change it stops and proposes an **amendment to the scope**, shown to the human, because sibling phases are being specified against the same text.
+   b. Check that the phases this one **declares** as dependencies are closed — card closed **and** PRs merged — or that the dependency is only on a contract the scope already fixed (a table shape, an endpoint signature), which lets them run in parallel. Undeclared siblings are not dependencies. A real dependency still open → say so and stop.
+   c. Re-cut, if what a finished sibling revealed moves the boundary. Put the two things side by side
+      in the message — o recorte como a fase nasceu, e o que a outra fase de fato mudou — and
       then one `AskUserQuestion` call; header `Recorte`, question and options in pt-BR:
 
-      > Esta fase foi recortada antes de a anterior existir, e ela mexeu em <o que mudou>. Agora é
+      > Esta fase foi recortada antes de <a outra> existir, e ela mexeu em <o que mudou>. Agora é
       > a hora barata de mexer na fronteira: depois que a especificação começa, mudá-la custa
       > reespecificar.
       >
-      > - **Manter o recorte** — o que a fase anterior revelou não move a fronteira; segue direto
-      >   para os critérios de aceite.
+      > - **Manter o recorte** — o que a outra fase revelou não move a fronteira; segue para a
+      >   spec desta.
       > - **Fatiar em dois cards** — a fase cresceu além do que cabe numa; nasce um card irmão
-      >   agora, e só o primeiro segue nesta sessão.
+      >   agora, com `gm:fase`, e só o primeiro segue nesta sessão.
       > - **Redesenhar a fronteira** — mesma fase, escopo diferente: parte do que era dela passa
-      >   para uma fase seguinte, ou o contrário. A mudança entra no `gm:spec-ref` do item (e), que
-      >   é onde o revisor da PR vai procurá-la.
+      >   para outra fase, ou o contrário. A mudança entra no `gm:escopo` do épico e no
+      >   `gm:fase` das duas fases.
 
-   d. Propose 1–3 verifiable acceptance criteria carved from the spec's `## Requisitos & critérios
-      de aceite`, plus the **declared route** — never inherited from the phase before it. Both are
-      the artifact: they go in the message written out in full, and then the *artefato* set from
-      `## Como perguntar e como aprovar`. *Ajustar* rewrites and shows again; *Rejeitar* stops the
-      promotion, and the phase stays where it is.
-   e. Apply: replace `gm:fase` with the full `<!-- gm:spec-ref -->` comment, add the card to the board with the board fields, and move it to 🎯 Especificação.
-   f. Offer exactly one follow-up: `/gm-plan-tasks <folder>` for this phase.
+      Nothing moved (the usual case for the first phases) → skip the call and say so in one line.
+   d. Add the card to the board now (phases live off it until their spec starts), and go on with
+      step 2 below. The folder is the **phase's own** (`planning/<phase-issue>-<slug>/`), the
+      acceptance criteria are the phase's, the route is declared for the phase — never inherited.
+      At publication the phase card gets its own `gm:spec` comment, which is what the G4 CI review
+      reads, and the `gm:fase` comment stays as the link back to the epic.
 2. Planning folder: `planning/<issue>-<slug>/` (short kebab slug from the title; reuse the folder if it already exists).
 3. Seed from the card: Estado atual (verify load-bearing `file:line` claims in the code — they may be stale), Direção, Por quê, Fora do escopo.
 4. **Critérios de aceite are mandatory.** If the card lacks a `## Critérios de aceite` section (older cards), derive 1–3 verifiable "pronto quando…" bullets from the Direção. They are the artifact, and they come **before anything else**: put the bullets in the message, worded as they would stand on the card, and run the *artefato* set from `## Como perguntar e como aprovar`. They seed the requirements, the test plan and the dev-validation checklist, so whatever gets specified on top of the wrong ones is work thrown away. *Ajustar* rewrites the bullets and asks again; *Rejeitar* means the direção on the card does not carry criteria yet — it goes back to `/gm-card`.
@@ -254,24 +256,62 @@ gh project item-edit --project-id <project-id> --id <item-id> \
   --field-id <field:Status> --single-select-option-id <opt:Status=Especificacao>
 ```
 
-## Phase 6: Slice, if it is an epic
+## Phase 6: Slice, if it is an epic — the scope spec
 
-A spec whose implementation cannot fit **6–8 tasks** is an epic, and slicing it is this skill's job — not `gm-card`'s (before the spec, nobody knew the phases existed; the phase structure is an *output* of specification) and not `gm-plan-tasks`'s (it is downstream, and its job is tasks). Signals: the spec declares phases; `## Execution` wants more than one feature branch; one section alone would fill the whole ceiling.
+An epic gets a **scope spec**, never a full one, and **each phase gets its own full spec** later, in
+its own `/gm-spec`. A full spec of the whole epic would make every phase wait for the slowest part of
+it to be specified; what the phases actually wait on is only what they share, and that fits in a
+short document. Slicing is this skill's job — not `gm-card`'s (before reading the code nobody knows
+what the phases share) and not `gm-plan-tasks`'s (it is downstream, and its job is tasks).
 
-**An épico from triage.** A card that arrives with the label `épico` and `## Pontos` was declared one scope at the door; slicing starts from its points, whatever the size. Each point goes to a phase — or several points to one — and the `## Fases` table gains a `Pontos` column naming which. If every point fits one phase within 6–8 tasks, there are no sub-issues: remove the label, keep `## Pontos` as the checklist of the single card, and say so in one line. `gm-card` left that card's `Rota` field empty (the route belonged to the phases); with no phases, fill it now — by `gm-card`'s route rule, from this spec — and say which and why in the same line.
+**When.** (a) The card arrives as an epic (label `épico` or `## Pontos`): the first branch sent you
+here directly — slicing starts from its points, whatever the size. (b) A normal card's spec reveals
+it cannot fit **6–8 tasks** (the spec declares phases; `## Execution` wants more than one feature
+branch; one section alone fills the ceiling): **stop the full spec there**, keep what is written as
+input, and turn the card into an epic with this path. Either way, if every point fits one phase within
+6–8 tasks, there are no sub-issues: remove the label, keep `## Pontos` as the checklist of the single
+card, fill the `Rota` field by `gm-card`'s route rule, say which and why in one line, and run the
+normal Phases 1–5.
 
-The spec is **not** split — one feature, one `spec.md`, one folder. Only the **card** is.
+**The scope spec** — `planning/<epic-issue>-<slug>/escopo.md`, short (one screen is the target):
 
-1. **The parent becomes the epic.** Label `épico`, and a `## Fases` table appended to its body: one row per phase, each with a one-line *pronto quando…* objective and the number of its sub-issue. It keeps the `gm:spec` comment. Its `gm:tasks` comment becomes a pointer to the child in flight — an epic has no tasks of its own. It does not move through the 8 stations.
-2. **EVERY phase becomes a sub-issue, right now — thin.** Create one issue per phase and link them all with `addSubIssue`, so `Sub-issues progress` tracks the epic and the roadmap is legible to someone who was not in the conversation. Each is born with title, the *pronto quando…* objective, **why this phase exists**, what is deliberately out of scope (naming which phase owns each excluded piece) and the link to the parent's spec — carried in a `<!-- gm:fase -->` comment. **No acceptance criteria, no route, no tasks**: writing those today for a phase nobody has touched is speculation, and a phase's real shape changes with what the previous one reveals.
-3. **Only the phase in flight goes on the board.** A sub-issue does not need to be on the board to exist or to feed `Sub-issues progress`. Off the board it does not clutter the kanban and **does not age** — which is what kills the honest-backlog objection (card idle ≥90 days is promoted or closed) without inventing a column or a `Classe` option. Add the phase to the board only when it is promoted. **Not adding it is not enough** when the workspace has auto-add boards: the `## Board` section of the workspace CLAUDE.md lists them under `auto-add` — those boards swallow every new issue in the repo, so right after creating each phase, delete its item from each one with `deleteProjectV2Item`, reading the item ids from `issue.projectItems`. No `auto-add` line in that section → nothing to clean up.
-4. **Promotion is the step that has an owner.** When the previous phase closes, promote the next one: put it on the board in 🎯 Especificação, give it 1–3 verifiable acceptance criteria carved from the spec's `## Requisitos & critérios de aceite`, a **declared route — never inherited** (a test-infrastructure phase and a migration phase are not the same risk), and replace `gm:fase` with the full `<!-- gm:spec-ref -->` comment. Promotion is also where the phase gets re-cut in light of what the previous one revealed — including splitting it into two cards. **Without promotion, `gm-plan-tasks` refuses to plan.**
-5. **The `<!-- gm:spec-ref -->` comment** is what keeps the G4 CI review from degrading in silence: the PR trailer names the *child*, the child has no spec of its own, and a reviewer that finds an empty card reviews the diff blind. It must give: the link to the parent's `gm:spec` comment · which spec sections and decisions this phase covers · which acceptance criteria it closes · and a **deliberately-out-of-scope** table saying which phase owns each excluded piece. That last part is what makes scope-creep detection mechanical instead of instinctive.
-6. **The spec is never split.** One feature, one `spec.md`, one folder — each sub-issue only names the sections it covers. `tasks/` gains one subfolder per phase (`tasks/fase-0/1-…md`), and later phases reuse the numbering.
+```markdown
+# <título do épico> — Escopo
 
-Board: the promoted child gets the fields (`Status`, `Tipo`, `Classe`, `Rota`, `Módulo`) per `gm-card`'s reference; the parent keeps whatever it had; the phases not yet promoted get **nothing** — they stay off the project. **Do not add a `🧭 Épico` option to `Classe` or a 9th `Status` column** — editing single-select options via the API regenerates the option IDs hardcoded in `gm-card`, `gm-hotfix` and `gm-triage`. The `épico` label plus a saved board view filtered on it gives the same roadmap at no risk.
+## Contexto comum
+[o que toda fase precisa saber e não está no card: o fluxo de hoje, com file:line medido nesta sessão]
 
-Report paths and offer exactly one follow-up: `/gm-plan-tasks <folder>` (for an epic, aimed at the phase you just promoted — the others are roadmap, not work).
+## Peças compartilhadas
+[o que mais de uma fase lê ou escreve — tabelas, contratos, enums, regras —, com o formato decidido
+no nível em que as fases dependem dele (nome, colunas e chaves de uma tabela; assinatura de um
+endpoint), e o molde existente no código quando houver. O detalhe de implementação é da spec da fase dona]
+
+## Fases
+| Fase | Pronto quando… | Depende de | Pontos | Card |
+[uma linha por fase; "Depende de" lista só dependência real — contrato fixado aqui não é dependência]
+
+## Decisões em aberto, por fase
+[o que cada spec de fase tem de decidir e por que não foi decidido aqui]
+```
+
+The exploration for it is **minimal and targeted**: what the phases share and the existing code to
+mirror — not the Q&A of Phase 1. Measure every load-bearing claim (`file:line`, a query against `dev`)
+in this session, as in `## Premissas medidas`.
+
+The scope spec is the artifact: write it out in the message, then the *artefato* set. It carries no
+independent AI reviewer and no G2 of its own — each phase spec does, and that is where the risky
+detail lives. On *Aprovar*:
+
+1. **The parent becomes the epic.** Label `épico`, and a `## Fases` table appended to its body (one row per phase: *pronto quando…* and the sub-issue number). Publish `escopo.md` as a `<!-- gm:escopo -->` comment on it — upsert, same snippet as `gm:spec` above. An epic has no `gm:spec`, no tasks and does not move through the 8 stations.
+2. **EVERY phase becomes a sub-issue, right now — thin.** One issue per phase, all linked with `addSubIssue`, so `Sub-issues progress` tracks the epic. Each is born with title, the *pronto quando…* objective, **why this phase exists**, what it depends on, what is deliberately out of scope (naming which phase owns each excluded piece) and the link to the parent's `gm:escopo` — carried in a `<!-- gm:fase -->` comment. **No acceptance criteria, no route, no tasks**: those come from the phase's own spec.
+3. **Phases stay off the board until their spec starts.** Off the board a sub-issue does not clutter the kanban and **does not age**. **Not adding it is not enough** when the workspace has auto-add boards: the `## Board` section of the workspace CLAUDE.md lists them under `auto-add` — right after creating each phase, delete its item from each one with `deleteProjectV2Item`, reading the item ids from `issue.projectItems`. No `auto-add` line → nothing to clean up. The phase enters the board in 🎯 Especificação when its `/gm-spec` begins (first branch, item d).
+4. **Each phase is specified on its own.** `/gm-spec <phase>` runs Phases 1–5 for it, in its own folder, with the scope as fixed input. Phases whose declared dependencies are met can be specified and built **in parallel**. A phase spec that needs to change a shared piece amends `escopo.md` and the `gm:escopo` comment (dated note), and says which sibling phases read that piece.
+
+Board: the parent keeps whatever it had; each phase gets the fields (`Status`, `Tipo`, `Classe`, `Rota`, `Módulo`) per `gm-card`'s reference when its spec starts. **Do not add a `🧭 Épico` option to `Classe` or a 9th `Status` column** — editing single-select options via the API regenerates the option IDs hardcoded in `gm-card`, `gm-hotfix` and `gm-triage`. The `épico` label plus a saved board view filtered on it gives the same roadmap at no risk.
+
+Report paths and offer exactly one follow-up: `/gm-spec <phase>` for the phase with no open dependency (more than one → name them all; they can run in parallel).
+
+**Epics sliced under the old rule** (one `spec.md` for every phase, phases with `gm:spec-ref`) keep it until they close: a phase with `gm:spec-ref` is already specified and goes to `/gm-plan-tasks`.
 
 ## Convenções de saída
 

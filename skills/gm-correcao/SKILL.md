@@ -126,8 +126,8 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
   que é do autor `github-actions`, tem). Traz conformidade · divergências · bugs e riscos · sugestões.
 - Inline: `gh api "repos/<owner>/<repo>/pulls/<n>/comments"` — cada um tem `id`, `path`, `line`.
   Filtre pelos do autor `claude`: humanos também comentam inline, e o parecer deles não é seu.
-- **A linhagem do card**, o mesmo insumo que a revisão usou: `gm:spec` (épico: `gm:spec-ref` no card
-  em voo + `gm:spec` no pai), `gm:tasks`, e os `gm:decisao`. Achado só é "procede" **à luz da spec** —
+- **A linhagem do card**, o mesmo insumo que a revisão usou: `gm:spec` (épico: o `gm:spec` da fase + o
+  `gm:escopo` do pai; regra antiga: `gm:spec-ref` no card em voo + `gm:spec` no pai), `gm:tasks`, e os `gm:decisao`. Achado só é "procede" **à luz da spec** —
   sem ela você julga código no vácuo, que é exatamente o que o G4 existe para evitar.
 
 ## Triar
