@@ -296,6 +296,20 @@ console.log("C9 — o adaptador `daFormaDo42`, contra um cliente com a forma do 
   afirmar(resultado.estado === "sem-classificacao" && resultado.porque === "erro", "ponta a ponta: indisponivel → sem-classificacao, erro");
   afirmar((await daFormaDo42(falsoDo42(null, false)).ligado()) === false, "desligado do #42 passa como falso");
 
+  // Emenda 1 (achado 1): com BRAIN_JEV_FALSO no env do adaptador, mesmo vazia, toda classificada
+  // escala com "falso"; categoria e probabilidade ficam como vieram. Sem ela, nada muda.
+  const respostaAlta = { estado: "ok", tipo: "escolha", escolha: textoDe("teste-vermelho"), confianca: 0.95 };
+  for (const valor of ["sim", ""]) {
+    const comFalso = daFormaDo42(falsoDo42(respostaAlta), { env: { BRAIN_JEV_FALSO: valor } });
+    const r = (await classificar("o teste ficou vermelho", { cliente: comFalso })).resultado;
+    afirmar(
+      r.estado === "classificada" && r.categoria === "teste-vermelho" && r.probabilidade === 0.95 && r.escala === true && r.porque === "falso",
+      `BRAIN_JEV_FALSO=${JSON.stringify(valor)} → classificada, escala, porque "falso", categoria e probabilidade intactas`,
+    );
+  }
+  const semFalso = (await classificar("o teste ficou vermelho", { cliente: daFormaDo42(falsoDo42(respostaAlta), { env }) })).resultado;
+  afirmar(semFalso.escala === false && semFalso.porque === null, "sem BRAIN_JEV_FALSO no env, a mesma resposta não escala");
+
   // O adaptador padrão de `classificar` recebe o mesmo prazo (achado 9): `deps.jev` troca o módulo
   // do #42, e o falso guarda o `timeoutMs` que chegou ao `decidir`.
   for (const tempoMs of [undefined, 1234, 8000]) {
@@ -344,6 +358,21 @@ const ambienteIsolado = () => {
   });
   afirmar(b.status === 0, `(b) o cliente real do #42, desligado, sai com status 0 (status ${b.status}, signal ${b.signal})`);
   afirmar(b.stdout === DESLIGADO_EM_LINHA, "(b) a stdout é exatamente a linha `desligado`");
+
+  // (e) o `decidir` REAL do #42, sem rede: BRAIN_JEV=parada e o cliente falso dele (`sim` responde a
+  // primeira opção com 0.95). Prova a costura com a forma de verdade do #42 e a emenda 1: uma parada
+  // de merge com o falso no ambiente sai escala:true, porque "falso", nunca contornável.
+  const e = spawnSync(process.execPath, [script], {
+    input: "PARADA: o merge na dev é do Leonardo.\n",
+    timeout: 4000,
+    encoding: "utf8",
+    env: { ...ambienteIsolado(), BRAIN_JEV: "parada", BRAIN_JEV_FALSO: "sim" },
+  });
+  afirmar(e.status === 0, `(e) o decidir real com BRAIN_JEV_FALSO=sim sai 0 (status ${e.status}, signal ${e.signal})`);
+  afirmar(
+    e.stdout === '{"estado":"classificada","categoria":"segundo-revisor","probabilidade":0.95,"escala":true,"porque":"falso"}\n',
+    `(e) motivo de merge com o falso → escala true, porque "falso" (stdout ${JSON.stringify(e.stdout)})`,
+  );
 
   const c = spawnSync(process.execPath, [script, "qualquer"], { input: "PARADA: x\n", timeout: 4000, encoding: "utf8", env: ambienteIsolado() });
   afirmar(c.status === 2 && c.stdout === "", "(c) um argumento → status 2 e stdout vazio");

@@ -51,6 +51,15 @@ com as chaves nesta ordem: `estado`, `categoria`, `probabilidade`, `escala`, `po
 
 Nos outros casos, `escala: false` e `porque: null`.
 
+> **Emenda 1 (2026-11-10), origem: achado 1 do G4 da PR #47 (cofre #1549).** Com `BRAIN_JEV_FALSO`
+> definida no ambiente que a CLI lê (mesmo vazia; é a regra do cliente do #42 para o falso), toda
+> saída `classificada` sai `escala: true, porque: "falso"`, e `"falso"` entra no conjunto fechado de
+> `porque` acima. A categoria e a probabilidade seguem como o falso as deu, para o smoke offline
+> continuar legível; nenhum outro campo entra na saída. Antes, um `BRAIN_JEV_FALSO` esquecido no
+> ambiente da orquestradora fazia a resposta fabricada sair como classificação real, e uma parada de
+> merge saía `escala: false`. A prova é o C9: com `BRAIN_JEV_FALSO=sim` e um motivo de merge, a CLI
+> sai `escala: true, porque: "falso"`.
+
 Critérios (canônicos; o plano de testes, o review de IA e a validação em dev leem daqui):
 
 - **CA1: categorias e regra de escalada.**

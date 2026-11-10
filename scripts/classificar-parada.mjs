@@ -19,6 +19,9 @@
 // Por que a entrada vem do stdin, e não de argumento: o motivo de uma PARADA quase sempre tem crases,
 // e `node x.mjs "$linha"` no bash executaria cada trecho entre crases.
 //
+// Com o cliente falso do #42 no ambiente (`BRAIN_JEV_FALSO` definida, mesmo vazia), toda saída
+// `classificada` escala com `porque: "falso"` (emenda 1 da spec).
+//
 // Por que a falha fecha (fail-closed): com o Jev ligado, quem lê a saída espera que o classificador
 // funcione. Erro, tempo esgotado, resposta inválida e lista divergente escalam, cada um com o seu
 // `porque`; nenhum deles vira `desligado`, porque uma falha silenciosa devolveria a parada à leitura
@@ -164,6 +167,8 @@ const USO_DO_JEV = "parada";
 // `classificar` espera (`ligado()` e `escolher({ pergunta, texto, opcoes, signal })`). É só "mesma
 // informação, outra forma" — nenhuma capacidade falta, então não há emenda:
 //   - `ligado` fixa o uso `parada` e o ambiente do processo; não faz rede.
+//   - `falso` diz se o cliente de teste do #42 responde no lugar do real: `BRAIN_JEV_FALSO` definida
+//     no mesmo ambiente, mesmo vazia (a regra do próprio #42). Ver o passo 5 de `classificar`.
 //   - `escolher` vira UMA pergunta `escolha` do `decidir`, com o motivo como estado. O nome de cada
 //     opção é o próprio texto (é com ele que `classificar` reconhece a resposta), e a descrição
 //     repete o texto porque o contrato pede uma descrição por opção.
@@ -179,6 +184,7 @@ const USO_DO_JEV = "parada";
 export function daFormaDo42(cliente, { env = process.env, timeoutMs = TEMPO_MS } = {}) {
   return {
     ligado: () => cliente.ligado(USO_DO_JEV, env),
+    falso: () => env.BRAIN_JEV_FALSO !== undefined,
     escolher: async ({ pergunta, texto, opcoes }) => {
       const descricoes = Object.fromEntries(opcoes.map((opcao) => [opcao, opcao]));
       const perguntas = { escolha: { tipo: "escolha", instrucao: pergunta, opcoes: descricoes } };
@@ -279,6 +285,13 @@ export async function classificar(motivo, deps = {}) {
   } else if (resposta.probabilidade < limiar) {
     escala = true;
     porque = "abaixo-do-limiar";
+  }
+  // Emenda 1 da spec (achado 1 do G4): resposta do cliente falso do #42 nunca sai como classificação
+  // real. Um BRAIN_JEV_FALSO esquecido no ambiente da orquestradora faria uma parada de merge sair
+  // contornável. Categoria e probabilidade seguem como vieram, para o smoke offline seguir legível.
+  if (typeof cliente.falso === "function" && cliente.falso() === true) {
+    escala = true;
+    porque = "falso";
   }
   return {
     resultado: resultadoDe("classificada", categoria.id, resposta.probabilidade, escala, porque),

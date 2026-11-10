@@ -336,7 +336,8 @@ escreve uma linha JSON com cinco campos:
 
 `escala: true` é escalada obrigatória. Acontece em parada reservada ao humano (`producao`,
 `escolha-de-produto`), em `outro`, em confiança abaixo do limiar, em erro ou tempo esgotado do
-Jev, em resposta inválida e quando aquela tabela diverge da lista do script. `escala: false`
+Jev, em resposta inválida, quando aquela tabela diverge da lista do script e quando quem respondeu
+foi o cliente falso do #42 (`BRAIN_JEV_FALSO` definida, mesmo vazia: `porque: "falso"`). `escala: false`
 deixa a categoria para a política da orquestradora, que não mora neste repo. `desligado` (sem a
 flag ou sem a chave do cliente do Jev, do #42) e código de saída diferente de `0` querem dizer a
 mesma coisa: ler a frase como sempre. A linha `PARADA:` não muda. A categoria é inferida, e a
