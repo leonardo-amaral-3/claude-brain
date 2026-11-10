@@ -15,6 +15,13 @@ This is task 4 of 4. Tasks 1..3 are already in the codebase. Todo o #46 está l�
 
 ## Scope
 
+> **Emenda 2026-11-10 (braço direito):** a spec ganhou duas notas datadas, uma no fim de
+> `### Fronteira com o #42 (o que o #46 precisa do cliente…)` e outra no fim de
+> `### Fronteira com o #42: brain-mcp/src/juizJev.ts`. O D1 foi emendado: o cliente é `hooks/jev.js`,
+> carregado por `createRequire` na ordem do contrato do #42. **O Passo 0 confere D1-D5 contra a spec
+> emendada**, não contra o texto original, e o Passo 1 implementa a ponte da nota, e não o
+> `await import` do bloco de código. `contradicao.ts` não muda.
+
 ### Passo 0: conferir D1-D5 antes de escrever qualquer linha
 
 Leia `### Fronteira com o #42` da spec e confira **cada um** de D1, D2, D3, D4 e D5 contra o código e a spec do #42 que estão na branch. Para cada um, anote a prova (arquivo e linha, ou trecho da spec do #42) e o resultado. Isso vai no resumo da task.

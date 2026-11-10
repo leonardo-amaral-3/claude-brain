@@ -149,6 +149,23 @@ branch do #42 existir, o cliente não atender D1-D5, é **desvio da spec**: o im
   do `julgarContradicoes` não depende do cliente honrar o sinal); a chamada só segue em segundo plano
   até terminar e o resultado é descartado.
 
+> **Emenda 2026-11-10 (braço direito, cofre #1440 e a que a substitui):** o G2 do #42 (cofre #1426,
+> #1427 e #1433) fixou o contrato em `planning/42-filtro-jev/spec.md`, § *Contrato do cliente do Jev
+> (estável)*. Contra ele:
+> - **D1 não fecha ao pé da letra, e foi emendado.** O cliente é `hooks/jev.js` (CJS, sem dependência),
+>   não um módulo de `brain-mcp/src/`. O `juizJev.ts` o carrega como o contrato manda (ver a emenda em
+>   `### Fronteira com o #42: brain-mcp/src/juizJev.ts`).
+> - **D2 fecha** pelo `decidir` com uma pergunta `noul`: `probabilidade` = P(sim).
+> - **D3 fecha**: `ligado('lembrar', env?)`, síncrono, já cobre o uso fora de `BRAIN_JEV`, a falta de
+>   chave e o `BRAIN_JEV_FALSO`. Não há `&&` a compor.
+> - **D4 fecha**: `decidir`/`julgar` não escrevem em stdout nem em stderr; só o modo CLI
+>   (`require.main === module`) escreve.
+> - **D5 fecha**: o env é lido a cada chamada, de `opcoes.env ?? process.env`.
+> - **O desejável não entra**: não há `AbortSignal`. O prazo vai em `opcoes.timeoutMs`, sem teto, e a
+>   chamada resolve em até `timeoutMs + 50 ms` sem rejeitar. A corrida do `julgarContradicoes`
+>   continua sendo a guarda.
+> - `ClienteJev`, `criarJulgarPar` e todo o `contradicao.ts` **não mudam**.
+
 ## Technical Overview
 
 O julgamento entra **depois** da gravação, entre o `vigia.agendar` e o retorno do `lembrar`. A lógica
@@ -275,6 +292,30 @@ export async function obterJulgarPar(): Promise<JulgarPar | null> {
   normalização) é proibida aqui. Se ligar o #42 a `ClienteJev` exigir mais que isso, `PARADA`.
 - Este arquivo não tem teste próprio (o hook o troca em todo processo de teste); a lógica que importa
   está em `criarJulgarPar`, provada por `juiz-jev-adaptador`. O que sobra aqui o G4 lê no diff.
+
+> **Emenda 2026-11-10 (braço direito):** o `await import("./<módulo do #42>.js")` acima caiu. O
+> cliente é `hooks/jev.js` (CJS), e o `juizJev.ts` fica assim, dentro do mesmo `try`, com o mesmo
+> `catch`:
+>
+> 1. **Resolver o caminho**, na ordem do contrato do #42: primeiro
+>    `join(<raiz do brain-mcp>, "..", "hooks", "jev.js")`, com a raiz =
+>    `join(dirname(fileURLToPath(import.meta.url)), "..")` a partir de `dist/` (o layout do repo e da
+>    worktree). Se não existir, `join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+>    "hooks", "jev.js")` (o layout da instalação). Nenhum dos dois existe → `null`, sem log de erro.
+> 2. **Carregar** com `createRequire(import.meta.url)(caminho)`. Os tipos ficam numa `interface` local
+>    (`ModuloJev`: `ligado(uso)` e `decidir(estado, perguntas, opcoes)`), sem importar tipo do #42.
+> 3. **Ligar** ao `ClienteJev`:
+>    - `ligado: () => jev.ligado("lembrar")`;
+>    - `perguntar: async (texto) => { const r = (await jev.decidir(texto, { contradiz: { tipo: "noul",
+>      instrucao: PERGUNTA_CONTRADICAO } }, { uso: "lembrar", timeoutMs: prazoJulgamentoMs() }))?.contradiz;
+>      return r?.estado === "ok" && r.tipo === "noul" ? { resposta: "sim", probabilidade: r.probabilidade } : null; }`.
+>      `PERGUNTA_CONTRADICAO` é a última frase de `montarPergunta`, literal: `"A decisão nova contradiz a
+>      decisão anterior, isto é, as duas não podem valer ao mesmo tempo?"`. O `signal` não é repassado,
+>      porque o contrato não o aceita.
+>
+> Isto é o máximo que a ponte faz: resolver o caminho, desembrulhar a chave `contradiz` e passar
+> P(sim) como a probabilidade de "sim". Qualquer outra lógica continua proibida aqui. O `estado` que
+> vai ao Jev é o texto de `montarPergunta`, que só contém os dois `fato` (R6 intacto).
 
 ### `brain-mcp/src/tools.ts` (handler do `lembrar`, 546-566)
 
