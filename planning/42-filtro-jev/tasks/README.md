@@ -1,6 +1,6 @@
 # Tasks do #42 — filtro do Jev no hook de contexto e o cliente único do Jev
 
-Spec: [`../spec.md`](../spec.md) (G2 em 10/11/2026, commit 4101a72). O contrato que os irmãos #41, #43,
+Spec: [`../spec.md`](../spec.md) (G2 em 10/11/2026, commit 4101a72; emenda 1, só aditiva, no mesmo dia). O contrato que os irmãos #41, #43,
 #44, #45 e #46 leem é `### Contrato do cliente do Jev (estável)`: **nenhuma task o muda**. Divergência
 com ele é desvio de spec → PARADA.
 

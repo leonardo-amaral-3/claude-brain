@@ -97,6 +97,7 @@ Todas rodadas em 2026-11-10, nesta sessão, contra a worktree (igual a `origin/d
 - **A4 — Retenção de dados na TypeSafe** não aparece nas páginas lidas e entra na decisão de Leonardo sobre o envio. O que sairia está em `### O que sai da máquina`. Um recorte por workspace no hook (ligar só no `pessoal`, por exemplo) não está neste card. Se a autorização vier recortada assim, a mudança fica só no hook e não toca o contrato.
 - **A5 — O processo do hook herda a env?** Não foi medido nesta sessão; a herança pelo servidor foi (P8). Se não herdar, a flag fica desligada para o hook, o que é seguro. A prova está no pós-deploy, passo 5.
 - **A6 — O Jev com instrução e estado em pt-BR** não foi verificado e entra na calibração.
+- **A7 — O aval é por uso** (emenda 1, 2026-11-10). O aval de Leonardo para a API real precisa citar cada uso pelo nome: `BRAIN_JEV` é uma lista por uso, e ligar `triagem` não liga `contexto`.
 
 ## Technical Overview
 - O cliente do Jev é um arquivo CommonJS sem dependência, `hooks/jev.js`. Fica ao lado do primeiro hook que o usa e é instalado com os outros hooks em `<CLAUDE_HOME>/hooks/`.
@@ -115,6 +116,8 @@ Todas rodadas em 2026-11-10, nesta sessão, contra a worktree (igual a `origin/d
 ### Contrato do cliente do Jev (estável)
 É esta a seção que #41, #43, #44, #45 e #46 citam: `planning/42-filtro-jev/spec.md` § *Contrato do cliente do Jev (estável)*. Mudar qualquer item dela é emenda desta spec. O **adaptador** (URL, modelo, formato do corpo) é interno e muda sem quebrar o contrato.
 
+> **Emenda 1 (2026-11-10), só aditiva; nada muda de sentido.** Pedidos do #41 (cofre #1429) e do #46 (cofre #1413). Entraram: a carga por um script `.mjs` de skill (*Onde mora e como se alcança*), o silêncio ao carregar o módulo e o `timeoutMs` sem teto (*Garantias*), e o aval por uso nos pontos abertos (A7). Nenhum caso de teste novo: o silêncio ao carregar já decorre de o ambiente ser lido por chamada e de a CLI ficar atrás de `require.main === module`; o `timeoutMs` sem teto já é o que a regra de `TIMEOUT_MS` deixa passar.
+
 **Onde mora e como se alcança**
 - Fonte: `hooks/jev.js` no repo. Instalado em `<CLAUDE_HOME>/hooks/jev.js`, com `CLAUDE_HOME = $CLAUDE_CONFIG_DIR || ~/.claude` (a mesma regra de `hooks/brain-config.js:24` e `brain-mcp/src/config.ts:61`).
 - **Hook** (CJS): `require('./jev.js')`, sempre dentro de `try`, só depois de conferir o uso na env.
@@ -125,6 +128,11 @@ Todas rodadas em 2026-11-10, nesta sessão, contra a worktree (igual a `origin/d
 - **Skills e scripts** (Bash):
   - Comando: `node "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/jev.js"`, com JSON na stdin e JSON na stdout (ver *CLI*).
   - Os scripts de `brain-mcp/scripts/` usam a ordem de resolução do brain-mcp, com a raiz = `join(dirname(script), '..')`.
+- **Skills com script** (`skills/<skill>/<script>.mjs`, ESM; emenda 1). Carregar com `createRequire(import.meta.url)(caminho)`, dentro de `try`, nesta ordem de resolução:
+  1. `join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'hooks', 'jev.js')`, se existir. É o layout do repo e da worktree; na instalação, `<CLAUDE_HOME>/skills/<skill>/` cai no mesmo `<CLAUDE_HOME>/hooks/jev.js`.
+  2. Senão, `<CLAUDE_HOME>/hooks/jev.js`, com `CLAUDE_HOME = $CLAUDE_CONFIG_DIR || ~/.claude`.
+  - Um consumidor de skill que resolve **só** o passo 2 também cumpre o contrato: é o layout que roda instalado (ex.: `skills/gm-spec/sensivel.mjs` do #43, cujos testes injetam o falso numa `CLAUDE_HOME` temporária). O passo 1 é o que permite medir na worktree sem instalar (ex.: `skills/gm-triage/jev-triagem.mjs` do #41).
+  - Falha ao carregar vale `{estado:'indisponivel', motivo:'desligado'}`, como no brain-mcp.
 
 **Usos.** Valores fechados. Uso novo é emenda desta spec.
 
@@ -203,7 +211,8 @@ Ordem de decisão, por chamada. A primeira que casa vence, para todas as chaves:
   - nunca fazem retry;
   - resolvem em até `timeoutMs` + 50 ms;
   - não escrevem nada em stdout nem em stderr;
-  - `timeoutMs` ausente, não finito ou ≤ 0 → `TIMEOUT_MS`.
+  - `timeoutMs` ausente, não finito ou ≤ 0 → `TIMEOUT_MS`. Não há teto (emenda 1): qualquer valor finito > 0 vale (o #46 usa 4000), e a garantia continua sendo resolver em até `timeoutMs` + 50 ms.
+- Carregar o módulo (`require`/`createRequire`) não escreve nada em stdout nem em stderr (emenda 1). Só o modo CLI (`require.main === module`) escreve, e só a linha do envelope.
   - O prazo é um `AbortController` + `setTimeout`, limpo em `finally`, para segurar o event loop até resolver e não deixar timer pendurado.
 
 **CLI** (`if (require.main === module)`)

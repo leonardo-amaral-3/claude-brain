@@ -35,7 +35,7 @@ NOT in scope: `hooks/brain-contexto.js` e T11–T16 (task 2) · `injecao.mjs` (t
 
 - [ ] Everything in scope implemented per the spec
 - [ ] Verification command(s) green
-- [ ] Nenhuma função lança nem escreve em stdout/stderr (fora a CLI, que escreve o envelope)
+- [ ] Nenhuma função lança nem escreve em stdout/stderr, e carregar o módulo também não escreve (fora a CLI, que escreve só a linha do envelope)
 - [ ] Code runs; no unused imports/variables
 
 ## Workflow
