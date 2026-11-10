@@ -4,7 +4,7 @@
 // Sai 0 se todos os cenários passam, 1 se algum falha.
 //
 // C1–C8 rodam no próprio processo, sempre com o Jev falso injetado em `deps.cliente`. O C9 sobe
-// processos de verdade; só o C9b usa o cliente do #42, e DESLIGADO, num ambiente isolado.
+// processos de verdade, todos no ambiente isolado (sem BRAIN_JEV*, sem a chave, HOME vazio).
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -305,7 +305,10 @@ const ambienteIsolado = () => {
 };
 
 {
-  const a = spawnSync(process.execPath, [script], { input: "PROXIMO: /gm-x y", timeout: 4000, encoding: "utf8" });
+  // Todo processo filho que carrega o script roda no ambiente isolado (achado 10 do G4): com
+  // BRAIN_JEV e a chave exportados para o CA4, uma regressão na checagem da entrada mandaria o
+  // motivo à TypeSafe AI.
+  const a = spawnSync(process.execPath, [script], { input: "PROXIMO: /gm-x y", timeout: 4000, encoding: "utf8", env: ambienteIsolado() });
   afirmar(a.status === 2 && a.stdout === "", "(a) PROXIMO: na stdin → status 2 e stdout vazio");
 
   const b = spawnSync(process.execPath, [script], {
@@ -317,7 +320,7 @@ const ambienteIsolado = () => {
   afirmar(b.status === 0, `(b) o cliente real do #42, desligado, sai com status 0 (status ${b.status}, signal ${b.signal})`);
   afirmar(b.stdout === DESLIGADO_EM_LINHA, "(b) a stdout é exatamente a linha `desligado`");
 
-  const c = spawnSync(process.execPath, [script, "qualquer"], { input: "PARADA: x\n", timeout: 4000, encoding: "utf8" });
+  const c = spawnSync(process.execPath, [script, "qualquer"], { input: "PARADA: x\n", timeout: 4000, encoding: "utf8", env: ambienteIsolado() });
   afirmar(c.status === 2 && c.stdout === "", "(c) um argumento → status 2 e stdout vazio");
 
   // (d) o cliente ignora o signal e segura o event loop: o processo precisa terminar mesmo assim.
@@ -332,7 +335,7 @@ const ambienteIsolado = () => {
       "",
     ].join("\n"),
   );
-  const d = spawnSync(process.execPath, [arquivoDoFilho], { input: "PARADA: x\n", timeout: 6000, encoding: "utf8" });
+  const d = spawnSync(process.execPath, [arquivoDoFilho], { input: "PARADA: x\n", timeout: 6000, encoding: "utf8", env: ambienteIsolado() });
   afirmar(d.status === 0 && d.signal === null, `(d) termina com status 0, sem ser morto (status ${d.status}, signal ${d.signal})`);
   afirmar(d.stdout.includes('"porque":"tempo"'), '(d) a stdout diz "porque":"tempo"');
 }
