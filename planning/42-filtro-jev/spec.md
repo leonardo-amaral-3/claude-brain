@@ -436,7 +436,8 @@ N/A: não muda formato em disco, índice, tabela nem tool do MCP. A compatibilid
 
 ## Rollback
 - Imediato, sem deploy: tirar `contexto` de `BRAIN_JEV`. O hook volta a ser byte a byte o de hoje (CA3).
-- Pelo código: reverter a PR na `dev` e rodar o `sync.sh push`, que é de Leonardo. O `jev.js` que sobra na instalação é inofensivo, porque nada o carrega sem um uso ligado.
+- Pelo código: reverter a PR na `dev` e rodar o `sync.sh push`, que é de Leonardo. O `jev.js` que sobra na instalação é inofensivo, mesmo carregado: nada sai pela rede sem o uso em `BRAIN_JEV` e a chave (*Sem chave, nada quebra*), carregar o módulo não escreve nada (*Garantias*) e `ligado` é sem I/O (*Funções exportadas*).
+  > **Correção (2026-11-10), origem #41.** A frase dizia que nada carrega o `jev.js` sem um uso ligado. Isso deixou de valer: o #41 (cofre #1460) o carrega em toda triagem, por `createRequire`, só para perguntar `ligado("triagem")`, como o contrato permite (emenda 1, *Skills com script*). A conclusão não muda; só o porquê.
 
 ## Verificação pós-deploy
 Roda na 🧪 Validação em Dev, depois do `sync.sh push` de Leonardo. Não usa chave nem rede. `P='{"prompt":"como o hook de contexto filtra os trechos que injeta","cwd":"'$HOME'/pessoal/claude-brain"}'`.
