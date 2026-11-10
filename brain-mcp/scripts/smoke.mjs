@@ -2,8 +2,14 @@
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { semJev } from "./sem-jev.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const limpeza = semJev(root);
+if (limpeza.erro) {
+  console.error("FALHOU: " + limpeza.erro);
+  process.exit(1);
+}
 const child = spawn(process.execPath, [join(root, "dist", "index.js")], {
   stdio: ["pipe", "pipe", "inherit"],
 });

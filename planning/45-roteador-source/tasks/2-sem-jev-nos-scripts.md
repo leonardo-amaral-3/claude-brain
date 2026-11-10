@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `scripts/sem-jev.mjs` e a limpeza do Jev nos filhos (A8)
 
