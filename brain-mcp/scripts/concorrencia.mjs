@@ -2354,6 +2354,186 @@ caso("eval-base-dentro-do-git-le-a-branch-do-git", async () => {
   semTrabalho(r, inst);
 });
 
+// ---------------------------------------------------------------- #46: freio de contradição (unidade)
+// Importa dist/contradicao.js neste processo. Nenhum caso daqui alcança o Jev real: o cliente é
+// sempre um falso escrito no próprio caso.
+const contradicao = () => import(modulo("contradicao.js"));
+const vizinhaFalsa = (id, fato, extra = {}) => ({ id, data: "2026-11-10", escopo: "freio", fato, semelhanca: 0.9, ...extra });
+
+// Cabeçalho copiado caractere a caractere de tools.ts:560-561 (origin/dev), travessão incluso.
+const CABECALHO_AVISO =
+  "\n\nJá havia registro sobre o mesmo assunto — confira se alguma contradiz esta e, se sim, " +
+  "chame lembrar de novo com supersede:<id>:\n";
+
+caso("contradicao-sem-juiz-nao-julga", async () => {
+  const { julgarContradicoes } = await contradicao();
+  ok((await julgarContradicoes("nova", [vizinhaFalsa(1, "a")], null)) === null, "sem juiz devia devolver null");
+  let chamadas = 0;
+  const juiz = async () => {
+    chamadas++;
+    return 0.99;
+  };
+  ok((await julgarContradicoes("nova", [], juiz)) === null, "sem vizinhas devia devolver null");
+  ok(chamadas === 0, `sem vizinhas o juiz não podia ser chamado, foi ${chamadas}x`);
+});
+
+caso("contradicao-marca-so-acima-do-limiar", async () => {
+  const { julgarContradicoes } = await contradicao();
+  const probabilidades = { fatoA: 0.91, fatoB: 0.7, fatoC: 0.69, fatoD: 0.2 };
+  const pares = [];
+  const juiz = async (par) => {
+    pares.push(par);
+    return probabilidades[par.anterior];
+  };
+  const vizinhas = [1, 2, 3, 4].map((id, i) => vizinhaFalsa(id, ["fatoA", "fatoB", "fatoC", "fatoD"][i]));
+  const marcas = await julgarContradicoes("fatoNovo", vizinhas, juiz);
+  ok(marcas instanceof Map, "devia devolver Map");
+  ok(marcas.size === 2 && marcas.get(1) === 0.91 && marcas.get(2) === 0.7, `marcas erradas: ${JSON.stringify([...(marcas ?? [])])}`);
+  ok(pares.length === 4, `4 vizinhas = 4 chamadas, foram ${pares.length}`);
+  for (const par of pares) {
+    ok(JSON.stringify(Object.keys(par).sort()) === '["anterior","nova"]', `chaves do par: ${Object.keys(par)}`);
+    ok(par.nova === "fatoNovo", "par.nova devia ser o fato da nova");
+  }
+  ok(pares.map((p) => p.anterior).sort().join() === "fatoA,fatoB,fatoC,fatoD", "par.anterior devia ser o fato de cada vizinha");
+
+  let chamadasTeto = 0;
+  const sete = Array.from({ length: 7 }, (_, i) => vizinhaFalsa(i + 1, `f${i}`));
+  await julgarContradicoes("n", sete, async () => (chamadasTeto++, 0.1));
+  ok(chamadasTeto === 5, `7 vizinhas = 5 chamadas, foram ${chamadasTeto}`);
+});
+
+caso("contradicao-falha-volta-ao-aviso-de-hoje", async () => {
+  const { julgarContradicoes } = await contradicao();
+  const vizinhas = [vizinhaFalsa(1, "a"), vizinhaFalsa(2, "b"), vizinhaFalsa(3, "c")];
+  const umRejeita = async (par) => {
+    if (par.anterior === "b") throw new Error("de propósito");
+    return 0.95;
+  };
+  ok((await julgarContradicoes("n", vizinhas, umRejeita)) === null, "um par rejeitando devia dar null");
+  const throwSincrono = () => {
+    throw new Error("sincrono");
+  };
+  ok((await julgarContradicoes("n", vizinhas, throwSincrono)) === null, "throw síncrono devia dar null");
+  for (const invalido of [1.7, -0.1, NaN, "0.9"]) {
+    const r = await julgarContradicoes("n", vizinhas, async () => invalido);
+    ok(r === null, `valor ${String(invalido)} devia dar null`);
+  }
+});
+
+caso("contradicao-prazo-estoura", async () => {
+  const { julgarContradicoes } = await contradicao();
+  let sinal;
+  const nuncaResolve = (_par, signal) => {
+    sinal = signal;
+    return new Promise(() => {});
+  };
+  const t0 = Date.now();
+  const r = await julgarContradicoes("n", [vizinhaFalsa(1, "a")], nuncaResolve, 100);
+  ok(r === null, "prazo estourado devia dar null");
+  ok(Date.now() - t0 < 1000, `devia voltar em < 1000 ms, levou ${Date.now() - t0}`);
+  ok(sinal?.aborted === true, "o signal devia estar abortado depois do prazo");
+
+  // Regressão: rejeição que chega depois do prazo não pode virar unhandledRejection.
+  let naoTratadas = 0;
+  const contar = () => naoTratadas++;
+  process.on("unhandledRejection", contar);
+  try {
+    const rejeitaTarde = () => new Promise((_, rejeitar) => setTimeout(() => rejeitar(new Error("tarde")), 200));
+    ok((await julgarContradicoes("n", [vizinhaFalsa(1, "a")], rejeitaTarde, 100)) === null, "devia dar null");
+    await dormir(300);
+    ok(naoTratadas === 0, `${naoTratadas} unhandledRejection(s) depois do prazo`);
+  } finally {
+    process.off("unhandledRejection", contar);
+  }
+});
+
+caso("juiz-jev-adaptador", async () => {
+  const { criarJulgarPar, montarPergunta } = await contradicao();
+  const par = { nova: "fato novo", anterior: "fato anterior" };
+  const sinal = new AbortController().signal;
+  const clienteCom = (ligado, perguntar) => ({ ligado, perguntar });
+
+  ok((await criarJulgarPar(clienteCom(() => false, async () => null))) === null, "ligado=false devia dar null");
+  const lancando = await criarJulgarPar(
+    clienteCom(() => {
+      throw new Error("predicado quebrou");
+    }, async () => null)
+  );
+  ok(lancando === null, "ligado que lança devia dar null sem rejeitar");
+
+  let recebido;
+  let resposta = { resposta: "sim", probabilidade: 0.8 };
+  const julgar = await criarJulgarPar(
+    clienteCom(async () => true, async (texto, signal) => {
+      recebido = { texto, signal };
+      return resposta;
+    })
+  );
+  ok(typeof julgar === "function", "ligado assíncrono true devia dar função");
+  ok((await julgar(par, sinal)) === 0.8, "sim 0.8 devia dar 0.8");
+  ok(recebido.texto === montarPergunta(par), "o texto entregue ao cliente devia ser montarPergunta(par)");
+  ok(recebido.signal === sinal, "o signal entregue devia ser o passado");
+
+  resposta = { resposta: "não", probabilidade: 0.8 };
+  ok(Math.abs((await julgar(par, sinal)) - 0.2) < 1e-9, "não 0.8 devia dar 0.2");
+
+  for (const ruim of [null, { resposta: "Sim", probabilidade: 0.9 }, { resposta: "nao", probabilidade: 0.9 }, { resposta: "sim", probabilidade: 1.5 }]) {
+    resposta = ruim;
+    let rejeitou = false;
+    await julgar(par, sinal).catch(() => (rejeitou = true));
+    ok(rejeitou, `devia rejeitar com ${JSON.stringify(ruim)}`);
+  }
+});
+
+caso("aviso-sem-marca-igual-ao-de-hoje", async () => {
+  const { formatarAviso } = await contradicao();
+  const vizinhas = [
+    { id: 12, data: "2026-11-09", escopo: "freio", fato: "primeiro fato", semelhanca: 0.9123 },
+    { id: 7, data: "2026-11-01", escopo: null, fato: "segundo fato", semelhanca: 0.85 },
+  ];
+  const esperado = CABECALHO_AVISO + "  #12 (2026-11-09, freio, semelhança 0.91): primeiro fato\n" + "  #7 (2026-11-01, semelhança 0.85): segundo fato";
+  ok(formatarAviso(vizinhas, null) === esperado, `sem marcas (null) mudou:\n${formatarAviso(vizinhas, null)}`);
+  ok(formatarAviso(vizinhas, new Map()) === esperado, "com Map vazio devia ser igual");
+  ok(formatarAviso([], null) === "", "sem vizinhas devia ser vazio");
+});
+
+caso("aviso-com-marca-muda-so-a-linha-marcada", async () => {
+  const { formatarAviso } = await contradicao();
+  const vizinhas = [
+    { id: 12, data: "2026-11-09", escopo: "freio", fato: "primeiro fato", semelhanca: 0.9123 },
+    { id: 7, data: "2026-11-01", escopo: null, fato: "segundo fato", semelhanca: 0.85 },
+  ];
+  const esperado =
+    CABECALHO_AVISO +
+    "  #12 (2026-11-09, freio, semelhança 0.91) [contradição provável, Jev 0.93]: primeiro fato\n" +
+    "  #7 (2026-11-01, semelhança 0.85): segundo fato";
+  const obtido = formatarAviso(vizinhas, new Map([[12, 0.934]]));
+  ok(obtido === esperado, `aviso marcado errado:\n${obtido}`);
+});
+
+caso("montar-pergunta-e-prazo", async () => {
+  const { montarPergunta, prazoJulgamentoMs } = await contradicao();
+  const esperado =
+    "Duas decisões registradas no mesmo cofre de decisões de projeto.\n\n" +
+    "Decisão anterior: ANT\n\n" +
+    "Decisão nova: NOV\n\n" +
+    "A decisão nova contradiz a decisão anterior, isto é, as duas não podem valer ao mesmo tempo?";
+  ok(montarPergunta({ nova: "NOV", anterior: "ANT" }) === esperado, "texto da pergunta diverge da spec");
+
+  const original = process.env.BRAIN_CONTRADICAO_PRAZO_MS;
+  try {
+    const casosPrazo = [[undefined, 4000], ["250", 250], ["0", 4000], ["-5", 4000], ["abc", 4000], ["2.5", 4000]];
+    for (const [env, esperadoMs] of casosPrazo) {
+      if (env === undefined) delete process.env.BRAIN_CONTRADICAO_PRAZO_MS;
+      else process.env.BRAIN_CONTRADICAO_PRAZO_MS = env;
+      ok(prazoJulgamentoMs() === esperadoMs, `env ${JSON.stringify(env)} devia dar ${esperadoMs}, deu ${prazoJulgamentoMs()}`);
+    }
+  } finally {
+    if (original === undefined) delete process.env.BRAIN_CONTRADICAO_PRAZO_MS;
+    else process.env.BRAIN_CONTRADICAO_PRAZO_MS = original;
+  }
+});
+
 // ---------------------------------------------------------------- execução
 console.log(`fixture: ${fixture}`);
 console.log(`TTL_MS=${TTL_MS} TIQUE_MS=${TIQUE_MS} | servidores: TTL=${TTL_SERVIDOR_MS} ms\n`);
