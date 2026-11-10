@@ -325,8 +325,12 @@ empilhada), as decisões registradas que o obrigam, paradas além da tabela e fa
 perder nada que a tabela não diga.
 
 **A parada classificada (opcional, atrás da flag do Jev).** Quem despacha pode passar a saída da
-sessão por `node scripts/classificar-parada.mjs`. O script lê do stdin, pega a última linha e
-escreve uma linha JSON com cinco campos:
+sessão por `node "$REPO/scripts/classificar-parada.mjs"`, com `$REPO` igual ao caminho absoluto do
+checkout do `claude-brain` (nesta máquina, `~/pessoal/claude-brain`), definido pelo próprio script
+de despacho. O caminho é absoluto porque o script não é instalado pelo `sync.sh`: roda do checkout,
+e a orquestradora roda da raiz do workspace, onde `node scripts/…` dá `MODULE_NOT_FOUND`, código `1`,
+e cai calado na leitura de sempre. O script lê do stdin, pega a última linha e escreve uma linha
+JSON com cinco campos:
 - `estado`: `classificada`, `sem-classificacao` ou `desligado`;
 - `categoria`: o id de uma das linhas **para** da tabela do `## Modo despachado` de
   `skills/_comum/convencoes.md`, ou `gate-aberto`, ou `outro`;
