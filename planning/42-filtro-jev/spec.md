@@ -108,7 +108,7 @@ Todas rodadas em 2026-11-10, nesta sessão, contra a worktree (igual a `origin/d
 - Também exporta `envSemJev`, para quem dispara processos de teste.
 - Nenhuma função lança exceção. Toda falha vira `{estado:'indisponivel', motivo}`.
 - Cada consumidor liga só o seu **uso**, numa lista em `BRAIN_JEV`. O cliente falso (`BRAIN_JEV_FALSO`) nunca toca a rede, e uma CLI com envelope JSON serve às skills.
-- O hook só faz `require('./jev.js')` com `contexto` em `BRAIN_JEV`. Manda os até 10 candidatos do passo 5 e mantém os que ficam com `probabilidade >= limiar`. Um `indisponivel` em qualquer trecho, ou o prazo do próprio hook vencido, abandona o filtro inteiro.
+- O hook só faz `require('./jev.js')` com `contexto` em `BRAIN_JEV`. Manda os até 10 candidatos do passo 5 (menos os de texto vazio, emenda 3) e mantém os que ficam com `probabilidade >= limiar`. Um `indisponivel` em qualquer trecho, ou o prazo do próprio hook vencido, abandona o filtro inteiro.
 - O `injecao.mjs` ganha `--portao jev`: igualdade byte a byte no corpus com a flag desligada, e golden com um oráculo falso gerado do `golden.json`.
 
 ## Implementation Details
@@ -156,10 +156,12 @@ Todas rodadas em 2026-11-10, nesta sessão, contra a worktree (igual a `origin/d
 Ordem de decisão, por chamada. A primeira que casa vence, para todas as chaves:
 1. `opcoes.uso` fora da tabela de usos → `entrada_invalida`.
 2. Uso fora de `BRAIN_JEV` → `desligado`.
-3. `BRAIN_JEV_FALSO !== undefined` → falso. Vazia vale roteiro ilegível.
-4. `TYPESAFE_API_KEY` vazia ou ausente → `sem_chave`.
-5. Validação da entrada. Inválida → `entrada_invalida`.
+3. Validação da entrada. Inválida → `entrada_invalida`. No `julgar`, a validação de cada trecho vale só para ele.
+4. `BRAIN_JEV_FALSO !== undefined` → falso. Vazia vale roteiro ilegível.
+5. `TYPESAFE_API_KEY` vazia ou ausente → `sem_chave`.
 6. O adaptador real.
+
+> **Emenda 2 (2026-11-10), origem: achado 3 do G4 da PR #48 (cofre #1488).** A validação da entrada subiu de 5 para 3, à frente do falso e do `sem_chave`. Antes, o falso pulava a validação do real: onde o real dava `entrada_invalida` (texto vazio, `id` ausente, além de `MAX_TRECHOS`, `pergunta`/`instrucao` que não é string), o falso dava `ok`. Como todo portão roda só o falso, uma recusa que só o real faz passava por todos eles. O `ligado()` não muda, e nada mais do contrato muda. Consequência visível: entrada inválida sem chave passa a voltar `entrada_invalida`, e não `sem_chave`. A prova é o T3.
 
 **Tipos** (JSDoc no arquivo; nomes e valores exatos)
 ```js
@@ -205,7 +207,7 @@ Ordem de decisão, por chamada. A primeira que casa vence, para todas as chaves:
   - Mesmo tamanho e ordem de `trechos`. `trechos` vazio ou que não é array → `[]`.
   - `pergunta` é cortada em `MAX_PERGUNTA` e cada `texto` em `MAX_TEXTO` caracteres antes do envio.
   - Cada trecho vira uma requisição com `estado = { pergunta, trecho: { titulo, fonte, texto } }` e uma pergunta `noul` de chave `relevante`, com instrução `opcoes.instrucao ?? INSTRUCAO_PADRAO`.
-  - Os trechos até `MAX_TRECHOS` saem **em paralelo**, sob **um** prazo comum de `timeoutMs`. Os que passam do índice 15 voltam `entrada_invalida`, assim como um trecho com `texto` vazio ou sem `id` string.
+  - Os trechos até `MAX_TRECHOS` saem **em paralelo**, sob **um** prazo comum de `timeoutMs`. Os que passam do índice 15 voltam `entrada_invalida`, assim como um trecho com `texto` vazio ou sem `id` string. Vale no falso e no real (emenda 2).
 - Garantias de `decidir` e `julgar`:
   - nunca rejeitam e nunca lançam exceção;
   - nunca fazem retry;
@@ -275,7 +277,8 @@ Constantes novas, ao lado de `LIMITE_FINAL` (`:233-235`):
 const LIMITE_JEV = 10;   // quantos candidatos do passo 5 vao ao Jev
 const LIMIAR_JEV = 0.5;  // provisorio: ver ### Limiar da spec do #42
 const INSTRUCAO_JEV = 'O trecho é relevante para o que o usuário pediu na pergunta?';
-const PRAZO_HOOK_JEV = 2200; // TIMEOUT_MS do cliente + 200: o hook nao confia no prazo de quem chama
+const TIMEOUT_JEV = 2000;                   // passado explicito ao julgar (correcao do achado 7)
+const PRAZO_HOOK_JEV = TIMEOUT_JEV + 200;  // o hook nao confia no prazo de quem chama
 // O uso so liga com `contexto` na lista; conferido aqui para nem carregar o jev.js sem ele.
 const usaJev = () => String(process.env.BRAIN_JEV || '').split(',').some((u) => u.trim().toLowerCase() === 'contexto');
 const limiarJev = () => {
@@ -293,16 +296,18 @@ const filtrarComJev = async (alvo, cands) => {
     const jev = require('./jev.js');
     if (!jev.ligado('contexto')) return null;
     const limiar = limiarJev();
+    const enviados = cands.filter((r) => String(r.full_text || '') !== ''); // emenda 3
+    if (!enviados.length) return { passaram: [], enviados: 0, limiar };
     const prazo = new Promise((r) => { timer = setTimeout(() => r(null), PRAZO_HOOK_JEV); });
     const vs = await Promise.race([
-      jev.julgar(alvo, cands.map((r) => ({
+      jev.julgar(alvo, enviados.map((r) => ({
         id: String(r.path), texto: String(r.full_text || ''), titulo: r.breadcrumb || '', fonte: r.source || '',
-      })), { uso: 'contexto', instrucao: INSTRUCAO_JEV }),
+      })), { uso: 'contexto', instrucao: INSTRUCAO_JEV, timeoutMs: TIMEOUT_JEV }),
       prazo,
     ]);
-    if (!Array.isArray(vs) || vs.length !== cands.length || vs.some((v) => !v || v.estado !== 'ok')) return null;
-    if (DEBUG) vs.forEach((v, i) => process.stderr.write('[brain-contexto] jev ' + (i + 1) + ' ' + v.probabilidade + ' ' + cands[i].path + '\n'));
-    return { passaram: cands.filter((_, i) => vs[i].probabilidade >= limiar), enviados: cands.length, limiar };
+    if (!Array.isArray(vs) || vs.length !== enviados.length || vs.some((v) => !v || v.estado !== 'ok')) return null;
+    if (DEBUG) vs.forEach((v, i) => process.stderr.write('[brain-contexto] jev ' + (i + 1) + ' ' + v.probabilidade + ' ' + enviados[i].path + '\n'));
+    return { passaram: enviados.filter((_, i) => vs[i].probabilidade >= limiar), enviados: enviados.length, limiar };
   } catch (e) {
     if (DEBUG) process.stderr.write('[brain-contexto] jev ' + (e && e.stack ? e.stack : e) + '\n');
     return null;
@@ -319,6 +324,11 @@ const jev = usaJev() && candidatos.length ? await filtrarComJev(alvo, candidatos
 if (jev) achados = jev.passaram.slice(0, LIMITE_FINAL);
 if (!achados.length) return fim();
 ```
+
+> **Emenda 3 (2026-11-10), origem: achado 2 do G4 da PR #48 (cofre #1488).** O hook não manda ao Jev candidato com `full_text` vazio: ele fica fora do bloco filtrado, em vez de abandonar o filtro. Antes, o `relevante()`, que lê `breadcrumb + full_text`, deixava passar um chunk com os tokens só no breadcrumb e texto vazio; o cliente o recusava com `entrada_invalida`, e esse único `indisponivel` desligava o filtro do prompt inteiro. O cabeçalho `k de n` conta só os enviados; sem nenhum enviável, o bloco filtrado sai vazio, como quando nada passa. No índice de 2026-11-10 são 0 chunks de texto vazio (o caso é latente). O caminho sem flag não muda.
+>
+> **Correção (2026-11-10), achado 7 do G4 da PR #48.** O `PRAZO_HOOK_JEV` deixou de ser o número `2200` solto e passou a `TIMEOUT_JEV + 200`, com `TIMEOUT_JEV = 2000` passado explícito ao `julgar`: um `TIMEOUT_MS` diferente no `jev.js` não separa mais os dois prazos sem aviso. O teto de 2200 ms do CA3 não muda.
+
 O formato da linha de debug é fixo, `[brain-contexto] jev <posição 1-based> <probabilidade> <path>`, porque o T16 o lê.
 
 Texto do bloco:
@@ -377,6 +387,7 @@ Comentário no topo do passo 5, explicando três escolhas:
   2. **Golden.**
      - Lê `process.env.BRAIN_GOLDEN || join(root, 'scripts', 'golden.json')`.
      - Gera em `mkdtemp` o roteiro-oráculo: uma regra por (caso positivo, alvo de `esperado`), `{ quando: { pergunta: caso.q, trechoId: alvo }, responde: { probabilidade: 0.95 } }`, mais `padrao: { probabilidade: 0.05 }`.
+     - Caso positivo cujo `q` tem espaço nas pontas ou começa com `/` → `2`, com os índices. A regra casa `pergunta` por igualdade, e o hook manda o prompt aparado ou só o argumento do slash command: esse caso nunca casaria e viraria um "perdido" falso no (b1). Correção de 2026-11-10, achado 5 do G4 da PR #48; os 82 casos de hoje não têm nenhum.
      - Para cada caso × cada `conf.workspaces[].prefixo` existente, roda, em seguida um do outro:
        - A = o base, com o `env` saneado;
        - D = a worktree, com o `env` saneado + `BRAIN_JEV=contexto` + `BRAIN_JEV_FALSO=<roteiro>`.
@@ -458,7 +469,7 @@ Fora da suíte, só para provar que o uso atual não quebrou: `node scripts/inje
 |---|---|---|
 | T1 | sem `BRAIN_JEV`, `julgar` e `decidir` → `desligado` em tudo, inclusive com entrada inválida; `BRAIN_JEV=1` e `BRAIN_JEV=*` → `desligado`; `BRAIN_JEV=parada` com `uso:'contexto'` → `desligado`; espião 0 | CA2, CA4 |
 | T2 | `uso` fora da tabela → `entrada_invalida`; `BRAIN_JEV=contexto` sem chave e sem falso → `sem_chave`; espião 0 | CA3, CA4 |
-| T3 | `BRAIN_JEV=contexto` + chave + `BRAIN_JEV_FALSO=sim` → `0.95`; `BRAIN_JEV_FALSO=""` + chave → `resposta_invalida`/`roteiro`; espião 0 nos dois | CA4 |
+| T3 | `BRAIN_JEV=contexto` + chave + `BRAIN_JEV_FALSO=sim` → `0.95`; `BRAIN_JEV_FALSO=""` + chave → `resposta_invalida`/`roteiro`; espião 0 nos dois. Emenda 2: com o falso, trecho de `texto` vazio ou sem `id` → `entrada_invalida` só nele, 20 trechos → 16 + 4, `pergunta` e `instrucao` não string → `entrada_invalida` | CA4 |
 | T4 | roteiro: regra por `pergunta`+`trechoId`; regra por `id` no `decidir`; `trechoId` no `decidir` não casa; `padrao`; `{indisponivel:'http'}`; `escolha` fora de `opcoes` → `resposta_invalida`; falso `sim` com uma opção → 1,0; `nao` → `confianca = 1/n`; roteiro ilegível → `resposta_invalida` | CA2 |
 | T5 | `BRAIN_JEV_FALSO=lento`, `timeoutMs: 200` → todos `timeout` em < 250 ms, num processo filho que não sai antes de resolver (sem código 13) | CA3 |
 | T6 | real, com `fetch` injetado e chave: URL, `Authorization`, `model`, `questions` com `type` `noul`/`choice`; o `id` do trecho e o `path` não aparecem no corpo; `texto` e `pergunta` de 5000 caracteres chegam com 4000; `estado` acima de `MAX_ESTADO` → `entrada_invalida` sem chamar | CA2, CA4 |
