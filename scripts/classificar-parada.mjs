@@ -24,8 +24,12 @@
 // `porque`; nenhum deles vira `desligado`, porque uma falha silenciosa devolveria a parada à leitura
 // de hoje justamente quando algo está quebrado.
 //
-// Este arquivo ainda não tem o cliente do Jev nem a CLI: `classificar`, `executar` e `rodarCli`
-// entram nas tasks seguintes do card. Aqui está o núcleo puro, que não toca rede nem disco.
+// Este arquivo ainda não tem o cliente padrão do Jev nem a CLI: o `cliente` padrão e o `rodarCli`
+// entram na task seguinte do card. Até lá, `classificar` e `executar` exigem `deps.cliente`.
+
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Abaixo disto a categoria escala, mesmo não sendo reservada. Com oito opções o acaso dá 0.125; o
 // número foi escolhido pelo custo do erro (escalar demais custa uma leitura que já se faz hoje) e
@@ -130,4 +134,108 @@ export function divergenciaDaLista(markdown) {
     `lista divergente: na tabela e não no script: ${JSON.stringify(soNaTabela)}; ` +
     `no script e não na tabela: ${JSON.stringify(soNoScript)}`
   );
+}
+
+// Marcador que o teto de tempo resolve; um símbolo, para nunca se confundir com a resposta do Jev.
+const TEMPO = Symbol("tempo");
+
+// Monta o resultado sempre com as chaves na mesma ordem, para o JSON sair sempre igual.
+const resultadoDe = (estado, categoria, probabilidade, escala, porque) => ({
+  estado,
+  categoria,
+  probabilidade,
+  escala,
+  porque,
+});
+const semClassificacao = (porque, aviso = "") => ({
+  resultado: resultadoDe("sem-classificacao", null, null, true, porque),
+  aviso,
+});
+
+const lerConvencoesDoRepo = () =>
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "skills", "_comum", "convencoes.md"), "utf8");
+
+// → { resultado, aviso }. `aviso` só é não vazio quando a lista diverge da tabela: vai para o stderr.
+export async function classificar(motivo, deps = {}) {
+  const { lerConvencoes = lerConvencoesDoRepo, tempoMs = TEMPO_MS, limiar = LIMIAR } = deps;
+  // Ponto da task 3: aqui entra o padrão `daFormaDo42(<cliente do #42>)`. Sem ele, quem chama injeta.
+  const cliente = deps.cliente;
+  if (!cliente) throw new Error("classificar: falta deps.cliente (o cliente padrão entra na task 3)");
+
+  // 1. Ligado? Sem rede. Falha aqui escala (fail-closed): com a flag ligada, não é "desligado".
+  let ligado;
+  try {
+    ligado = await cliente.ligado();
+  } catch {
+    return semClassificacao("erro");
+  }
+  if (!ligado) return { resultado: DESLIGADO, aviso: "" };
+
+  // 2. A lista do script ainda bate com a tabela? Se não, o motivo nem sai da máquina.
+  let divergencia;
+  try {
+    divergencia = divergenciaDaLista(lerConvencoes());
+  } catch (erro) {
+    divergencia = `lista divergente: não li skills/_comum/convencoes.md: ${erro.message}`;
+  }
+  if (divergencia !== null) return semClassificacao("lista-divergente", divergencia);
+
+  // 3. Uma pergunta ao Jev, com teto de tempo e sem nova tentativa (repetir dobraria o envio do motivo).
+  const opcoes = CATEGORIAS.map((categoria) => categoria.texto);
+  const controlador = new AbortController();
+  let temporizador;
+  let resposta;
+  try {
+    // O `then` transforma até exceção síncrona do cliente em rejeição.
+    const chamada = Promise.resolve().then(() =>
+      cliente.escolher({ pergunta: PERGUNTA, texto: motivo, opcoes, signal: controlador.signal }),
+    );
+    // Se o tempo vencer, a chamada rejeita depois do abort; sem isto seria rejeição não tratada.
+    chamada.catch(() => {});
+    const estouro = new Promise((resolver) => {
+      temporizador = setTimeout(() => resolver(TEMPO), tempoMs);
+    });
+    resposta = await Promise.race([chamada, estouro]);
+  } catch {
+    return semClassificacao("erro");
+  } finally {
+    clearTimeout(temporizador);
+    controlador.abort();
+  }
+  if (resposta === TEMPO) return semClassificacao("tempo");
+
+  // 4. Resposta fora do contrato.
+  const probabilidadeValida =
+    typeof resposta?.probabilidade === "number" &&
+    Number.isFinite(resposta.probabilidade) &&
+    resposta.probabilidade >= 0 &&
+    resposta.probabilidade <= 1;
+  if (resposta === null || typeof resposta !== "object" || !opcoes.includes(resposta.opcao) || !probabilidadeValida) {
+    return semClassificacao("resposta-invalida");
+  }
+
+  // 5. Escalada: a reservada e o `outro` escalam com qualquer confiança; o resto, abaixo do limiar.
+  const categoria = CATEGORIAS.find((candidata) => candidata.texto === resposta.opcao);
+  let escala = false;
+  let porque = null;
+  if (categoria.sempre) {
+    escala = true;
+    porque = categoria.sempre;
+  } else if (resposta.probabilidade < limiar) {
+    escala = true;
+    porque = "abaixo-do-limiar";
+  }
+  return {
+    resultado: resultadoDe("classificada", categoria.id, resposta.probabilidade, escala, porque),
+    aviso: "",
+  };
+}
+
+// → { codigo, saida, erro }. Entrada inválida é uso errado (2) e deixa o stdout vazio.
+export async function executar(textoEntrada, deps = {}) {
+  const entrada = lerEntrada(textoEntrada);
+  if (entrada.erro !== undefined) return { codigo: 2, saida: "", erro: entrada.erro };
+
+  const { resultado, aviso } = await classificar(entrada.motivo, deps);
+  return { codigo: 0, saida: JSON.stringify(resultado), erro: aviso };
 }
