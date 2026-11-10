@@ -206,6 +206,37 @@ vazia e, no `search_context`, se a semântica respondeu. `npm run uso` mostra p5
 fração de buscas que saíram só com léxico. É o que transforma "acho que o Claude não usa o cérebro"
 em número, e é dela que o `colher` tira o golden set.
 
+### Roteador de source
+
+Quando o Claude chama `search_context` **sem `source`**, o roteador pergunta ao Jev, antes da busca, em
+qual fonte do índice (`planning`, `github`, `code`, `git`…) o documento deve estar. Com confiança de
+pelo menos 0,8, a busca restringe-se a essa fonte; a resposta traz a linha final
+`(roteador: busca restrita a source="…" nesta consulta — para outra fonte, passe source)`.
+**Vem desligado.**
+
+- **Ligar**: `roteador` em `BRAIN_JEV`, no ambiente do processo `claude` (ou no `env` do servidor `brain`
+  em `~/.claude.json`), mais `TYPESAFE_API_KEY`. Os dois ficam no parágrafo do Jev acima; o contrato do
+  cliente está em `planning/42-filtro-jev/spec.md`. Tirar `roteador` da lista e reabrir a sessão desliga.
+- **O que vai ao Jev**: a query cortada em 500 caracteres, a instrução fixa e a lista de fontes com as
+  descrições. Nunca trecho do corpus.
+- **Limiar e teto**: 0,8 de probabilidade e 1 s de orçamento. São valores de partida, não calibrados.
+- **Cai para a busca como veio** quando: o roteador está desligado; a chamada já traz `source`; não há
+  cliente, chave ou resposta dentro do teto; a probabilidade fica abaixo do limiar; a escolha é
+  `qualquer` ou uma fonte fora da lista; ou a busca restrita não acha nada.
+- **`uso`** grava os argumentos como chegaram: o filtro do roteador não entra na tabela nem no golden
+  set que o `colher` tira dela.
+- **`eval`, `smoke` e `concorrencia`** limpam o Jev do ambiente dos filhos que sobem, para a medição não
+  depender de chave nem de rede.
+- **Atualizar o `jev.js`** só vale depois de reabrir a sessão: o `require` guarda o módulo.
+- **`BRAIN_JEV_FALSO`** numa sessão real, com `roteador` na lista, desvia **toda** busca sem `source`
+  pelo roteiro do falso, sem rede. Serve para teste, não para uso diário.
+- **Medir o ganho (B1)**: não há comando nesta versão. Fica para o card de calibração do Jev. O aviso
+  que vai junto: só 7 dos casos do golden sem `source` têm o alvo neste índice, e o teto do ganho é de
+  0,101 para 0,121 de nDCG@5. Um eval com código `0` diria "não piorou nesses casos", e não "o
+  roteador ajuda".
+
+`npm run roteador` roda a suíte do roteador com um Jev falso, sem rede.
+
 ## Comandos
 
 ```sh
@@ -219,6 +250,7 @@ npm run colher             # recolhe o golden set da tabela uso, preservando os 
 npm run uso                # quantas vezes o Claude chamou cada tool
 npm run smoke              # sobe o servidor por stdio e testa as tools
 npm run jev                # cliente do Jev e filtro do hook (T1-T16), só com o cliente falso, sem rede
+npm run roteador           # roteador de source (limiar, teto, quedas), só com o Jev falso, sem rede
 node scripts/injecao.mjs --desde <dia> --ate <dia> --base origin/dev --portao jev   # portão do filtro do Jev no hook
 node dist/cli.js --git     # relê o histórico de git dos repos
 node dist/cli.js --github  # força sync de cards/PRs

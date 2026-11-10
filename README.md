@@ -305,7 +305,7 @@ que recompilar.
 claude-brain/
 ├── brain-mcp/                  servidor MCP (TypeScript)
 │   ├── src/                    index, tools, indexer, search, grafo, memoria, lease, syncs de git/GitHub
-│   ├── scripts/                smoke, concorrencia, eval + colher-golden (golden set), uso, injecao, jev
+│   ├── scripts/                smoke, concorrencia, eval + colher-golden (golden set), uso, injecao, jev, roteador
 │   └── brain.config.example.json
 ├── skills/                     15 skills → ~/.claude/skills/
 │   └── _comum/                 fonte dos blocos comuns, carimbada por scripts/skills-comum.mjs
