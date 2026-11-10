@@ -167,8 +167,10 @@ const USO_DO_JEV = "parada";
 //   - `escolher` vira UMA pergunta `escolha` do `decidir`, com o motivo como estado. O nome de cada
 //     opção é o próprio texto (é com ele que `classificar` reconhece a resposta), e a descrição
 //     repete o texto porque o contrato pede uma descrição por opção.
-//   - O #42 devolve uma probabilidade por opção: vale a maior, e no empate a primeira na ordem de
-//     `opcoes` (a ordem de CATEGORIAS), em vez de confiar só na `escolha` que ele indicou.
+//   - Vale a `escolha` do Jev, com a `confianca` dele (emenda 2 da spec, achado 3 do G4). O maior
+//     valor de `probabilidades` (no empate, a primeira na ordem de `opcoes`, a de CATEGORIAS) só
+//     decide quando a resposta não traz uma `escolha` que seja uma das opções. Ao contrário, um
+//     empate trocaria a reservada que o Jev escolheu por uma não reservada que vem antes na ordem.
 //   - `indisponivel` (rede, HTTP, chave, tempo) vira rejeição, que `classificar` escala como "erro":
 //     com a flag ligada, indisponível não é "desligado".
 //   - O #42 não recebe `signal`; o teto de tempo é o do próprio `classificar`, e o `timeoutMs` do
@@ -186,17 +188,19 @@ export function daFormaDo42(cliente, { env = process.env, timeoutMs = TEMPO_MS }
         throw new Error(`jev indisponível: ${resposta?.motivo ?? "sem resposta"}`);
       }
 
+      const daEscolha = { opcao: resposta.escolha, probabilidade: resposta.confianca };
+      if (opcoes.includes(resposta.escolha)) return daEscolha;
+
       const porOpcao = resposta.probabilidades;
-      if (porOpcao === null || typeof porOpcao !== "object") {
-        return { opcao: resposta.escolha, probabilidade: resposta.confianca };
-      }
+      if (porOpcao === null || typeof porOpcao !== "object") return daEscolha;
       let melhor = null;
       for (const opcao of opcoes) {
         if (typeof porOpcao[opcao] === "number" && (melhor === null || porOpcao[opcao] > melhor.probabilidade)) {
           melhor = { opcao, probabilidade: porOpcao[opcao] };
         }
       }
-      return melhor ?? { opcao: resposta.escolha, probabilidade: resposta.confianca };
+      // Sem nada aproveitável, a escolha inválida segue e `classificar` a escala como resposta-invalida.
+      return melhor ?? daEscolha;
     },
   };
 }

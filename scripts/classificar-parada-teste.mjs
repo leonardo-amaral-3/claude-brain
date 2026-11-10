@@ -261,19 +261,35 @@ console.log("C9 — o adaptador `daFormaDo42`, contra um cliente com a forma do 
   const cliente = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[0], confianca: 0.5, probabilidades: { ...probabilidades, [opcoes[5]]: 0.9 } }), { env });
   afirmar((await cliente.ligado()) === true && chamadas[0].uso === "parada" && chamadas[0].env === env, "ligado usa o uso `parada` e o env dado");
   const escolhido = await cliente.escolher({ pergunta: "p", texto: "motivo", opcoes });
-  afirmar(escolhido.opcao === opcoes[5] && escolhido.probabilidade === 0.9, "vale a maior probabilidade por opção");
+  afirmar(escolhido.opcao === opcoes[0] && escolhido.probabilidade === 0.5, "vale a `escolha` do Jev com a `confianca` dele, mesmo com outra opção mais alta no mapa (emenda 2)");
   const enviado = chamadas.at(-1);
   afirmar(enviado.estado === "motivo" && enviado.o.uso === "parada" && enviado.perguntas.escolha.tipo === "escolha", "o motivo vai como estado, numa pergunta `escolha` do uso `parada`");
   afirmar(Object.keys(enviado.perguntas.escolha.opcoes).length === 8, "as oito opções vão, cada uma com nome e descrição");
 
-  const empate = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[7], confianca: 0.4, probabilidades: Object.fromEntries(opcoes.map((o) => [o, 0.4])) }));
-  afirmar((await empate.escolher({ pergunta: "p", texto: "m", opcoes })).opcao === opcoes[0], "empate → a primeira na ordem de CATEGORIAS");
+  const semEscolha = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: "não é opção", confianca: 0.5, probabilidades: { ...probabilidades, [opcoes[5]]: 0.9 } }), { env });
+  const pelaMaior = await semEscolha.escolher({ pergunta: "p", texto: "m", opcoes });
+  afirmar(pelaMaior.opcao === opcoes[5] && pelaMaior.probabilidade === 0.9, "sem `escolha` válida, vale a maior probabilidade por opção");
 
-  const semMapa = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[2], confianca: 0.7 }));
+  const empate = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: "não é opção", confianca: 0.4, probabilidades: Object.fromEntries(opcoes.map((o) => [o, 0.4])) }), { env });
+  afirmar((await empate.escolher({ pergunta: "p", texto: "m", opcoes })).opcao === opcoes[0], "sem `escolha` válida, empate → a primeira na ordem de CATEGORIAS");
+
+  // O cenário do achado 3: empate entre segundo-revisor e producao, com o Jev escolhendo producao.
+  const textoDe = (id) => CATEGORIAS.find((c) => c.id === id).texto;
+  const empateReservado = daFormaDo42(
+    falsoDo42({ estado: "ok", tipo: "escolha", escolha: textoDe("producao"), confianca: 0.82, probabilidades: { ...probabilidades, [textoDe("segundo-revisor")]: 0.82, [textoDe("producao")]: 0.82 } }),
+    { env },
+  );
+  const reservada = (await classificar("o merge na main é do Leonardo", { cliente: empateReservado })).resultado;
+  afirmar(
+    reservada.categoria === "producao" && reservada.probabilidade === 0.82 && reservada.escala === true && reservada.porque === "reservada",
+    "empate com escolha=producao → sai producao e escala, porque \"reservada\" (achado 3)",
+  );
+
+  const semMapa = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[2], confianca: 0.7 }), { env });
   const unica = await semMapa.escolher({ pergunta: "p", texto: "m", opcoes });
   afirmar(unica.opcao === opcoes[2] && unica.probabilidade === 0.7, "sem `probabilidades`, cai em escolha + confianca");
 
-  const fora = daFormaDo42(falsoDo42({ estado: "indisponivel", motivo: "timeout" }));
+  const fora = daFormaDo42(falsoDo42({ estado: "indisponivel", motivo: "timeout" }), { env });
   const rejeitou = await fora.escolher({ pergunta: "p", texto: "m", opcoes }).then(() => false, () => true);
   afirmar(rejeitou, "`indisponivel` vira rejeição (classificar a escala como erro)");
   const { resultado } = await classificar("m", { cliente: fora });

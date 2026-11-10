@@ -155,6 +155,14 @@ Regra para quando a spec do #42 existir. O implementador a aplica sem decidir na
   consumidor sem uma para o #44. Isso é **emenda desta spec**, e a sessão para (`PARADA`). Não se
   improvisa um-contra-todos, não se corta a lista e não se trata "indisponível" como "desligado".
 
+> **Emenda 2 (2026-11-10), origem: achado 3 do G4 da PR #47 (cofre #1549).** Na regra "mesma
+> informação, outra forma", a probabilidade por opção deixa de mandar: o `daFormaDo42()` devolve a
+> `escolha` do Jev com a `confianca` dele. O maior valor por opção (no empate, a primeira na ordem
+> de `CATEGORIAS`) só vale quando a resposta não traz uma `escolha` que seja uma das opções. Antes,
+> um empate ou quase empate trocava a reservada que o Jev escolheu (`producao`) por uma não
+> reservada que vem antes na ordem, e a parada saía `escala: false`. A prova é o C9: empate com
+> `escolha` igual a `producao` → sai `producao`, que escala.
+
 ## Technical Overview
 
 `scripts/classificar-parada.mjs` é um script de linha de comando que roda do checkout do repo, como
