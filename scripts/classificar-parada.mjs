@@ -86,13 +86,15 @@ export const DESLIGADO = Object.freeze({
 const comoLF = (texto) => texto.replaceAll("\r\n", "\n");
 
 // Pega a última linha com algo além de espaço (o `tail -1` do despachante não pula linha em branco
-// no fim; aqui pula) e exige `PARADA:` nela. → { motivo } | { erro }
+// no fim; aqui pula), apara os dois lados e exige `PARADA:` no começo. → { motivo } | { erro }
+// Espaço à esquerda passa (achado 8 do G4); `**PARADA:**` em negrito não: a convenção fixa a linha
+// simples, e o código 2 já devolve quem lê à leitura de sempre.
 export function lerEntrada(texto) {
   const linhas = comoLF(texto).split("\n");
   const ultima = linhas.findLast((linha) => linha.trim() !== "");
   if (ultima === undefined) return { erro: "entrada vazia" };
 
-  const casou = /^PARADA:\s*(.*)$/.exec(ultima);
+  const casou = /^PARADA:\s*(.*)$/.exec(ultima.trim());
   if (!casou) return { erro: "a última linha não é PARADA:" };
 
   const motivo = casou[1].trim();

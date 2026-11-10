@@ -231,6 +231,8 @@ console.log("C8 — lerEntrada");
 const classificada = lerEntrada("linha um\r\nlinha dois\r\nPARADA: o merge na dev é do Leonardo.\r\n\r\n  \r\n");
 afirmar(classificada.motivo === "o merge na dev é do Leonardo.", "várias linhas com CRLF e brancos no fim: pega o motivo");
 afirmar(lerEntrada("PARADA:   com espaços   ").motivo === "com espaços", "o motivo vem aparado");
+afirmar(lerEntrada("x\n  PARADA: recuada  \t\n").motivo === "recuada", "espaço à esquerda da última linha passa (achado 8)");
+afirmar(lerEntrada("**PARADA:** x").erro === "a última linha não é PARADA:", "`**PARADA:**` em negrito continua recusada");
 afirmar(lerEntrada("PARADA: com `crases` e #1862").motivo === "com `crases` e #1862", "crases passam inteiras");
 afirmar(lerEntrada("PROXIMO: /gm-plan-tasks x").erro === "a última linha não é PARADA:", "PROXIMO: como última linha → erro");
 afirmar(lerEntrada("PARADA: x\nPROXIMO: /gm-x y").erro !== undefined, "PARADA: no meio não vale, só a última");
