@@ -16,6 +16,7 @@
     "uso": "node scripts/uso.mjs",
     "injecao": "node scripts/injecao.mjs",
     "jev": "node scripts/jev.mjs",
+    "roteador": "node scripts/roteador.mjs",
     "embed": "node dist/cli.js --embed",
     "grafo": "node dist/cli.js --grafo"
   },

@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `src/roteador.ts` e a suíte `npm run roteador`
 
