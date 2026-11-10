@@ -241,6 +241,9 @@ da máquina sem o uso em `BRAIN_JEV` e `TYPESAFE_API_KEY`.
 - `BRAIN_JEV`: lista, separada por vírgula, dos usos ligados. Usos: `contexto`, `triagem`, `spec`, `parada`, `roteador`, `lembrar`. Sem curinga.
 - `TYPESAFE_API_KEY`: a chave. Nunca em arquivo do repo nem de config.
 - `BRAIN_JEV_FALSO`: cliente falso (nunca toca a rede), usado nos testes. Definida, mesmo vazia, o real não roda.
+  Para forçar o falso, use sempre um valor **não vazio** (`sim`, `nao`, `indisponivel`, `lento` ou o caminho de um
+  roteiro): no Windows, definir vazio apaga a variável (`set BRAIN_JEV_FALSO=` no cmd, `$env:BRAIN_JEV_FALSO=''` no
+  PowerShell), e com o uso em `BRAIN_JEV` e a chave definidos o cliente real rodaria.
 - `BRAIN_JEV_LIMIAR_CONTEXTO`: limiar de P(sim) do filtro do hook, entre 0 e 1 (padrão 0,5).
 
 O contrato do cliente está em `planning/42-filtro-jev/spec.md`, § *Contrato do cliente do Jev (estável)*.
