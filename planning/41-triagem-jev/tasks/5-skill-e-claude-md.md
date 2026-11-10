@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 5: Step 4b no `SKILL.md` da `gm-triage` e a frase no `CLAUDE.md`
 

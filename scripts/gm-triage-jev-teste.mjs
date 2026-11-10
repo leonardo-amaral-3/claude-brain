@@ -602,6 +602,13 @@ console.log("CLI");
   }
 }
 
+// --- R2/R3: a instrução da skill ---
+console.log("R2/R3: SKILL.md");
+const skillMd = readFileSync(join(root, "skills", "gm-triage", "SKILL.md"), "utf8");
+for (const trecho of ["## Step 4b — Sugestão do Jev", 'jev-triagem.mjs" --estado', "--entrada"]) {
+  afirmar(skillMd.includes(trecho), `SKILL.md contém ${trecho}`);
+}
+
 // --- R2 estático ---
 console.log("R2: estático");
 const fonte = readFileSync(join(root, "skills", "gm-triage", "jev-triagem.mjs"), "utf8");

@@ -79,7 +79,8 @@ A mesma rota completa e os mesmos 5 gates da norma
    perguntar e como aprovar`, `## Convenções de saída` e `## Modo despachado` são carimbados de `skills/_comum/convencoes.md` por
    `node scripts/skills-comum.mjs`; a suíte relevante para a precondição 4 do `/gm-ship` é
    `node scripts/skills-comum.mjs --check`. Código `1` é **vermelho**: a PR não abre. Mudou um bloco?
-   Edite a fonte e rode o script sem `--check`; nunca a cópia.
+   Edite a fonte e rode o script sem `--check`; nunca a cópia. Mudou `skills/gm-triage/`? A suíte
+   soma `node scripts/gm-triage-jev-teste.mjs`.
 
 Regras duras que **não** mudam: skills `gm-*` têm `disable-model-invocation: true` (peça o comando ao
 usuário, nunca reimplemente a skill na mão) · sem card não há implementação · nada de commit sem

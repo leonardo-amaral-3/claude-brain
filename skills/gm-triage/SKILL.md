@@ -199,13 +199,44 @@ Title: short, imperative, in the user's vocabulary (someone searching for the du
 
 Keep it under ~20 lines. Diagnosis, direction, acceptance criteria and technical design **do not** belong here — the first two go to `gm-card`, the last to `gm-spec`.
 
+## Step 4b — Sugestão do Jev (só quando o Jev do brain está ligado)
+
+The Jev is a decision model that only picks among closed options. Here it **suggests**: it never
+decides and never writes. Your Step 3 classification stays the proposal. Do not change it because of
+the suggestion; a divergence stays visible in the table for whoever confirms.
+
+`<dir>` below is this skill's base directory; if it was not given, `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/gm-triage`.
+
+1. Run `node "<dir>/jev-triagem.mjs" --estado` (Bash `timeout` 30000). Empty stdout, a non-zero
+   exit, or the call denied → the Jev is off: **say nothing about it**, skip to Step 5, which stays
+   exactly as before. Stdout `ligado` → go on.
+2. With `Write`, create `gm-triage-jev-<8 random hex>.json` in the system temp dir:
+   `{"resumo": "...", "proposta": {"Tipo": "...", "Severidade": "...", "Classe": "...", "Rota": null, "Módulo": "..."}}`.
+   - `proposta`: your Step 3 values, written exactly as the option labels of the `## Board`
+     (`"✨ Melhoria"`). `Rota` is `null` unless S1, then `"Hotfix"`.
+   - `Write` denied → skip to Step 5 with the line `Sem a sugestão do Jev: o script auxiliar falhou.`
+   - `resumo`: up to 800 characters in pt-BR — the draft title, what arrived and its effect, in
+     terms of the system. Never in it: names of people, institutions or clients; patient data;
+     document numbers of any kind; e-mail, phone, URL or path; any excerpt of log or stack trace
+     (only the kind of error, e.g. "timeout na exportação"). In doubt about a piece, leave it out.
+     An épico's resumo cites its most severe point, and its proposed Severidade is that point's
+     (Step 1b).
+3. Run `node "<dir>/jev-triagem.mjs" --claude-md "<the CLAUDE.md whose ## Board you will write the
+   card on>" --entrada "<that file>"` (Bash `timeout` 30000). The script deletes the file after
+   reading it. Exit 0 → its stdout goes into Step 5 verbatim (it may be one line saying the
+   suggestion is missing, and why). Any other exit, or the call denied → Step 5 carries one line:
+   `Sem a sugestão do Jev: o script auxiliar falhou.`
+
+Several cards from one report (Step 1b) → run this step once per card. An *Ajustar* in Step 5 that
+changes a field value or the title runs it again; one that only rewrites the body does not.
+
 ## Step 5 — Publish
 
-The card is the artifact. Put repo, title, the whole body and the four field values in the message
+The card is the artifact. Put repo, title, the whole body and the four field values in the message, and right after them, whatever Step 4b produced, verbatim
 — the tool renders no long body, so whatever stays out of the message will not be read — and then
 run the *artefato* set from `## Como perguntar e como aprovar`. *Ajustar* comes back here with the
 correction and asks again; *Rejeitar* creates nothing, and the report says the demand was dropped
-at the door.
+at the door. The Jev's suggestions are never written: the commands below take the values the decision point approved.
 
 Épico (Step 1b) → `gh issue create` also takes `--label épico`, and the body carries `## Pontos` after the report.
 
