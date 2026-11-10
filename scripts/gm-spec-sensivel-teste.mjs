@@ -411,5 +411,23 @@ console.log("estático: um cliente só, sem rede nem processo (CA6)");
   afirmar(posicoes.every((p) => p > inicio && p < fim), `todo import( dinâmico está em carregarJev (${posicoes.length} encontrado(s))`);
 }
 
+console.log("strings: deploy nas listas de categorias da Fase 4 e dos docs (CA7)");
+{
+  const raizRepo = join(aqui, "..");
+  const ler = (relativo) => readFileSync(join(raizRepo, relativo), "utf8");
+  const fase4 = ler("skills/gm-spec/SKILL.md");
+  const doc = ler("docs/esteira-gm.md");
+  // O template quebra a linha no meio da lista: normaliza os espaços antes de procurar.
+  const template = ler("templates/CLAUDE.example.md").replace(/\s+/g, " ");
+  afirmar(fase4.includes("data, faturamento, deploy, migration"), "a Fase 4 lista as quatro categorias");
+  afirmar(doc.includes("dado, faturamento, deploy ou migration"), "docs/esteira-gm.md lista as quatro categorias");
+  afirmar(template.includes("(dado, faturamento, deploy, migration)"), "o template lista as quatro categorias");
+  for (const [nome, texto] of [["a Fase 4", fase4], ["docs/esteira-gm.md", doc], ["o template", template]]) {
+    for (const velha of ["data, faturamento rules or migrations", "(data, faturamento, migration)", "(dado, faturamento, migration)"]) {
+      afirmar(!texto.includes(velha), `${nome} não tem mais a lista de três: ${velha}`);
+    }
+  }
+}
+
 console.log(falhas === 0 ? "\ntudo certo" : `\n${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);

@@ -79,7 +79,8 @@ A mesma rota completa e os mesmos 5 gates da norma
    perguntar e como aprovar`, `## Convenções de saída` e `## Modo despachado` são carimbados de `skills/_comum/convencoes.md` por
    `node scripts/skills-comum.mjs`; a suíte relevante para a precondição 4 do `/gm-ship` é
    `node scripts/skills-comum.mjs --check`. Código `1` é **vermelho**: a PR não abre. Mudou um bloco?
-   Edite a fonte e rode o script sem `--check`; nunca a cópia.
+   Edite a fonte e rode o script sem `--check`; nunca a cópia. Mudou `skills/gm-spec/sensivel.mjs`?
+   A suíte inclui também `node scripts/gm-spec-sensivel-teste.mjs`; código `1` é **vermelho**.
 
    Mudou a tabela do `## Modo despachado` em `skills/_comum/convencoes.md`, o `hooks/jev.js`, ou um
    dos `scripts/classificar-parada.mjs`, `scripts/classificar-parada-teste.mjs` e
