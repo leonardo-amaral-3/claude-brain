@@ -374,6 +374,32 @@ const ambienteIsolado = () => {
     `(e) motivo de merge com o falso → escala true, porque "falso" (stdout ${JSON.stringify(e.stdout)})`,
   );
 
+  // (f) o mesmo `decidir` real, com um roteiro do falso do #42 (achado 5): a `escolha` e a `confianca`
+  // que o #42 devolve chegam inteiras, e o `indisponivel` dele vira "erro". Se o #42 renomear um
+  // campo ou mudar o retorno do `decidir`, é aqui que quebra, sem rede.
+  const textoDeProducao = CATEGORIAS.find((c) => c.id === "producao").texto;
+  const dirDoRoteiro = diretorioVazio();
+  const comRoteiro = (nome, padrao) => {
+    const arquivo = join(dirDoRoteiro, `${nome}.json`);
+    writeFileSync(arquivo, JSON.stringify({ padrao }));
+    return spawnSync(process.execPath, [script], {
+      input: "PARADA: o merge na main é do Leonardo.\n",
+      timeout: 4000,
+      encoding: "utf8",
+      env: { ...ambienteIsolado(), BRAIN_JEV: "parada", BRAIN_JEV_FALSO: arquivo },
+    });
+  };
+  const f1 = comRoteiro("producao", { escolha: textoDeProducao, confianca: 0.9 });
+  afirmar(
+    f1.status === 0 && f1.stdout === '{"estado":"classificada","categoria":"producao","probabilidade":0.9,"escala":true,"porque":"falso"}\n',
+    `(f) roteiro escolhe producao 0.9 → a escolha do #42 chega inteira (stdout ${JSON.stringify(f1.stdout)})`,
+  );
+  const f2 = comRoteiro("http", { indisponivel: "http" });
+  afirmar(
+    f2.status === 0 && f2.stdout === '{"estado":"sem-classificacao","categoria":null,"probabilidade":null,"escala":true,"porque":"erro"}\n',
+    `(f) roteiro indisponivel → sem-classificacao, "erro" (stdout ${JSON.stringify(f2.stdout)})`,
+  );
+
   const c = spawnSync(process.execPath, [script, "qualquer"], { input: "PARADA: x\n", timeout: 4000, encoding: "utf8", env: ambienteIsolado() });
   afirmar(c.status === 2 && c.stdout === "", "(c) um argumento → status 2 e stdout vazio");
 
