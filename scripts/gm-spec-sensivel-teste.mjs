@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const caminhoModulo = join(aqui, "..", "skills", "gm-spec", "sensivel.mjs");
-const { CATEGORIAS, PERGUNTAS, classificar, decidir, unir, montarLinha } = await import(pathToFileURL(caminhoModulo).href);
+const { CATEGORIAS, PERGUNTAS, carregarJev, classificar, decidir, unir, montarLinha } = await import(pathToFileURL(caminhoModulo).href);
 
 let falhas = 0;
 function afirmar(ok, msg) {
@@ -393,6 +393,81 @@ console.log("CLI: o script como processo, em diretório temporário e ambiente i
       afirmar(r.status === 0 && umaLinhaJson(r) !== null, "por link simbólico: roda o main (código 0, uma linha JSON)");
     }
   } finally {
+    rmSync(raiz, { recursive: true, force: true });
+  }
+}
+
+console.log("carregarJev: a fronteira com o contrato do #42, com um jev.js falso e sem rede");
+{
+  const raiz = mkdtempSync(join(tmpdir(), "gm-spec-fronteira-"));
+  try {
+    // Instala um `hooks/jev.js` falso numa CLAUDE_HOME temporária; `corpo` é o que ele exporta.
+    let contador = 0;
+    const instalar = (corpo) => {
+      const casa = join(raiz, `casa-${++contador}`);
+      mkdirSync(join(casa, "hooks"), { recursive: true });
+      writeFileSync(join(casa, "hooks", "jev.js"), corpo);
+      return casa;
+    };
+    const respostaFalsa = (resposta) => `
+      // Uma lista de chamadas por instalação (a pasta do módulo): vários falsos convivem no mesmo processo.
+      const chamadas = ((globalThis.__chamadasJev ??= {})[__dirname] = []);
+      module.exports = {
+        MAX_ESTADO: 50,
+        decidir: async (estado, perguntas, opcoes) => { chamadas.push({ estado, perguntas, opcoes }); return { sensivel: ${JSON.stringify(resposta)} }; },
+      };`;
+
+    // R1: sem cliente na instalação → null. Quebrado ou fora da forma → null, sem lançar.
+    afirmar((await carregarJev({ claudeHome: join(raiz, "vazia") })) === null, "R1: sem hooks/jev.js → null");
+    afirmar((await carregarJev({ claudeHome: instalar("throw new Error('quebrado');") })) === null, "R1: módulo que lança ao carregar → null");
+    afirmar((await carregarJev({ claudeHome: instalar("module.exports = { MAX_ESTADO: 10 };") })) === null, "R1: sem decidir → null");
+    afirmar((await carregarJev({ claudeHome: instalar("module.exports = { decidir: async () => ({}) };") })) === null, "R1: sem MAX_ESTADO → null");
+
+    // R1 + origem: o caminho vem da CLAUDE_HOME dada, e o `cliente` da saída é ele.
+    const casaOk = instalar(respostaFalsa({ estado: "ok", tipo: "noul", sim: false, probabilidade: 0.05 }));
+    const jev = await carregarJev({ claudeHome: casaOk });
+    afirmar(jev?.origem === join(casaOk, "hooks", "jev.js"), "R1: origem é o hooks/jev.js da instalação");
+
+    // R2: a pergunta vai por `decidir`, com o texto inteiro como estado e o uso `spec`; P(sim) vira sim/nao.
+    const resposta = await jev.perguntar("A spec toca dado?", "texto da spec");
+    afirmar(resposta.estado === "ok" && resposta.resposta === "nao" && Math.abs(resposta.confianca - 0.95) < 1e-9, "R2: P(sim) = 0,05 → nao com confiança 0,95");
+    const chamadasDoOk = globalThis.__chamadasJev[join(casaOk, "hooks")];
+    const chamada = chamadasDoOk[0];
+    afirmar(chamada.estado === "texto da spec" && chamada.opcoes.uso === "spec", "o texto vai inteiro como estado, com o uso spec");
+    afirmar(igual(chamada.perguntas, { sensivel: { tipo: "noul", instrucao: "A spec toca dado?" } }), "a pergunta é uma noul com a instrução dada");
+    afirmar(chamada.opcoes.timeoutMs === 20000, "orçamento: timeoutMs = ORCAMENTO_MS");
+
+    const comP = async (probabilidade) => (await carregarJev({ claudeHome: instalar(respostaFalsa({ estado: "ok", tipo: "noul", sim: probabilidade >= 0.5, probabilidade })) })).perguntar("p", "t");
+    const casos = [[0.5, "sim", 0.5], [0.7, "sim", 0.7], [0.3, "nao", 0.7], [0, "nao", 1], [1, "sim", 1]];
+    for (const [p, esperada, confianca] of casos) {
+      const r = await comP(p);
+      afirmar(r.resposta === esperada && Math.abs(r.confianca - confianca) < 1e-9, `R2: P(sim) = ${p} → ${esperada}, confiança ${confianca}`);
+    }
+
+    // Indisponível mantém o motivo do cliente (e o detalhe, que o contrato garante sem segredo).
+    const semChave = await (await carregarJev({ claudeHome: instalar(respostaFalsa({ estado: "indisponivel", motivo: "sem_chave" })) })).perguntar("p", "t");
+    afirmar(igual(semChave, { estado: "indisponivel", motivo: "sem_chave" }), "indisponível do cliente → o motivo dele");
+    const http = await (await carregarJev({ claudeHome: instalar(respostaFalsa({ estado: "indisponivel", motivo: "http", detalhe: "429" })) })).perguntar("p", "t");
+    afirmar(igual(http, { estado: "indisponivel", motivo: "http (429)" }), "indisponível com detalhe → motivo (detalhe)");
+
+    // Resposta fora do contrato nunca vira "nao" por acidente.
+    for (const [rotulo, ruim] of [["probabilidade NaN", { estado: "ok", tipo: "noul", probabilidade: NaN }], ["probabilidade 1,5", { estado: "ok", tipo: "noul", probabilidade: 1.5 }], ["tipo escolha", { estado: "ok", tipo: "escolha", probabilidade: 0.1 }], ["ausente", undefined]]) {
+      const r = await (await carregarJev({ claudeHome: instalar(respostaFalsa(ruim)) })).perguntar("p", "t");
+      afirmar(r.estado === "indisponivel" && r.motivo === "resposta inválida", `resposta fora do contrato (${rotulo}) → resposta inválida`);
+    }
+
+    // R4: cabe mede o JSON.stringify do texto contra MAX_ESTADO (50 no falso); as aspas contam.
+    afirmar(jev.cabe("x".repeat(48)) === true && jev.cabe("x".repeat(49)) === false, "R4: cabe conta o texto com as aspas do JSON");
+    afirmar(jev.cabe("\n".repeat(24)) === true && jev.cabe("\n".repeat(25)) === false, "R4: cabe conta o escape de cada quebra de linha");
+
+    // Ponta a ponta com classificar: spec grande não pergunta; spec pequena passa pelas quatro.
+    const grande = await classificar({ texto: "x".repeat(60), carregar: () => carregarJev({ claudeHome: casaOk }) });
+    afirmar(CATEGORIAS.every((c) => grande.jev[c].motivo === "spec maior que o limite do cliente") && grande.cliente === join(casaOk, "hooks", "jev.js"), "classificar: spec acima do MAX_ESTADO → maior que o limite, sem perguntar");
+    chamadasDoOk.length = 0;
+    const pequena = await classificar({ texto: "spec curta", carregar: () => carregarJev({ claudeHome: casaOk }) });
+    afirmar(CATEGORIAS.every((c) => igual(pequena.jev[c], nao(0.95))) && chamadasDoOk.length === 4, "classificar: spec que cabe → quatro perguntas, quatro nao 0,95");
+  } finally {
+    delete globalThis.__chamadasJev;
     rmSync(raiz, { recursive: true, force: true });
   }
 }

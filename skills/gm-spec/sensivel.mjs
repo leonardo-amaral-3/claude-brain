@@ -17,10 +17,10 @@
 // Saída: uma linha JSON no stdout, código 0 com qualquer veredito; código 2 é erro de uso ou de
 // ambiente (a mensagem em pt-BR vai ao stderr); qualquer outro código é falha do script.
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const CATEGORIAS = ["dado", "faturamento", "deploy", "migration"];
 export const LIMIAR = 0.9; // confiança mínima de um "não" do Jev; cofre #1393
@@ -64,9 +64,52 @@ export function claudeHomePadrao() {
 
 // A fronteira com o cliente do Jev do #42: a única função que o conhece. Nunca lança; devolve o
 // cliente adaptado à forma `Jev` ou `null`.
-export async function carregarJev() {
-  // ligado ao contrato do #42 na task da fronteira
-  return null;
+//
+// O contrato (planning/42-filtro-jev/spec.md, § "Contrato do cliente do Jev (estável)"), ponto a ponto:
+//  - R1: o cliente é `<CLAUDE_HOME>/hooks/jev.js`, um módulo CommonJS sem dependência. O caminho vem da
+//    instalação, nunca da posição deste script no repo; ausente ou quebrado → `null`.
+//  - R2: usa `decidir` com uma pergunta `noul`, cuja `probabilidade` é P(sim). O limiar de decisão é
+//    de quem chama: `sim` quando p >= 0,5 e `confianca = max(p, 1 - p)`.
+//  - R3: flag (`BRAIN_JEV` com o uso `spec`) e chave (`TYPESAFE_API_KEY`) são do cliente, que responde
+//    `indisponivel`; aqui não se lê nenhuma das duas.
+//  - R4: `decidir` não trunca o estado, mas o recusa (`entrada_invalida`) acima de `MAX_ESTADO`
+//    caracteres do `JSON.stringify`. `julgar` cortaria o texto em `MAX_TEXTO` (4000) sem recusar, e uma
+//    spec é maior que isso: por isso não é ele. `cabe` mede o mesmo que o cliente mede.
+//  - Orçamento: o cliente aceita `timeoutMs` por chamada e o recebe como `ORCAMENTO_MS`.
+export async function carregarJev({ claudeHome = claudeHomePadrao() } = {}) {
+  try {
+    const caminho = join(claudeHome, "hooks", "jev.js");
+    if (!existsSync(caminho)) return null;
+    const modulo = await import(pathToFileURL(caminho).href);
+    // CommonJS: o `module.exports` inteiro vem em `default`.
+    const cliente = modulo.default ?? modulo;
+    if (typeof cliente?.decidir !== "function" || !Number.isInteger(cliente.MAX_ESTADO)) return null;
+    const maximoDoEstado = cliente.MAX_ESTADO;
+    return {
+      origem: caminho,
+      cabe: (texto) => JSON.stringify(texto).length <= maximoDoEstado,
+      perguntar: async (pergunta, texto) => {
+        const respostas = await cliente.decidir(
+          texto,
+          { sensivel: { tipo: "noul", instrucao: pergunta } },
+          { uso: "spec", timeoutMs: ORCAMENTO_MS },
+        );
+        const resposta = respostas?.sensivel;
+        if (resposta?.estado === "indisponivel") {
+          // `detalhe` é um status HTTP ou uma frase curta; o contrato garante que nunca traz chave nem corpo.
+          const detalhe = typeof resposta.detalhe === "string" ? ` (${resposta.detalhe})` : "";
+          return { estado: "indisponivel", motivo: `${resposta.motivo}${detalhe}` };
+        }
+        const p = resposta?.probabilidade;
+        if (resposta?.estado === "ok" && resposta.tipo === "noul" && Number.isFinite(p) && p >= 0 && p <= 1) {
+          return { estado: "ok", resposta: p >= 0.5 ? "sim" : "nao", confianca: Math.max(p, 1 - p) };
+        }
+        return { estado: "indisponivel", motivo: "resposta inválida" };
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Aceita só a forma do contrato; qualquer outra coisa vira "indisponível", nunca um "nao" por acidente.
