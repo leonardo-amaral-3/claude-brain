@@ -7,9 +7,10 @@
 // sensível. O Jev só acrescenta exigência, nunca dispensa o que o autor marcou (cofre #1375, #1404,
 // #1405).
 //
-// Este arquivo traz a parte pura: constantes, normalização da resposta do Jev, a regra de decisão, a
-// união com rodadas anteriores e o texto da linha de registro. Não faz rede nem processo por conta
-// própria; o único contato com o cliente do Jev é `carregarJev`.
+// Este arquivo traz as constantes, a normalização da resposta do Jev, a classificação (as quatro
+// perguntas ao cliente), a regra de decisão, a união com rodadas anteriores e o texto da linha de
+// registro. Não faz rede nem processo por conta própria; o único contato com o cliente do Jev é
+// `carregarJev`.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -75,6 +76,95 @@ export function normalizar(bruta) {
     }
   }
   return { estado: "indisponivel", motivo: "resposta inválida" };
+}
+
+// O `process.stdout.write` original, guardado no carregamento do módulo: enquanto `classificar` roda,
+// o stdout aponta para o stderr, e é por este que o CLI escreve a única linha de saída (task 3).
+export const escreverNoStdoutOriginal = process.stdout.write.bind(process.stdout);
+
+const MOTIVO_SEM_OPT_IN = "envio de spec ao Jev não autorizado nesta máquina";
+
+const nomeDoErro = (erro) => (typeof erro?.name === "string" && erro.name !== "" ? erro.name : "desconhecido");
+
+// Enquanto o cliente roda, nada dele pode chegar ao stdout: a saída do script é uma linha JSON e um
+// `console.log` do cliente a corromperia. `console.*` e `process.stdout.write` passam a escrever no
+// stderr; o stderr é resolvido a cada chamada, não aqui. Devolve a função que desfaz.
+function desviarStdoutParaStderr() {
+  const gravados = {
+    write: process.stdout.write,
+    log: console.log,
+    info: console.info,
+    debug: console.debug,
+  };
+  const paraStderr = (...argumentos) => process.stderr.write(argumentos.join(" ") + "\n");
+  process.stdout.write = (pedaco, ...resto) => process.stderr.write(pedaco, ...resto);
+  console.log = console.info = console.debug = paraStderr;
+  return () => {
+    process.stdout.write = gravados.write;
+    console.log = gravados.log;
+    console.info = gravados.info;
+    console.debug = gravados.debug;
+  };
+}
+
+// Faz as quatro perguntas ao Jev e devolve uma resposta por categoria; nunca lança. Um único
+// temporizador de `orcamentoMs` cobre carregar o cliente e as quatro perguntas (o hook que o #42
+// serve tem teto próprio e o /gm-spec não espera indefinidamente). O `texto` vai inteiro e sem
+// alteração a cada pergunta: truncar calado esconderia justamente o trecho que torna a spec sensível.
+/** @returns {Promise<{jev: Record<string, RespostaJev>, cliente: string|null}>} */
+export async function classificar({ texto, carregar = carregarJev, optIn, orcamentoMs = ORCAMENTO_MS }) {
+  const nasQuatro = (motivo) =>
+    Object.fromEntries(CATEGORIAS.map((c) => [c, { estado: "indisponivel", motivo }]));
+
+  // Sem autorização para mandar spec, o cliente nem é carregado.
+  if (optIn === false) return { jev: nasQuatro(MOTIVO_SEM_OPT_IN), cliente: null };
+
+  const ESGOTOU = Symbol("esgotou");
+  let temporizador;
+  const esgotou = new Promise((resolver) => {
+    temporizador = setTimeout(() => resolver(ESGOTOU), orcamentoMs);
+  });
+  const desfazerDesvio = desviarStdoutParaStderr();
+  try {
+    let jev;
+    try {
+      jev = await Promise.race([Promise.resolve().then(() => carregar()), esgotou]);
+    } catch (erro) {
+      return { jev: nasQuatro(`erro ao carregar o cliente (${nomeDoErro(erro)})`), cliente: null };
+    }
+    if (jev === ESGOTOU) return { jev: nasQuatro("tempo esgotado ao carregar o cliente"), cliente: null };
+    if (jev === null || jev === undefined) return { jev: nasQuatro("cliente do Jev não encontrado"), cliente: null };
+    const cliente = typeof jev.origem === "string" ? jev.origem : null;
+
+    try {
+      if (typeof jev.cabe === "function" && jev.cabe(texto) === false) {
+        return { jev: nasQuatro("spec maior que o limite do cliente"), cliente };
+      }
+    } catch (erro) {
+      return { jev: nasQuatro(`erro do cliente (${nomeDoErro(erro)})`), cliente };
+    }
+
+    const respostas = await Promise.all(
+      CATEGORIAS.map(async (categoria) => {
+        try {
+          // `.then` faz um throw síncrono de `perguntar` virar rejeição.
+          const bruta = await Promise.race([
+            Promise.resolve().then(() => jev.perguntar(PERGUNTAS[categoria], texto)),
+            esgotou,
+          ]);
+          if (bruta === ESGOTOU) return [categoria, { estado: "indisponivel", motivo: "tempo esgotado" }];
+          return [categoria, normalizar(bruta)];
+        } catch (erro) {
+          // Só o `name`: a `message` pode trazer chave de API ou trecho do corpus para um card público.
+          return [categoria, { estado: "indisponivel", motivo: `erro do cliente (${nomeDoErro(erro)})` }];
+        }
+      }),
+    );
+    return { jev: Object.fromEntries(respostas), cliente };
+  } finally {
+    clearTimeout(temporizador);
+    desfazerDesvio();
+  }
 }
 
 // Ordena e deduplica motivos pela ordem fixa de MOTIVOS.

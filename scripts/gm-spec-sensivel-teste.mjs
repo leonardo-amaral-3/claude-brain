@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const caminhoModulo = join(aqui, "..", "skills", "gm-spec", "sensivel.mjs");
-const { CATEGORIAS, decidir, unir, montarLinha } = await import(pathToFileURL(caminhoModulo).href);
+const { CATEGORIAS, PERGUNTAS, classificar, decidir, unir, montarLinha } = await import(pathToFileURL(caminhoModulo).href);
 
 let falhas = 0;
 function afirmar(ok, msg) {
@@ -114,6 +114,157 @@ console.log("unir: o veredito só cresce");
 
   r = unir({ dado: { motivos: ["autor"] } }, vazio);
   afirmar(igual(r.uniao.dado, ["autor"]), "aceita também a forma { categoria: { motivos } } do decidir");
+}
+
+console.log("classificar: sempre com Jev falso, sem rede (CA1, CA4, CA5, CA10)");
+{
+  // Texto inócuo e com bytes que um truncamento ou uma reencodificação estragariam.
+  const texto = "# Spec de teste\n\nUma mudança qualquer, sem dado de ninguém. ção — 日本 😀\n".repeat(50);
+  const quatro = (r, motivo) => CATEGORIAS.every((c) => r.jev[c].estado === "indisponivel" && r.jev[c].motivo === motivo);
+  const jevFalso = (extra = {}) => ({ origem: "/falso/jev.mjs", perguntar: async () => nao(0.95), ...extra });
+  const com = (jev) => async () => jev;
+
+  // Captura stdout e stderr enquanto `fn` roda; devolve o que cada um recebeu.
+  async function capturando(fn) {
+    const escritaOut = process.stdout.write;
+    const escritaErr = process.stderr.write;
+    const saida = { stdout: "", stderr: "" };
+    process.stdout.write = (pedaco) => ((saida.stdout += String(pedaco)), true);
+    process.stderr.write = (pedaco) => ((saida.stderr += String(pedaco)), true);
+    try {
+      saida.resultado = await fn();
+    } finally {
+      process.stdout.write = escritaOut;
+      process.stderr.write = escritaErr;
+    }
+    return saida;
+  }
+
+  // O Jev falso grava cada chamada: as quatro PERGUNTAS, e o texto byte a byte.
+  {
+    const chamadas = [];
+    const jev = jevFalso({ perguntar: async (pergunta, trecho) => (chamadas.push({ pergunta, trecho }), nao(0.95)) });
+    const r = await classificar({ texto, carregar: com(jev), optIn: true });
+    afirmar(chamadas.length === 4, "o Jev recebe exatamente quatro perguntas");
+    afirmar(igual(chamadas.map((x) => x.pergunta).sort(), Object.values(PERGUNTAS).sort()), "as perguntas são as quatro de PERGUNTAS");
+    afirmar(chamadas.every((x) => x.trecho === texto), "o trecho de cada chamada é igual, byte a byte, ao texto");
+    afirmar(CATEGORIAS.every((c) => igual(r.jev[c], nao(0.95))) && r.cliente === "/falso/jev.mjs", "as respostas válidas passam normalizadas e o cliente é a origem");
+    afirmar(igual(r.jev.dado, nao(0.95)) && PERGUNTAS.dado === chamadas.find((x) => x.pergunta === PERGUNTAS.dado)?.pergunta, "cada resposta fica na categoria da sua pergunta");
+  }
+
+  // Cada pergunta volta na categoria certa mesmo com respostas diferentes.
+  {
+    const porPergunta = new Map([[PERGUNTAS.dado, sim(0.7)], [PERGUNTAS.faturamento, nao(0.95)], [PERGUNTAS.deploy, nao(0.5)], [PERGUNTAS.migration, sim(0.99)]]);
+    const r = await classificar({ texto, carregar: com(jevFalso({ perguntar: async (p) => porPergunta.get(p) })), optIn: true });
+    afirmar(CATEGORIAS.every((c) => igual(r.jev[c], porPergunta.get(PERGUNTAS[c]))), "resposta de cada pergunta cai na sua categoria");
+  }
+
+  // CA10: sem opt-in, carregar nunca é chamado.
+  {
+    let chamado = 0;
+    const r = await classificar({ texto, carregar: async () => (chamado++, jevFalso()), optIn: false });
+    afirmar(chamado === 0, "optIn false → carregar não é chamado");
+    afirmar(quatro(r, "envio de spec ao Jev não autorizado nesta máquina") && r.cliente === null, "optIn false → quatro indisponíveis com o motivo do opt-in");
+  }
+
+  // CA4: sem cliente.
+  {
+    const r = await classificar({ texto, carregar: async () => null, optIn: true });
+    afirmar(quatro(r, "cliente do Jev não encontrado") && r.cliente === null, "carregar devolve null → cliente do Jev não encontrado");
+  }
+
+  // CA5: carregar que nunca resolve; o teste termina porque o temporizador é limpo.
+  {
+    const inicio = Date.now();
+    const r = await classificar({ texto, carregar: () => new Promise(() => {}), optIn: true, orcamentoMs: 50 });
+    afirmar(quatro(r, "tempo esgotado ao carregar o cliente"), "carregar que nunca resolve → tempo esgotado ao carregar o cliente");
+    afirmar(Date.now() - inicio < 2000, "o orçamento de 50 ms corta a espera");
+  }
+
+  // carregar que rejeita (carregarJev nunca lança, mas um falso pode): continua fail-closed.
+  {
+    const r = await classificar({ texto, carregar: async () => { throw new TypeError("sk-segredo"); }, optIn: true });
+    afirmar(quatro(r, "erro ao carregar o cliente (TypeError)"), "carregar que rejeita → só o name do erro");
+  }
+
+  // perguntar que lança síncrono e que rejeita com segredo na message: só o name, nunca a message.
+  {
+    const sincrono = jevFalso({ perguntar: () => { throw new Error("sk-segredo"); } });
+    let r = await classificar({ texto, carregar: com(sincrono), optIn: true });
+    afirmar(quatro(r, "erro do cliente (Error)"), "perguntar que lança síncrono → erro do cliente (Error)");
+    afirmar(!JSON.stringify(r).includes("sk-segredo"), "throw síncrono: a message não vaza");
+
+    const rejeita = jevFalso({ perguntar: async () => { throw new RangeError("sk-segredo"); } });
+    r = await classificar({ texto, carregar: com(rejeita), optIn: true });
+    afirmar(quatro(r, "erro do cliente (RangeError)") && !JSON.stringify(r).includes("sk-segredo"), "perguntar que rejeita com message sensível → só o name, sem vazar");
+
+    const rejeitaGenerico = jevFalso({ perguntar: async () => { throw new Error("sk-segredo"); } });
+    r = await classificar({ texto, carregar: com(rejeitaGenerico), optIn: true });
+    afirmar(quatro(r, "erro do cliente (Error)") && !JSON.stringify(r).includes("sk-segredo"), "rejeição com Error e sk-segredo na message → erro do cliente (Error), sem vazar");
+
+    const rejeitaString = jevFalso({ perguntar: async () => { throw "sk-segredo"; } });
+    r = await classificar({ texto, carregar: com(rejeitaString), optIn: true });
+    afirmar(quatro(r, "erro do cliente (desconhecido)") && !JSON.stringify(r).includes("sk-segredo"), "rejeição que não é Error → nome desconhecido, sem vazar");
+  }
+
+  // perguntar que nunca resolve.
+  {
+    const r = await classificar({ texto, carregar: com(jevFalso({ perguntar: () => new Promise(() => {}) })), optIn: true, orcamentoMs: 50 });
+    afirmar(quatro(r, "tempo esgotado") && r.cliente === "/falso/jev.mjs", "perguntar que nunca resolve → tempo esgotado");
+  }
+
+  // Resposta fora do contrato.
+  {
+    const respostas = new Map([[PERGUNTAS.dado, { resposta: "talvez" }], [PERGUNTAS.faturamento, { estado: "ok", resposta: "nao", confianca: 1.5 }], [PERGUNTAS.deploy, undefined], [PERGUNTAS.migration, { estado: "ok", resposta: "sim", confianca: NaN }]]);
+    const r = await classificar({ texto, carregar: com(jevFalso({ perguntar: async (p) => respostas.get(p) })), optIn: true });
+    afirmar(quatro(r, "resposta inválida"), "talvez, confiança 1,5, undefined e NaN → resposta inválida");
+  }
+
+  // O Jev que se diz indisponível passa o próprio motivo.
+  {
+    const r = await classificar({ texto, carregar: com(jevFalso({ perguntar: async () => ({ estado: "indisponivel", motivo: "sem chave" }) })), optIn: true });
+    afirmar(quatro(r, "sem chave"), "resposta indisponivel do cliente mantém o motivo dele");
+  }
+
+  // Limite do cliente: não pergunta e não trunca.
+  {
+    let perguntou = 0;
+    let recebido;
+    const jev = jevFalso({ cabe: (t) => ((recebido = t), false), perguntar: async () => (perguntou++, nao(0.95)) });
+    const r = await classificar({ texto, carregar: com(jev), optIn: true });
+    afirmar(quatro(r, "spec maior que o limite do cliente") && perguntou === 0, "cabe false → spec maior que o limite do cliente, perguntar não chamado");
+    afirmar(recebido === texto, "cabe recebe o texto inteiro");
+    afirmar(r.cliente === "/falso/jev.mjs", "o cliente sai mesmo quando a spec não cabe");
+
+    const cabendo = jevFalso({ cabe: () => true });
+    const r2 = await classificar({ texto, carregar: com(cabendo), optIn: true });
+    afirmar(CATEGORIAS.every((c) => r2.jev[c].estado === "ok"), "cabe true → pergunta normalmente");
+  }
+
+  // Saída limpa: o que o cliente imprime vai ao stderr, e os métodos voltam ao normal depois.
+  {
+    const escritaOriginal = process.stdout.write;
+    const logOriginal = console.log;
+    const jev = jevFalso({
+      perguntar: async () => {
+        console.log("log-do-cliente");
+        console.info("info-do-cliente");
+        console.debug("debug-do-cliente");
+        process.stdout.write("escrita-do-cliente\n");
+        return nao(0.95);
+      },
+    });
+    const capturado = await capturando(() => classificar({ texto, carregar: com(jev), optIn: true }));
+    afirmar(capturado.stdout === "", "nada do que o cliente imprime chega ao stdout");
+    afirmar(["log-do-cliente", "info-do-cliente", "debug-do-cliente", "escrita-do-cliente"].every((t) => capturado.stderr.includes(t)), "tudo isso vai ao stderr");
+    afirmar(CATEGORIAS.every((c) => capturado.resultado.jev[c].estado === "ok"), "a classificação segue normal");
+    afirmar(process.stdout.write === escritaOriginal && console.log === logOriginal, "stdout.write e console.log voltam ao que eram");
+
+    // Também restaura quando o cliente falha.
+    const falha = jevFalso({ perguntar: async () => { throw new Error("x"); } });
+    await capturando(() => classificar({ texto, carregar: com(falha), optIn: true }));
+    afirmar(process.stdout.write === escritaOriginal && console.log === logOriginal, "restaura também quando o cliente falha");
+  }
 }
 
 console.log("estático: um cliente só, sem rede nem processo (CA6)");
