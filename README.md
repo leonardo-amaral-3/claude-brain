@@ -305,13 +305,14 @@ que recompilar.
 claude-brain/
 ├── brain-mcp/                  servidor MCP (TypeScript)
 │   ├── src/                    index, tools, indexer, search, grafo, memoria, lease, syncs de git/GitHub
-│   ├── scripts/                smoke, concorrencia, eval + colher-golden (golden set), uso, injecao
+│   ├── scripts/                smoke, concorrencia, eval + colher-golden (golden set), uso, injecao, jev
 │   └── brain.config.example.json
 ├── skills/                     15 skills → ~/.claude/skills/
 │   └── _comum/                 fonte dos blocos comuns, carimbada por scripts/skills-comum.mjs
 ├── scripts/                    skills-comum.mjs — carimba e checa os blocos comuns das skills
-├── hooks/                      7 arquivos → ~/.claude/hooks/
+├── hooks/                      8 arquivos → ~/.claude/hooks/
 │   ├── brain-config.js         lê o brain-workspaces.json (compartilhado pelos outros)
+│   ├── jev.js                  cliente do Jev (TypeSafe AI); cada uso liga em BRAIN_JEV
 │   ├── brain-briefing.js       SessionStart: injeta o briefing
 │   ├── brain-contexto.js       UserPromptSubmit: injeta o contexto do prompt
 │   ├── obsidian-diario.js      SessionEnd: escreve a nota (em milissegundos)
