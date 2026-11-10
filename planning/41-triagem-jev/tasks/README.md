@@ -42,11 +42,12 @@ blocos das anteriores continuam verdes.
   (cofre #1424).
 - Estado "ligado" só pelo falso (`BRAIN_JEV_FALSO`). Nenhuma task define `TYPESAFE_API_KEY` nem chama a
   API de verdade.
-- **Ressalva do contrato (repasse da dona do #42):** com `BRAIN_JEV_FALSO` definida, o falso responde
-  antes da validação das perguntas (o passo 3 da ordem de decisão vem antes do 5). Teste que espera
-  `entrada_invalida` do `hooks/jev.js` real não pode depender do falso ligado. Nenhum caso do
-  `## Plano de testes` espera isso: o `{}` de "resposta inválida" sai do falso **em processo** do teste
-  (task 2).
+- **Ressalva do contrato (repasse da dona do #42), revista em 2026-11-10 pela emenda 2 do #42**
+  (cofre #1502): a ordem de decisão agora é uso inválido → desligado → validação da entrada → falso →
+  `sem_chave` → real. Com `BRAIN_JEV_FALSO` definida, entrada torta volta `entrada_invalida`, igual ao
+  real; antes da emenda, o falso respondia antes da validação. Nenhum caso do `## Plano de testes`
+  depende de nenhuma das duas ordens: o `{}` de "resposta inválida" sai do falso **em processo** do
+  teste (task 2). A suíte passou com o `hooks/jev.js` da emenda 2 (cofre #1512).
 - A instalação viva (`~/.claude`, `~/notoria/claude/brain-mcp`) é **só leitura**: nada de `sync.sh push`
   nem de escrita lá. O teste isola o `CLAUDE_CONFIG_DIR` numa pasta temporária.
 
