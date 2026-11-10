@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: Núcleo puro do classificador (lista, entrada e guarda da tabela)
 
