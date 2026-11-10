@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: o handler do `search_context` chama `rotear`, a linha de boot e os casos de integração
 

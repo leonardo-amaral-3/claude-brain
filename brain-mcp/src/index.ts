@@ -13,6 +13,7 @@ import { Lease } from "./lease.js";
 import { aquecer } from "./embeddings.js";
 import { preencherVetoresDeDecisoes } from "./memoria.js";
 import { registerTools } from "./tools.js";
+import { roteadorLigado } from "./roteador.js";
 
 const config = loadConfig();
 const db = openDb(dbPath);
@@ -64,6 +65,19 @@ if (SOMENTE_CONSULTA) {
   console.error(
     `[brain] boot (seguidor): índice mantido pelo pid ${d?.pid} — esta sessão só consulta`
   );
+}
+
+// Só informativa: a decisão de rotear é de cada chamada (`BRAIN_JEV` é lido na hora).
+if (roteadorLigado()) {
+  if (process.env.BRAIN_JEV_FALSO === undefined) {
+    console.error(
+      "[brain] roteador de source pedido (roteador em BRAIN_JEV): com TYPESAFE_API_KEY, a query das buscas sem source vai ao Jev"
+    );
+  } else {
+    console.error(
+      "[brain] roteador de source com o Jev FALSO (BRAIN_JEV_FALSO): as buscas sem source seguem o roteiro do falso, sem rede"
+    );
+  }
 }
 
 // Sem nome no config, a instrucao fala do "produto" e pronto: e melhor generico do que citar
