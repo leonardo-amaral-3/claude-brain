@@ -259,13 +259,18 @@ const filtrarComJev = async (alvo, cands) => {
     const jev = require('./jev.js');
     if (!jev.ligado('contexto')) return null;
     const limiar = limiarJev();
+    // Candidato sem texto nao vai ao Jev (emenda 3 da spec do #42): o cliente o recusaria com
+    // `entrada_invalida`, e isso abandonaria o filtro do prompt inteiro. Ele so fica fora do bloco
+    // filtrado. Acontece porque o piso de tokens tambem le o breadcrumb.
+    const enviados = cands.filter((r) => String(r.full_text || '') !== '');
+    if (!enviados.length) return { passaram: [], enviados: 0, limiar };
     const prazo = new Promise((r) => {
       timer = setTimeout(() => r(null), PRAZO_HOOK_JEV);
     });
     const vs = await Promise.race([
       jev.julgar(
         alvo,
-        cands.map((r) => ({
+        enviados.map((r) => ({
           id: String(r.path),
           texto: String(r.full_text || ''),
           titulo: r.breadcrumb || '',
@@ -275,13 +280,13 @@ const filtrarComJev = async (alvo, cands) => {
       ),
       prazo,
     ]);
-    if (!Array.isArray(vs) || vs.length !== cands.length || vs.some((v) => !v || v.estado !== 'ok')) return null;
+    if (!Array.isArray(vs) || vs.length !== enviados.length || vs.some((v) => !v || v.estado !== 'ok')) return null;
     if (DEBUG) {
       vs.forEach((v, i) =>
-        process.stderr.write('[brain-contexto] jev ' + (i + 1) + ' ' + v.probabilidade + ' ' + cands[i].path + '\n')
+        process.stderr.write('[brain-contexto] jev ' + (i + 1) + ' ' + v.probabilidade + ' ' + enviados[i].path + '\n')
       );
     }
-    return { passaram: cands.filter((_, i) => vs[i].probabilidade >= limiar), enviados: cands.length, limiar };
+    return { passaram: enviados.filter((_, i) => vs[i].probabilidade >= limiar), enviados: enviados.length, limiar };
   } catch (e) {
     if (DEBUG) process.stderr.write('[brain-contexto] jev ' + (e && e.stack ? e.stack : e) + '\n');
     return null;
