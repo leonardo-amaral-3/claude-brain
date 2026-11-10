@@ -2,7 +2,10 @@
 // Testa skills/gm-spec/sensivel.mjs sem rede e sem framework (padrão de skills-comum-teste.mjs).
 // Uso: node scripts/gm-spec-sensivel-teste.mjs
 // Sai 0 se todos os cenários passam, 1 se algum falha.
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -264,6 +267,133 @@ console.log("classificar: sempre com Jev falso, sem rede (CA1, CA4, CA5, CA10)")
     const falha = jevFalso({ perguntar: async () => { throw new Error("x"); } });
     await capturando(() => classificar({ texto, carregar: com(falha), optIn: true }));
     afirmar(process.stdout.write === escritaOriginal && console.log === logOriginal, "restaura também quando o cliente falha");
+  }
+}
+
+console.log("CLI: o script como processo, em diretório temporário e ambiente isolado");
+{
+  const AUTOR_NAO = "dado=nao,faturamento=nao,deploy=nao,migration=nao";
+  const LINHA_FIXA = "Spec sensível: sim — Jev indisponível (as quatro)";
+  const raiz = mkdtempSync(join(tmpdir(), "gm-spec-sensivel-"));
+  try {
+    // Só o sensivel.mjs é copiado: sem cliente do Jev por perto, e o ambiente sem HOME real.
+    const casa = join(raiz, "casa");
+    const pasta = join(casa, "p");
+    mkdirSync(pasta, { recursive: true });
+    const script = join(casa, "sensivel.mjs");
+    copyFileSync(caminhoModulo, script);
+    const ambiente = { PATH: process.env.PATH, HOME: casa, CLAUDE_CONFIG_DIR: casa };
+    const specFixture = "# Spec de exemplo\n\nAjusta o texto de uma mensagem de ajuda da interface.\n";
+    const caminhoSpec = join(pasta, "spec.md");
+    const registroDe = (dir = pasta) => join(dir, "sensibilidade.json");
+    const rodar = (argumentos, executavel = script) =>
+      spawnSync(process.execPath, [executavel, ...argumentos], { env: ambiente, encoding: "utf8", timeout: 30000 });
+    const umaLinhaJson = (r) => {
+      const linhas = r.stdout.split("\n").filter((l) => l !== "");
+      if (linhas.length !== 1) return null;
+      try { return JSON.parse(linhas[0]); } catch { return null; }
+    };
+    writeFileSync(caminhoSpec, specFixture);
+
+    // Sem opt-in: nada vai ao Jev, as quatro ficam indisponíveis e a spec é sensível.
+    {
+      const r = rodar(["--spec", caminhoSpec, "--autor", AUTOR_NAO]);
+      const saida = umaLinhaJson(r);
+      afirmar(r.status === 0 && saida !== null, "sem opt-in: código 0 e uma linha JSON");
+      afirmar(saida?.sensivel === true && saida.linha === LINHA_FIXA, "sem opt-in: sensível, com a linha fixa");
+      afirmar(saida?.optIn === false && saida.cliente === null, "sem opt-in: optIn false, cliente null");
+      afirmar(saida?.sha256 === createHash("sha256").update(specFixture).digest("hex") && saida.bytes === Buffer.byteLength(specFixture), "sha256 e bytes são os do arquivo");
+      afirmar(CATEGORIAS.every((c) => saida?.categorias[c].jev.motivo === "envio de spec ao Jev não autorizado nesta máquina"), "o motivo do Jev é o do opt-in, nas quatro");
+      afirmar(igual(saida?.motivos, ["jev-indisponivel"]) && igual(saida?.novos, []) && saida?.limiar === 0.9, "motivos, novos e limiar");
+      const registro = JSON.parse(readFileSync(registroDe(), "utf8"));
+      afirmar(registro.rodadas.length === 1 && registro.rodadas[0].sha256 === saida?.sha256, "sensibilidade.json nasce com uma rodada");
+      afirmar(CATEGORIAS.every((c) => igual(registro.uniao[c], ["jev-indisponivel"])), "a união do registro tem jev-indisponivel nas quatro");
+      afirmar(!readFileSync(registroDe(), "utf8").includes("Ajusta o texto"), "nenhum texto da spec vai para o registro");
+    }
+
+    // Opt-in ligado, mas sem cliente instalado: ainda sensível, agora por outro motivo.
+    {
+      writeFileSync(join(casa, "gm-spec-jev.json"), JSON.stringify({ enviarSpecAoJev: true }));
+      const pastaB = join(casa, "b");
+      mkdirSync(pastaB);
+      writeFileSync(join(pastaB, "spec.md"), specFixture);
+      const r = rodar(["--spec", join(pastaB, "spec.md"), "--autor", AUTOR_NAO]);
+      const saida = umaLinhaJson(r);
+      afirmar(r.status === 0 && saida?.optIn === true && saida.sensivel === true, "com opt-in: optIn true, ainda sensível");
+      afirmar(CATEGORIAS.every((c) => saida?.categorias[c].jev.motivo === "cliente do Jev não encontrado"), "com opt-in e sem cliente: cliente do Jev não encontrado");
+      rmSync(join(casa, "gm-spec-jev.json"));
+    }
+
+    // Duas rodadas: o veredito só cresce, mesmo com outro --autor.
+    {
+      const pastaC = join(casa, "c");
+      mkdirSync(pastaC);
+      const specC = join(pastaC, "spec.md");
+      writeFileSync(specC, specFixture);
+      const primeira = umaLinhaJson(rodar(["--spec", specC, "--autor", "dado=sim,faturamento=nao,deploy=nao,migration=nao"]));
+      afirmar(primeira?.novos.includes("autor:dado"), "1ª rodada: autor dado=sim entra em novos");
+      const segunda = umaLinhaJson(rodar(["--spec", specC, "--autor", AUTOR_NAO]));
+      afirmar(segunda?.linha.includes("autor (dado)"), "2ª rodada com nao ×4: a linha ainda tem autor (dado)");
+      afirmar(igual(segunda?.categorias.dado.motivos, ["autor", "jev-indisponivel"]), "categorias[c].motivos é o da união");
+      afirmar(igual(segunda?.novos, []), "2ª rodada: autor dado já estava, novos vazio");
+      afirmar(JSON.parse(readFileSync(registroDe(pastaC), "utf8")).rodadas.length === 2, "o registro tem duas rodadas");
+    }
+
+    // Registro corrompido: código 2, stdout vazio, e o arquivo não é tocado.
+    {
+      const pastaD = join(casa, "d");
+      mkdirSync(pastaD);
+      const specD = join(pastaD, "spec.md");
+      writeFileSync(specD, specFixture);
+      for (const [rotulo, conteudo] of [["texto que não é JSON", "{quebrado"], ["JSON sem rodadas e uniao", "{}"], ["rodadas que não é array", '{"rodadas":{},"uniao":{}}']]) {
+        writeFileSync(registroDe(pastaD), conteudo);
+        const r = rodar(["--spec", specD, "--autor", AUTOR_NAO]);
+        afirmar(r.status === 2 && r.stdout === "" && r.stderr.includes("sensibilidade.json ilegível"), `registro com ${rotulo} → código 2, stdout vazio`);
+        afirmar(readFileSync(registroDe(pastaD), "utf8") === conteudo, "o registro corrompido fica como estava");
+      }
+    }
+
+    // Erros de uso: código 2 e nada no stdout.
+    {
+      const vazio = join(casa, "vazio");
+      mkdirSync(vazio);
+      writeFileSync(join(vazio, "spec.md"), "  \n\t\n");
+      const outroNome = join(casa, "d", "outro.md");
+      writeFileSync(outroNome, specFixture);
+      const casos = [
+        ["--autor incompleto", ["--spec", caminhoSpec, "--autor", "dado=nao,faturamento=nao,deploy=nao"]],
+        ["valor talvez", ["--spec", caminhoSpec, "--autor", "dado=talvez,faturamento=nao,deploy=nao,migration=nao"]],
+        ["categoria repetida", ["--spec", caminhoSpec, "--autor", "dado=nao,dado=nao,faturamento=nao,deploy=nao,migration=nao"]],
+        ["categoria desconhecida", ["--spec", caminhoSpec, "--autor", "dado=nao,faturamento=nao,deploy=nao,migration=nao,seguranca=nao"]],
+        ["--autor repetido", ["--spec", caminhoSpec, "--autor", AUTOR_NAO, "--autor", AUTOR_NAO]],
+        ["--spec repetido", ["--spec", caminhoSpec, "--spec", caminhoSpec, "--autor", AUTOR_NAO]],
+        ["argumento posicional", [caminhoSpec, "--spec", caminhoSpec, "--autor", AUTOR_NAO]],
+        ["--spec sem valor", ["--autor", AUTOR_NAO, "--spec"]],
+        ["sem --autor", ["--spec", caminhoSpec]],
+        ["sem --spec", ["--autor", AUTOR_NAO]],
+        ["--spec inexistente", ["--spec", join(casa, "nao-existe", "spec.md"), "--autor", AUTOR_NAO]],
+        ["--spec vazio", ["--spec", join(vazio, "spec.md"), "--autor", AUTOR_NAO]],
+        ["--spec que não se chama spec.md", ["--spec", outroNome, "--autor", AUTOR_NAO]],
+      ];
+      for (const [rotulo, argumentos] of casos) {
+        const r = rodar(argumentos);
+        afirmar(r.status === 2 && r.stdout === "" && r.stderr !== "", `uso: ${rotulo} → código 2, stdout vazio, mensagem no stderr`);
+      }
+      afirmar(!existsSync(registroDe(vazio)), "spec vazio não cria registro");
+    }
+
+    // Link simbólico para o sensivel.mjs: continua sendo o ponto de entrada.
+    {
+      const pastaE = join(casa, "e");
+      mkdirSync(pastaE);
+      writeFileSync(join(pastaE, "spec.md"), specFixture);
+      const atalho = join(casa, "atalho.mjs");
+      symlinkSync(script, atalho);
+      const r = rodar(["--spec", join(pastaE, "spec.md"), "--autor", AUTOR_NAO], atalho);
+      afirmar(r.status === 0 && umaLinhaJson(r) !== null, "por link simbólico: roda o main (código 0, uma linha JSON)");
+    }
+  } finally {
+    rmSync(raiz, { recursive: true, force: true });
   }
 }
 

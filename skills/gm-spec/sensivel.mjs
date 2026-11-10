@@ -8,12 +8,19 @@
 // #1405).
 //
 // Este arquivo traz as constantes, a normalização da resposta do Jev, a classificação (as quatro
-// perguntas ao cliente), a regra de decisão, a união com rodadas anteriores e o texto da linha de
-// registro. Não faz rede nem processo por conta própria; o único contato com o cliente do Jev é
-// `carregarJev`.
-import { readFileSync } from "node:fs";
+// perguntas ao cliente), a regra de decisão, a união com rodadas anteriores, o texto da linha de
+// registro, o registro `sensibilidade.json` e o CLI. Não faz rede nem processo por conta própria; o
+// único contato com o cliente do Jev é `carregarJev`.
+//
+// Uso:
+//   node sensivel.mjs --spec <caminho do spec.md> --autor dado=nao,faturamento=nao,deploy=nao,migration=nao
+// Saída: uma linha JSON no stdout, código 0 com qualquer veredito; código 2 é erro de uso ou de
+// ambiente (a mensagem em pt-BR vai ao stderr); qualquer outro código é falha do script.
+import { createHash } from "node:crypto";
+import { readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const CATEGORIAS = ["dado", "faturamento", "deploy", "migration"];
 export const LIMIAR = 0.9; // confiança mínima de um "não" do Jev; cofre #1393
@@ -228,3 +235,166 @@ export function montarLinha(motivosPorCategoria) {
   }
   return partes.length === 0 ? "Spec sensível: não" : `Spec sensível: sim — ${partes.join("; ")}`;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Registro `sensibilidade.json` e CLI
+// ---------------------------------------------------------------------------------------------
+
+// Erro que o CLI traduz em código 2: a causa é do chamador ou do ambiente, não do veredito.
+class ErroDeUso extends Error {}
+
+const MENSAGEM_REGISTRO_ILEGIVEL =
+  "sensibilidade.json ilegível — não apague nem edite à mão; mostre ao humano";
+
+// Lê o registro ao lado do spec.md. Ausente → sem rodadas anteriores. Presente mas fora da forma →
+// erro: apagar ou ignorar um registro quebrado devolveria à spec a chance de "voltar a não sensível".
+function lerRegistro(caminho) {
+  let conteudo;
+  try {
+    conteudo = readFileSync(caminho, "utf8");
+  } catch (erro) {
+    if (erro?.code === "ENOENT") return { rodadas: [], uniao: {} };
+    throw new ErroDeUso(MENSAGEM_REGISTRO_ILEGIVEL);
+  }
+  let registro;
+  try {
+    registro = JSON.parse(conteudo);
+  } catch {
+    throw new ErroDeUso(MENSAGEM_REGISTRO_ILEGIVEL);
+  }
+  const uniao = registro?.uniao;
+  if (!Array.isArray(registro?.rodadas) || uniao === null || typeof uniao !== "object" || Array.isArray(uniao)) {
+    throw new ErroDeUso(MENSAGEM_REGISTRO_ILEGIVEL);
+  }
+  return registro;
+}
+
+// Grava por arquivo temporário + rename: uma queda no meio não deixa um registro pela metade, que
+// viraria "ilegível" e travaria a spec.
+function gravarRegistro(caminho, registro) {
+  const temporario = `${caminho}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporario, JSON.stringify(registro, null, 2) + "\n", "utf8");
+    renameSync(temporario, caminho);
+  } catch (erro) {
+    throw new ErroDeUso(`não consegui gravar ${REGISTRO}: ${erro.message}`);
+  }
+}
+
+// `--spec <caminho> --autor cat=sim|nao,...`: exatamente um de cada, nada além disso.
+export function lerArgumentos(argv) {
+  let spec;
+  let autorBruto;
+  for (let i = 0; i < argv.length; i++) {
+    const nome = argv[i];
+    if (nome !== "--spec" && nome !== "--autor") {
+      throw new ErroDeUso(`argumento inesperado: ${nome}. Uso: --spec <spec.md> --autor ${CATEGORIAS.map((c) => `${c}=<sim|nao>`).join(",")}`);
+    }
+    const valor = argv[++i];
+    if (valor === undefined || valor.startsWith("--")) throw new ErroDeUso(`${nome} precisa de um valor`);
+    if (nome === "--spec") {
+      if (spec !== undefined) throw new ErroDeUso("--spec repetido");
+      spec = valor;
+    } else {
+      if (autorBruto !== undefined) throw new ErroDeUso("--autor repetido");
+      autorBruto = valor;
+    }
+  }
+  if (spec === undefined) throw new ErroDeUso("falta --spec <caminho do spec.md>");
+  if (autorBruto === undefined) throw new ErroDeUso("falta --autor com as quatro categorias");
+
+  const autor = {};
+  for (const par of autorBruto.split(",")) {
+    const [categoria, valor, ...sobra] = par.split("=");
+    if (!CATEGORIAS.includes(categoria)) throw new ErroDeUso(`categoria desconhecida em --autor: "${categoria}"`);
+    if (categoria in autor) throw new ErroDeUso(`categoria repetida em --autor: ${categoria}`);
+    if (sobra.length > 0 || (valor !== "sim" && valor !== "nao")) {
+      throw new ErroDeUso(`valor de ${categoria} em --autor deve ser sim ou nao`);
+    }
+    autor[categoria] = valor;
+  }
+  const faltando = CATEGORIAS.filter((c) => !(c in autor));
+  if (faltando.length > 0) throw new ErroDeUso(`--autor sem: ${faltando.join(", ")}`);
+  return { spec, autor };
+}
+
+// O caminho feliz, na ordem da spec: lê e resume o spec.md, classifica, decide, lê o registro, une,
+// grava o registro e só então devolve a saída (que o chamador imprime).
+async function executar(argv) {
+  const { spec, autor } = lerArgumentos(argv);
+  const caminhoSpec = resolve(spec);
+  if (basename(caminhoSpec) !== "spec.md") throw new ErroDeUso("--spec deve apontar para um arquivo chamado spec.md");
+  let bytesDoSpec;
+  try {
+    bytesDoSpec = readFileSync(caminhoSpec);
+  } catch (erro) {
+    throw new ErroDeUso(`não consegui ler ${caminhoSpec}: ${erro.message}`);
+  }
+  const texto = bytesDoSpec.toString("utf8");
+  if (texto.trim() === "") throw new ErroDeUso(`${caminhoSpec} está vazio`);
+  const sha256 = createHash("sha256").update(bytesDoSpec).digest("hex");
+
+  const optIn = optInLigado(claudeHomePadrao());
+  const { jev, cliente } = await classificar({ texto, optIn });
+  const rodada = decidir({ autor, jev });
+
+  const caminhoRegistro = join(dirname(caminhoSpec), REGISTRO);
+  const registro = lerRegistro(caminhoRegistro);
+  const { uniao, novos } = unir(registro.uniao, rodada.categorias);
+  registro.rodadas.push({
+    data: new Date().toISOString(),
+    sha256,
+    autor,
+    cliente,
+    // O que fica no registro é só o veredito da rodada e os motivos fixos do Jev, nunca texto da spec.
+    categorias: Object.fromEntries(
+      CATEGORIAS.map((c) => [c, { motivos: rodada.categorias[c].motivos, jev: rodada.categorias[c].jev }]),
+    ),
+  });
+  registro.uniao = uniao;
+  gravarRegistro(caminhoRegistro, registro);
+
+  // `sensivel`, `motivos` e `categorias[c].motivos` são os da união; o da rodada ficou no registro.
+  const motivos = MOTIVOS.filter((m) => CATEGORIAS.some((c) => uniao[c].includes(m)));
+  return {
+    sensivel: motivos.length > 0,
+    motivos,
+    novos,
+    linha: montarLinha(uniao),
+    spec: caminhoSpec,
+    bytes: bytesDoSpec.length,
+    sha256,
+    cliente,
+    optIn,
+    limiar: LIMIAR,
+    categorias: Object.fromEntries(
+      CATEGORIAS.map((c) => [c, { autor: autor[c], jev: rodada.categorias[c].jev, motivos: uniao[c] }]),
+    ),
+  };
+}
+
+async function main() {
+  let saida;
+  try {
+    saida = await executar(process.argv.slice(2));
+  } catch (erro) {
+    if (!(erro instanceof ErroDeUso)) throw erro; // falha do script: exceção não tratada, código 1
+    process.stderr.write(`sensivel.mjs: ${erro.message}\n`, () => process.exit(2));
+    return;
+  }
+  // Pelo callback de escrita, para o pipe esvaziar antes de sair e para um handle aberto do cliente
+  // não segurar o processo.
+  escreverNoStdoutOriginal(JSON.stringify(saida) + "\n", () => process.exit(0));
+}
+
+// Só roda como script, não ao ser importado pelo teste. Compara caminhos reais para que um link
+// simbólico para este arquivo também conte como ponto de entrada.
+function ehPontoDeEntrada() {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (ehPontoDeEntrada()) await main();
