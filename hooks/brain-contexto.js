@@ -237,7 +237,11 @@ const SNIP = 220;
 const LIMITE_JEV = 10; // quantos candidatos do passo 5 vao ao Jev
 const LIMIAR_JEV = 0.5; // provisorio: ver ### Limiar da spec do #42
 const INSTRUCAO_JEV = 'O trecho é relevante para o que o usuário pediu na pergunta?';
-const PRAZO_HOOK_JEV = 2200; // TIMEOUT_MS do cliente + 200: o hook nao confia no prazo de quem chama
+// O hook passa o prazo do cliente explicito e corre contra ele + 200: as duas constantes ficam
+// amarradas aqui, e um TIMEOUT_MS diferente no jev.js nao separa uma da outra sem aviso. O prazo
+// proprio nao e derivado do jev.js de proposito: ele existe para o caso do jev.js quebrado.
+const TIMEOUT_JEV = 2000;
+const PRAZO_HOOK_JEV = TIMEOUT_JEV + 200;
 
 // O uso so liga com `contexto` na lista; conferido aqui para nem carregar o jev.js sem ele.
 const usaJev = () =>
@@ -276,7 +280,7 @@ const filtrarComJev = async (alvo, cands) => {
           titulo: r.breadcrumb || '',
           fonte: r.source || '',
         })),
-        { uso: 'contexto', instrucao: INSTRUCAO_JEV }
+        { uso: 'contexto', instrucao: INSTRUCAO_JEV, timeoutMs: TIMEOUT_JEV }
       ),
       prazo,
     ]);
