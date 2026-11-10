@@ -5,7 +5,7 @@
 //
 // C1–C8 rodam no próprio processo, sempre com o Jev falso injetado em `deps.cliente`. O C9 sobe
 // processos de verdade, todos no ambiente isolado (sem BRAIN_JEV*, sem a chave, HOME vazio).
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -418,6 +418,37 @@ const ambienteIsolado = () => {
   const d = spawnSync(process.execPath, [arquivoDoFilho], { input: "PARADA: x\n", timeout: 6000, encoding: "utf8", env: ambienteIsolado() });
   afirmar(d.status === 0 && d.signal === null, `(d) termina com status 0, sem ser morto (status ${d.status}, signal ${d.signal})`);
   afirmar(d.stdout.includes('"porque":"tempo"'), '(d) a stdout diz "porque":"tempo"');
+
+  // (g) a stdin que nunca fecha (achado 4): o filho recebe um pedaço e o pipe fica aberto. Com o
+  // prazo de leitura em 300 ms, sai 2 com stdout vazio, em vez de pendurar. A guarda de 5 s só mata
+  // o filho se o prazo falhar, e aí o caso reprova pelo signal.
+  const arquivoDoLeitor = join(dirDoFalso, "leitor.mjs");
+  writeFileSync(
+    arquivoDoLeitor,
+    [
+      `import { rodarCli } from ${JSON.stringify(pathToFileURL(script).href)};`,
+      `import { criarJevFalso } from ${JSON.stringify(pathToFileURL(join(aqui, "jev-falso.mjs")).href)};`,
+      `await rodarCli([], { cliente: criarJevFalso(), prazoLeituraMs: 300 });`,
+      "",
+    ].join("\n"),
+  );
+  const inicio = Date.now();
+  const g = await new Promise((resolver) => {
+    const filho = spawn(process.execPath, [arquivoDoLeitor], { stdio: ["pipe", "pipe", "pipe"], env: ambienteIsolado() });
+    let stdout = "";
+    let stderr = "";
+    filho.stdout.on("data", (pedaco) => (stdout += pedaco));
+    filho.stderr.on("data", (pedaco) => (stderr += pedaco));
+    filho.stdin.write("PARADA: o merge na dev é do Leonardo.\n"); // e nunca `end()`
+    const guarda = setTimeout(() => filho.kill("SIGKILL"), 5000);
+    filho.on("close", (status, signal) => {
+      clearTimeout(guarda);
+      resolver({ status, signal, stdout, stderr });
+    });
+  });
+  const levou = Date.now() - inicio;
+  afirmar(g.status === 2 && g.signal === null, `(g) stdin aberta → status 2, sem ser morto (status ${g.status}, signal ${g.signal}, ${levou} ms)`);
+  afirmar(g.stdout === "" && g.stderr.includes("não fechou em 300 ms"), "(g) stdout vazio e o stderr diz que a stdin não fechou");
 }
 for (const dir of diretoriosTemporarios) rmSync(dir, { recursive: true, force: true });
 

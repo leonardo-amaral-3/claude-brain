@@ -46,6 +46,12 @@ export const LIMIAR = 0.8;
 // o orçamento do cliente do #42 seja outro.
 export const TEMPO_MS = 5000;
 
+// Prazo da leitura da stdin (achado 4 do G4). O texto que chega é a saída de uma sessão que já
+// terminou, então ler leva milissegundos; uma stdin herdada que nunca fecha (sem pipe, ou com o lado
+// que escreve aberto) penduraria a cadeia para sempre. Estourado, é uso errado: código 2 e stdout
+// vazio, que quem lê trata como "ler a frase como sempre".
+export const PRAZO_LEITURA_MS = 5000;
+
 export const PERGUNTA =
   "Uma sessão automática da esteira parou e escreveu o motivo abaixo. Qual categoria descreve esse motivo?";
 
@@ -317,6 +323,30 @@ function sairDepoisDeEscrever(codigo, saida, erro) {
   escrever(process.stdout, saida, () => escrever(process.stderr, erro, () => process.exit(codigo)));
 }
 
+// Lê a stdin inteira, ou devolve ESTOURO_DA_LEITURA se ela não fechar em `prazoMs`. Um prazo do
+// começo ao fim, e não de silêncio: um escritor que manda pedaços e nunca fecha também estoura.
+const ESTOURO_DA_LEITURA = Symbol("estouro-da-leitura");
+function lerStdin(fluxo, prazoMs) {
+  return new Promise((resolver, rejeitar) => {
+    const pedacos = [];
+    let temporizador;
+    const terminar = (fazer) => {
+      clearTimeout(temporizador);
+      fluxo.off("data", aoDado);
+      fluxo.off("end", aoFim);
+      fluxo.off("error", aoErro);
+      fazer();
+    };
+    const aoDado = (pedaco) => pedacos.push(typeof pedaco === "string" ? Buffer.from(pedaco) : pedaco);
+    const aoFim = () => terminar(() => resolver(Buffer.concat(pedacos).toString("utf8")));
+    const aoErro = (erro) => terminar(() => rejeitar(erro));
+    temporizador = setTimeout(() => terminar(() => resolver(ESTOURO_DA_LEITURA)), prazoMs);
+    fluxo.on("data", aoDado);
+    fluxo.on("end", aoFim);
+    fluxo.on("error", aoErro);
+  });
+}
+
 // Lê o stdin, classifica e sai. O `process.exit` é de propósito (ver Technical Decisions da spec):
 // um cliente que ignora o `signal` e segura o event loop não pode pendurar o processo, e o teto de
 // tempo do `classificar` já decidiu o resultado.
@@ -326,9 +356,15 @@ export async function rodarCli(argv, deps = {}) {
     if (argv.length > 0) return sairDepoisDeEscrever(2, "", USO_DA_CLI);
     if (process.stdin.isTTY) return sairDepoisDeEscrever(2, "", USO_DA_CLI);
 
-    const pedacos = [];
-    for await (const pedaco of process.stdin) pedacos.push(pedaco);
-    const texto = Buffer.concat(pedacos).toString("utf8");
+    const { prazoLeituraMs = PRAZO_LEITURA_MS } = deps;
+    const texto = await lerStdin(process.stdin, prazoLeituraMs);
+    if (texto === ESTOURO_DA_LEITURA) {
+      return sairDepoisDeEscrever(
+        2,
+        "",
+        `a stdin não fechou em ${prazoLeituraMs} ms: passe o texto já terminado (arquivo ou printf), não um fluxo aberto`,
+      );
+    }
 
     const { codigo, saida, erro } = await executar(texto, deps);
     return sairDepoisDeEscrever(codigo, saida, erro);
