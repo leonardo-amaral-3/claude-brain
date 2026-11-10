@@ -28,13 +28,15 @@
 //   TYPESAFE_API_KEY  a chave. Nunca em arquivo do repo nem de config.
 //   BRAIN_JEV_FALSO   cliente falso. DEFINIDA, mesmo vazia, o real nunca roda.
 //
-// Ordem de decisao por chamada (a primeira que casa vence, para todas as chaves):
+// Ordem de decisao por chamada (a primeira que casa vence, para todas as chaves; emenda 2):
 //   1. uso fora da tabela                  -> entrada_invalida
 //   2. uso fora de BRAIN_JEV               -> desligado
-//   3. BRAIN_JEV_FALSO !== undefined       -> cliente falso
-//   4. TYPESAFE_API_KEY vazia ou ausente   -> sem_chave
-//   5. validacao da entrada                -> entrada_invalida
+//   3. validacao da entrada                -> entrada_invalida
+//   4. BRAIN_JEV_FALSO !== undefined       -> cliente falso
+//   5. TYPESAFE_API_KEY vazia ou ausente   -> sem_chave
 //   6. adaptador real
+//   A validacao vem antes do falso para o falso nunca aprovar o que o real recusaria: e o falso
+//   que os portoes rodam, e um `ok` que o real nao daria esconderia o filtro desligado.
 //
 // Funcoes (module.exports = { ligado, decidir, julgar, envSemJev, ...constantes }):
 //   ligado(uso, env?)                       -> boolean, sem I/O
@@ -386,17 +388,19 @@ async function decidir(estado, perguntas, opcoes) {
     const env = envDe(opcoes);
     const timeoutMs = prazoDe(opcoes);
 
+    // 3. validacao, antes do falso (emenda 2)
+    const ids = Object.keys(perguntas);
+    const tamanho = tamanhoDoEstado(estado);
+    if (ids.length === 0 || tamanho === null || tamanho > MAX_ESTADO || !ids.every((id) => perguntaValida(perguntas[id]))) {
+      return paraTodasAsChaves(perguntas, indisponivel('entrada_invalida'));
+    }
+
     if (env.BRAIN_JEV_FALSO !== undefined) {
-      const ids = Object.keys(perguntas);
-      // o falso nao valida nada alem do que precisa para responder: pergunta torta nao tem tipo
       const itens = ids.map((id) => ({
         chave: id,
         pergunta: perguntas[id],
         contexto: { pergunta: typeof estado === 'string' ? estado : undefined, trechoId: undefined, id },
       }));
-      if (!itens.every((item) => ehObjeto(item.pergunta) && (item.pergunta.tipo === 'noul' || (item.pergunta.tipo === 'escolha' && ehObjeto(item.pergunta.opcoes))))) {
-        return paraTodasAsChaves(perguntas, indisponivel('entrada_invalida'));
-      }
       const respostas = await responderFalso(env.BRAIN_JEV_FALSO, itens, timeoutMs);
       const saida = {};
       for (const { chave, resposta } of respostas) saida[chave] = resposta;
@@ -405,12 +409,6 @@ async function decidir(estado, perguntas, opcoes) {
 
     const chave = chaveDaApi(env);
     if (chave === '') return paraTodasAsChaves(perguntas, indisponivel('sem_chave'));
-
-    const ids = Object.keys(perguntas);
-    const tamanho = tamanhoDoEstado(estado);
-    if (ids.length === 0 || tamanho === null || tamanho > MAX_ESTADO || !ids.every((id) => perguntaValida(perguntas[id]))) {
-      return paraTodasAsChaves(perguntas, indisponivel('entrada_invalida'));
-    }
 
     const prazo = criarPrazo(timeoutMs);
     try {
@@ -444,19 +442,27 @@ async function julgar(pergunta, trechos, opcoes) {
     const instrucao = opcoes.instrucao === undefined || opcoes.instrucao === null ? INSTRUCAO_PADRAO : opcoes.instrucao;
     const perguntaNoul = { tipo: 'noul', instrucao };
 
+    // 3. validacao, antes do falso (emenda 2). Por trecho: acima de MAX_TRECHOS, ou sem texto ou
+    // sem id, o trecho volta `entrada_invalida` e nao sai nada dele, no falso e no real.
+    if (typeof pergunta !== 'string' || typeof instrucao !== 'string') return todos(indisponivel('entrada_invalida'));
+    const enviavel = trechos.map(
+      (trecho, indice) =>
+        indice < MAX_TRECHOS && ehObjeto(trecho) && typeof trecho.id === 'string' && typeof trecho.texto === 'string' && trecho.texto !== ''
+    );
+
     if (env.BRAIN_JEV_FALSO !== undefined) {
-      const itens = trechos.map((trecho, indice) => ({
-        chave: indice,
-        pergunta: perguntaNoul,
-        contexto: { pergunta: typeof pergunta === 'string' ? pergunta : undefined, trechoId: ehObjeto(trecho) && typeof trecho.id === 'string' ? trecho.id : undefined, id: 'relevante' },
-      }));
-      const respostas = await responderFalso(env.BRAIN_JEV_FALSO, itens, timeoutMs);
-      return respostas.map((item) => item.resposta);
+      const itens = [];
+      trechos.forEach((trecho, indice) => {
+        if (enviavel[indice]) itens.push({ chave: indice, pergunta: perguntaNoul, contexto: { pergunta, trechoId: trecho.id, id: 'relevante' } });
+      });
+      const saida = todos(indisponivel('entrada_invalida'));
+      const respostas = itens.length ? await responderFalso(env.BRAIN_JEV_FALSO, itens, timeoutMs) : [];
+      for (const { chave, resposta } of respostas) saida[chave] = resposta;
+      return saida;
     }
 
     const chave = chaveDaApi(env);
     if (chave === '') return todos(indisponivel('sem_chave'));
-    if (typeof pergunta !== 'string' || typeof instrucao !== 'string') return todos(indisponivel('entrada_invalida'));
 
     const perguntaCortada = pergunta.slice(0, MAX_PERGUNTA);
     const prazo = criarPrazo(timeoutMs);
@@ -464,10 +470,7 @@ async function julgar(pergunta, trechos, opcoes) {
       const enviar = opcoes.fetch || globalThis.fetch;
       return await Promise.all(
         trechos.map(async (trecho, indice) => {
-          // acima de MAX_TRECHOS, ou trecho sem texto ou sem id: nao sai nada
-          if (indice >= MAX_TRECHOS || !ehObjeto(trecho) || typeof trecho.id !== 'string' || typeof trecho.texto !== 'string' || trecho.texto === '') {
-            return indisponivel('entrada_invalida');
-          }
+          if (!enviavel[indice]) return indisponivel('entrada_invalida');
           // `id` nunca vai ao Jev: e so o rotulo de quem chama (o hook usa o caminho do arquivo)
           const dadosDoTrecho = { texto: trecho.texto.slice(0, MAX_TEXTO) };
           if (typeof trecho.titulo === 'string') dadosDoTrecho.titulo = trecho.titulo;

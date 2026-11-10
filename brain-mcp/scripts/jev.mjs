@@ -134,6 +134,18 @@ function filho(argumentos, env, entrada) {
   const vazio = await jev.julgar("p", TRECHOS, { uso: "contexto", env: { ...COM_CHAVE, BRAIN_JEV_FALSO: "" }, fetch: espia.fetch });
   confere(vazio.every((x) => x.motivo === "resposta_invalida" && x.detalhe === "roteiro"), "T3 falso vazio = roteiro ilegivel, nunca o real");
   confere(espia.chamadas.length === 0, "T3 espiao 0 nos dois");
+  // Emenda 2: a validacao vem antes do falso, entao o falso recusa o que o real recusaria.
+  const falsoSim = { uso: "contexto", env: { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim" }, fetch: espia.fetch };
+  const textoVazio = await jev.julgar("p", [{ id: "a", texto: "" }, { id: "b", texto: "t" }, { texto: "sem id" }], falsoSim);
+  confere(
+    igual(textoVazio.map((x) => (x.estado === "ok" ? "ok" : x.motivo)), ["entrada_invalida", "ok", "entrada_invalida"]),
+    "T3 falso: trecho com texto vazio ou sem id = entrada_invalida, so nele"
+  );
+  const vinte = await jev.julgar("p", Array.from({ length: 20 }, (_, i) => ({ id: "t" + i, texto: "x" })), falsoSim);
+  confere(vinte.slice(0, 16).every((x) => x.estado === "ok") && vinte.slice(16).every((x) => x.motivo === "entrada_invalida"), "T3 falso: 20 trechos = 16 + 4, como o real");
+  confere((await jev.julgar(5, TRECHOS, falsoSim)).every((x) => x.motivo === "entrada_invalida"), "T3 falso: pergunta nao string");
+  confere((await jev.decidir("e", { x: { tipo: "noul", instrucao: 5 } }, falsoSim)).x.motivo === "entrada_invalida", "T3 falso: decidir com instrucao nao string");
+  confere(espia.chamadas.length === 0, "T3 espiao 0 depois da validacao");
 }
 
 // ---- T4: roteiro e variacoes do falso ------------------------------------------------------
