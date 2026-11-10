@@ -24,12 +24,15 @@
 // `porque`; nenhum deles vira `desligado`, porque uma falha silenciosa devolveria a parada à leitura
 // de hoje justamente quando algo está quebrado.
 //
-// Este arquivo ainda não tem o cliente padrão do Jev nem a CLI: o `cliente` padrão e o `rodarCli`
-// entram na task seguinte do card. Até lá, `classificar` e `executar` exigem `deps.cliente`.
+// O cliente do Jev NÃO nasce aqui: é o `hooks/jev.js` do #42, importado por caminho relativo. Este
+// script só o adapta (`daFormaDo42`) à forma que o classificador espera, sem HTTP, chave nem flag.
+// O uso `parada` é o que o `BRAIN_JEV` precisa listar para ligar este consumidor.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// CommonJS importado de ESM: o `default` é o `module.exports` do cliente.
+import clienteDo42 from "../hooks/jev.js";
 
 // Abaixo disto a categoria escala, mesmo não sendo reservada. Com oito opções o acaso dá 0.125; o
 // número foi escolhido pelo custo do erro (escalar demais custa uma leitura que já se faz hoje) e
@@ -152,15 +155,57 @@ const semClassificacao = (porque, aviso = "") => ({
   aviso,
 });
 
+// O uso pelo qual o #42 liga e mede este consumidor (um dos seis valores fechados do contrato).
+const USO_DO_JEV = "parada";
+
+// Adapta o cliente do #42 (`ligado(uso, env)` e `decidir(estado, perguntas, opcoes)`) à forma que
+// `classificar` espera (`ligado()` e `escolher({ pergunta, texto, opcoes, signal })`). É só "mesma
+// informação, outra forma" — nenhuma capacidade falta, então não há emenda:
+//   - `ligado` fixa o uso `parada` e o ambiente do processo; não faz rede.
+//   - `escolher` vira UMA pergunta `escolha` do `decidir`, com o motivo como estado. O nome de cada
+//     opção é o próprio texto (é com ele que `classificar` reconhece a resposta), e a descrição
+//     repete o texto porque o contrato pede uma descrição por opção.
+//   - O #42 devolve uma probabilidade por opção: vale a maior, e no empate a primeira na ordem de
+//     `opcoes` (a ordem de CATEGORIAS), em vez de confiar só na `escolha` que ele indicou.
+//   - `indisponivel` (rede, HTTP, chave, tempo) vira rejeição, que `classificar` escala como "erro":
+//     com a flag ligada, indisponível não é "desligado".
+//   - O #42 não recebe `signal`; o teto de tempo é o do próprio `classificar`, e o `timeoutMs` do
+//     cliente fica no mesmo valor para nunca sobrar chamada pendurada depois dele.
+export function daFormaDo42(cliente, { env = process.env, timeoutMs = TEMPO_MS } = {}) {
+  return {
+    ligado: () => cliente.ligado(USO_DO_JEV, env),
+    escolher: async ({ pergunta, texto, opcoes }) => {
+      const descricoes = Object.fromEntries(opcoes.map((opcao) => [opcao, opcao]));
+      const perguntas = { escolha: { tipo: "escolha", instrucao: pergunta, opcoes: descricoes } };
+      const respostas = await cliente.decidir(texto, perguntas, { uso: USO_DO_JEV, timeoutMs, env });
+      const resposta = respostas?.escolha;
+      if (resposta?.estado !== "ok" || resposta.tipo !== "escolha") {
+        throw new Error(`jev indisponível: ${resposta?.motivo ?? "sem resposta"}`);
+      }
+
+      const porOpcao = resposta.probabilidades;
+      if (porOpcao === null || typeof porOpcao !== "object") {
+        return { opcao: resposta.escolha, probabilidade: resposta.confianca };
+      }
+      let melhor = null;
+      for (const opcao of opcoes) {
+        if (typeof porOpcao[opcao] === "number" && (melhor === null || porOpcao[opcao] > melhor.probabilidade)) {
+          melhor = { opcao, probabilidade: porOpcao[opcao] };
+        }
+      }
+      return melhor ?? { opcao: resposta.escolha, probabilidade: resposta.confianca };
+    },
+  };
+}
+
 const lerConvencoesDoRepo = () =>
   readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "skills", "_comum", "convencoes.md"), "utf8");
 
 // → { resultado, aviso }. `aviso` só é não vazio quando a lista diverge da tabela: vai para o stderr.
 export async function classificar(motivo, deps = {}) {
   const { lerConvencoes = lerConvencoesDoRepo, tempoMs = TEMPO_MS, limiar = LIMIAR } = deps;
-  // Ponto da task 3: aqui entra o padrão `daFormaDo42(<cliente do #42>)`. Sem ele, quem chama injeta.
-  const cliente = deps.cliente;
-  if (!cliente) throw new Error("classificar: falta deps.cliente (o cliente padrão entra na task 3)");
+  // Criado aqui, e não no topo do módulo, para quem só importa o script não carregar nada do ambiente.
+  const cliente = deps.cliente ?? daFormaDo42(clienteDo42);
 
   // 1. Ligado? Sem rede. Falha aqui escala (fail-closed): com a flag ligada, não é "desligado".
   let ligado;
@@ -238,4 +283,43 @@ export async function executar(textoEntrada, deps = {}) {
 
   const { resultado, aviso } = await classificar(entrada.motivo, deps);
   return { codigo: 0, saida: JSON.stringify(resultado), erro: aviso };
+}
+
+const USO_DA_CLI = "uso: printf 'PARADA: <motivo>\\n' | node scripts/classificar-parada.mjs (sem argumentos; o motivo vem do stdin)";
+
+// Escreve e só então sai: `process.exit` direto, com o stdout num pipe, pode cortar a linha.
+function sairDepoisDeEscrever(codigo, saida, erro) {
+  const escrever = (fluxo, texto, proximo) =>
+    texto === "" ? proximo() : fluxo.write(`${texto}\n`, proximo);
+  escrever(process.stdout, saida, () => escrever(process.stderr, erro, () => process.exit(codigo)));
+}
+
+// Lê o stdin, classifica e sai. O `process.exit` é de propósito (ver Technical Decisions da spec):
+// um cliente que ignora o `signal` e segura o event loop não pode pendurar o processo, e o teto de
+// tempo do `classificar` já decidiu o resultado.
+export async function rodarCli(argv, deps = {}) {
+  // Falha inesperada é 1 com stdout vazio, nunca um 0 com lixo.
+  try {
+    if (argv.length > 0) return sairDepoisDeEscrever(2, "", USO_DA_CLI);
+    if (process.stdin.isTTY) return sairDepoisDeEscrever(2, "", USO_DA_CLI);
+
+    const pedacos = [];
+    for await (const pedaco of process.stdin) pedacos.push(pedaco);
+    const texto = Buffer.concat(pedacos).toString("utf8");
+
+    const { codigo, saida, erro } = await executar(texto, deps);
+    return sairDepoisDeEscrever(codigo, saida, erro);
+  } catch (erro) {
+    return sairDepoisDeEscrever(1, "", `erro interno: ${erro?.message ?? erro}`);
+  }
+}
+
+// Só roda como comando; importado (pelo teste) não lê o stdin. `realpathSync` dos dois lados, porque
+// o `argv[1]` pode vir por um link simbólico; no Windows a caixa da letra do disco também varia.
+const normalizarCaminho = (caminho) => (process.platform === "win32" ? caminho.toLowerCase() : caminho);
+if (
+  process.argv[1] !== undefined &&
+  normalizarCaminho(realpathSync(process.argv[1])) === normalizarCaminho(realpathSync(fileURLToPath(import.meta.url)))
+) {
+  await rodarCli(process.argv.slice(2));
 }

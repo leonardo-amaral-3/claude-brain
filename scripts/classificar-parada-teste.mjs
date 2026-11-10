@@ -3,15 +3,18 @@
 // Uso: node scripts/classificar-parada-teste.mjs
 // Sai 0 se todos os cenários passam, 1 se algum falha.
 //
-// C1–C8 rodam no próprio processo, sempre com o Jev falso injetado em `deps.cliente`. Os processos
-// de verdade (C9) e a CLI entram com a task seguinte.
-import { readFileSync } from "node:fs";
+// C1–C8 rodam no próprio processo, sempre com o Jev falso injetado em `deps.cliente`. O C9 sobe
+// processos de verdade; só o C9b usa o cliente do #42, e DESLIGADO, num ambiente isolado.
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   CATEGORIAS,
   DESLIGADO,
   classificar,
+  daFormaDo42,
   divergenciaDaLista,
   executar,
   lerEntrada,
@@ -235,6 +238,103 @@ afirmar(lerEntrada("").erro === "entrada vazia", "entrada vazia → erro");
 afirmar(lerEntrada(" \r\n \n").erro === "entrada vazia", "só espaço → entrada vazia");
 afirmar(lerEntrada("PARADA:").erro === "PARADA sem motivo", "PARADA: sem motivo → erro");
 afirmar(lerEntrada("x\nPARADA:   \n\n").erro === "PARADA sem motivo", "PARADA: só com espaço → sem motivo");
+
+console.log("C9 — o adaptador `daFormaDo42`, contra um cliente com a forma do #42 (sem rede)");
+{
+  const opcoes = CATEGORIAS.map((c) => c.texto);
+  const chamadas = [];
+  const falsoDo42 = (resposta, ligado = true) => ({
+    ligado: (uso, env) => {
+      chamadas.push({ uso, env });
+      return ligado;
+    },
+    decidir: async (estado, perguntas, o) => {
+      chamadas.push({ estado, perguntas, o });
+      return { escolha: resposta };
+    },
+  });
+  const probabilidades = Object.fromEntries(opcoes.map((o) => [o, 0.01]));
+  const env = { SO_PARA_O_TESTE: "1" };
+
+  const cliente = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[0], confianca: 0.5, probabilidades: { ...probabilidades, [opcoes[5]]: 0.9 } }), { env });
+  afirmar((await cliente.ligado()) === true && chamadas[0].uso === "parada" && chamadas[0].env === env, "ligado usa o uso `parada` e o env dado");
+  const escolhido = await cliente.escolher({ pergunta: "p", texto: "motivo", opcoes });
+  afirmar(escolhido.opcao === opcoes[5] && escolhido.probabilidade === 0.9, "vale a maior probabilidade por opção");
+  const enviado = chamadas.at(-1);
+  afirmar(enviado.estado === "motivo" && enviado.o.uso === "parada" && enviado.perguntas.escolha.tipo === "escolha", "o motivo vai como estado, numa pergunta `escolha` do uso `parada`");
+  afirmar(Object.keys(enviado.perguntas.escolha.opcoes).length === 8, "as oito opções vão, cada uma com nome e descrição");
+
+  const empate = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[7], confianca: 0.4, probabilidades: Object.fromEntries(opcoes.map((o) => [o, 0.4])) }));
+  afirmar((await empate.escolher({ pergunta: "p", texto: "m", opcoes })).opcao === opcoes[0], "empate → a primeira na ordem de CATEGORIAS");
+
+  const semMapa = daFormaDo42(falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[2], confianca: 0.7 }));
+  const unica = await semMapa.escolher({ pergunta: "p", texto: "m", opcoes });
+  afirmar(unica.opcao === opcoes[2] && unica.probabilidade === 0.7, "sem `probabilidades`, cai em escolha + confianca");
+
+  const fora = daFormaDo42(falsoDo42({ estado: "indisponivel", motivo: "timeout" }));
+  const rejeitou = await fora.escolher({ pergunta: "p", texto: "m", opcoes }).then(() => false, () => true);
+  afirmar(rejeitou, "`indisponivel` vira rejeição (classificar a escala como erro)");
+  const { resultado } = await classificar("m", { cliente: fora });
+  afirmar(resultado.estado === "sem-classificacao" && resultado.porque === "erro", "ponta a ponta: indisponivel → sem-classificacao, erro");
+  afirmar((await daFormaDo42(falsoDo42(null, false)).ligado()) === false, "desligado do #42 passa como falso");
+}
+
+console.log("C9 — processos de verdade (R2, CA2)");
+const script = join(aqui, "classificar-parada.mjs");
+const DESLIGADO_EM_LINHA = '{"estado":"desligado","categoria":null,"probabilidade":null,"escala":null,"porque":null}\n';
+
+// Ambiente isolado: sem NENHUMA fonte de flag ou chave que a spec do #42 nomeia (`BRAIN_JEV`,
+// `BRAIN_JEV_FALSO`, `TYPESAFE_API_KEY`; o #42 só as lê do ambiente, não de arquivo), e com os
+// diretórios pessoais num diretório vazio, para nada instalado na máquina ser encontrado.
+const diretoriosTemporarios = [];
+const diretorioVazio = () => {
+  const dir = mkdtempSync(join(tmpdir(), "classificar-parada-"));
+  diretoriosTemporarios.push(dir);
+  return dir;
+};
+const ambienteIsolado = () => {
+  const env = {};
+  for (const [nome, valor] of Object.entries(process.env)) {
+    if (nome === "TYPESAFE_API_KEY" || nome.startsWith("BRAIN_JEV")) continue;
+    env[nome] = valor;
+  }
+  const vazio = diretorioVazio();
+  return { ...env, HOME: vazio, USERPROFILE: vazio, CLAUDE_CONFIG_DIR: vazio };
+};
+
+{
+  const a = spawnSync(process.execPath, [script], { input: "PROXIMO: /gm-x y", timeout: 4000, encoding: "utf8" });
+  afirmar(a.status === 2 && a.stdout === "", "(a) PROXIMO: na stdin → status 2 e stdout vazio");
+
+  const b = spawnSync(process.execPath, [script], {
+    input: "PARADA: o merge na dev é do Leonardo.\n",
+    timeout: 4000,
+    encoding: "utf8",
+    env: ambienteIsolado(),
+  });
+  afirmar(b.status === 0, `(b) o cliente real do #42, desligado, sai com status 0 (status ${b.status}, signal ${b.signal})`);
+  afirmar(b.stdout === DESLIGADO_EM_LINHA, "(b) a stdout é exatamente a linha `desligado`");
+
+  const c = spawnSync(process.execPath, [script, "qualquer"], { input: "PARADA: x\n", timeout: 4000, encoding: "utf8" });
+  afirmar(c.status === 2 && c.stdout === "", "(c) um argumento → status 2 e stdout vazio");
+
+  // (d) o cliente ignora o signal e segura o event loop: o processo precisa terminar mesmo assim.
+  const dirDoFalso = diretorioVazio();
+  const arquivoDoFilho = join(dirDoFalso, "filho.mjs");
+  writeFileSync(
+    arquivoDoFilho,
+    [
+      `import { rodarCli } from ${JSON.stringify(pathToFileURL(script).href)};`,
+      `import { criarJevFalso } from ${JSON.stringify(pathToFileURL(join(aqui, "jev-falso.mjs")).href)};`,
+      `await rodarCli([], { cliente: criarJevFalso({ defeito: "tempo-surdo" }), tempoMs: 200 });`,
+      "",
+    ].join("\n"),
+  );
+  const d = spawnSync(process.execPath, [arquivoDoFilho], { input: "PARADA: x\n", timeout: 6000, encoding: "utf8" });
+  afirmar(d.status === 0 && d.signal === null, `(d) termina com status 0, sem ser morto (status ${d.status}, signal ${d.signal})`);
+  afirmar(d.stdout.includes('"porque":"tempo"'), '(d) a stdout diz "porque":"tempo"');
+}
+for (const dir of diretoriosTemporarios) rmSync(dir, { recursive: true, force: true });
 
 console.log(falhas === 0 ? "\nclassificar-parada: tudo ok" : `\nclassificar-parada: ${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);
