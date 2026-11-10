@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: o bloco de execução e a CLI de ponta a ponta
 

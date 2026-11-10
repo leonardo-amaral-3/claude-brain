@@ -4,11 +4,12 @@
 //
 // Antes de qualquer caso o env perde as variáveis do Jev e o fetch passa a lançar: este script nunca
 // pode falar com a TypeSafe AI nem herdar a chave. O estado "ligado" vem só do falso (BRAIN_JEV_FALSO).
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const root = join(aqui, "..");
@@ -419,6 +420,185 @@ console.log("principal");
     afirmar(/^jev-triagem: \d+ ms\n$/.test(r.err) && !existsSync(e) && f.chamadas.length === 1, "modo completo ligado: ms no stderr, entrada apagada, uma chamada");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// --- CLI de ponta a ponta, por spawnSync, numa árvore temporária no layout da instalação ---
+console.log("CLI");
+{
+  const base = mkdtempSync(join(tmpdir(), "jev-triagem-cli-"));
+  let n = 0;
+  const SCRIPT = join(root, "skills", "gm-triage", "jev-triagem.mjs");
+  // hooks: "real" copia a pasta hooks/ do repo; uma string vira o jev.js do caso; null = sem hooks/.
+  // casa: string vira <tmp>/casa/hooks/jev.js; null deixa <tmp>/casa/ vazio.
+  const arvore = ({ hooks = null, casa = null } = {}) => {
+    const t = join(base, `c${++n}`);
+    mkdirSync(join(t, "skills", "gm-triage"), { recursive: true });
+    mkdirSync(join(t, "casa"), { recursive: true });
+    cpSync(SCRIPT, join(t, "skills", "gm-triage", "jev-triagem.mjs"));
+    if (hooks === "real") cpSync(join(root, "hooks"), join(t, "hooks"), { recursive: true });
+    else if (hooks !== null) {
+      mkdirSync(join(t, "hooks"));
+      writeFileSync(join(t, "hooks", "jev.js"), hooks);
+    }
+    if (casa !== null) {
+      mkdirSync(join(t, "casa", "hooks"));
+      writeFileSync(join(t, "casa", "hooks", "jev.js"), casa);
+    }
+    return t;
+  };
+  const entradaDe = (t) => {
+    const e = join(t, "entrada.json");
+    writeFileSync(e, JSON.stringify({ resumo: RESUMO, proposta: PROPOSTA }));
+    return e;
+  };
+  const cli = (t, args, env = {}, nodeArgs = []) => {
+    const ini = Date.now();
+    const r = spawnSync(process.execPath, [...nodeArgs, join(t, "skills", "gm-triage", "jev-triagem.mjs"), ...args], {
+      env: { ...envSemJev(process.env), CLAUDE_CONFIG_DIR: join(t, "casa"), ...env },
+      encoding: "utf8",
+      timeout: 15000,
+      killSignal: "SIGKILL",
+    });
+    return { out: r.stdout, err: r.stderr, codigo: r.status, ok: r.error === undefined && r.signal === null, ms: Date.now() - ini };
+  };
+  const completo = (t) => ["--claude-md", join(root, "CLAUDE.md"), "--entrada", entradaDe(t)];
+  const LIGA = { BRAIN_JEV: "triagem", BRAIN_JEV_FALSO: "sim" };
+  const DESLIGADO = "jev-triagem: cliente carregado, desligado\n";
+  const ECO = (marca) =>
+    `process.stderr.write(${JSON.stringify(marca + "\n")});module.exports={ligado:(uso)=>uso==="triagem",decidir:async()=>({})};`;
+  try {
+    // sem hooks/ e com casa/ vazia: o env que ligaria não liga
+    for (const modo of ["--estado", "completo"]) {
+      const t = arvore();
+      const args = modo === "--estado" ? ["--estado"] : completo(t);
+      const r = cli(t, args, LIGA);
+      afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === "jev-triagem: cliente indisponível: jev.js não instalado\n", `sem hooks/ e casa vazia (${modo}): indisponível`);
+      if (modo !== "--estado") afirmar(!existsSync(join(t, "entrada.json")), "sem hooks/ (completo): entrada apagada");
+    }
+
+    // passo 2
+    let t = arvore({ casa: ECO("PASSO2") });
+    let r = cli(t, ["--estado"], { BRAIN_JEV: "triagem" });
+    afirmar(r.ok && r.out === "ligado\n" && r.codigo === 0 && r.err.includes("PASSO2"), "passo 2: jev.js de <CLAUDE_CONFIG_DIR>/hooks");
+
+    // passo 1 vence
+    t = arvore({ hooks: "real", casa: ECO("PASSO2") });
+    r = cli(t, ["--estado"]);
+    afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === DESLIGADO && !r.err.includes("PASSO2"), "passo 1 vence o passo 2");
+
+    // jev.js quebrado no passo 1 não cai no passo 2
+    for (const modo of ["--estado", "completo"]) {
+      t = arvore({ hooks: 'throw new Error("quebrado");', casa: ECO("PASSO2") });
+      const args = modo === "--estado" ? ["--estado"] : completo(t);
+      r = cli(t, args, LIGA);
+      afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === "jev-triagem: cliente indisponível: quebrado\n", `jev.js quebrado (${modo}): indisponível, sem PASSO2`);
+      if (modo !== "--estado") afirmar(!existsSync(join(t, "entrada.json")), "jev.js quebrado (completo): entrada apagada");
+    }
+
+    // jev.js sem a função
+    t = arvore({ hooks: "module.exports = {};" });
+    r = cli(t, ["--estado"], LIGA);
+    afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === DESLIGADO, "jev.js sem ligado: desligado");
+
+    // o --import que proíbe a rede, quatro envs × dois modos
+    const guarda =
+      'import net from "node:net";import tls from "node:tls";import http from "node:http";import https from "node:https";' +
+      'import {syncBuiltinESMExports} from "node:module";' +
+      'const b=()=>{process.stderr.write("REDE!\\n");throw new Error("rede")};' +
+      "globalThis.fetch=b;net.connect=b;net.createConnection=b;tls.connect=b;http.request=b;https.request=b;syncBuiltinESMExports();";
+    const importa = ["--import", "data:text/javascript," + encodeURIComponent(guarda)];
+    const envs = [{}, { BRAIN_JEV: "1", BRAIN_JEV_FALSO: "sim" }, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim" }, { BRAIN_JEV: "triagem" }];
+    for (const env of envs) {
+      for (const modo of ["--estado", "completo"]) {
+        t = arvore({ hooks: "real" });
+        const args = modo === "--estado" ? ["--estado"] : completo(t);
+        r = cli(t, args, env, importa);
+        afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === DESLIGADO && !r.err.includes("REDE!"), `sem rede, ${JSON.stringify(env)} (${modo})`);
+        if (modo !== "--estado") afirmar(!existsSync(join(t, "entrada.json")), "sem rede (completo): entrada apagada");
+      }
+    }
+
+    // argv inválido: código 2 e o jev.js nem é carregado
+    for (const env of [{}, LIGA]) {
+      for (const args of [["--claude-md", join(root, "CLAUDE.md")], ["--desconhecido"], ["--estado", "a mais"]]) {
+        t = arvore({ hooks: ECO("CARREGOU") });
+        r = cli(t, args, env);
+        afirmar(r.ok && r.codigo === 2 && r.out === "" && r.err.startsWith("uso:") && !r.err.includes("CARREGOU"), `argv inválido ${JSON.stringify(args.map((a) => a.slice(0, 12)))} ${Object.keys(env).length ? "com" : "sem"} BRAIN_JEV: código 2 sem carregar`);
+      }
+    }
+
+    // import() do módulo por node -e: não roda principal nem lança
+    t = arvore({ hooks: ECO("CARREGOU") });
+    const ie = spawnSync(process.execPath, ["-e", `import(${JSON.stringify(pathToFileURL(join(t, "skills", "gm-triage", "jev-triagem.mjs")).href)}).then(()=>console.log("importou"))`], {
+      env: { ...envSemJev(process.env), CLAUDE_CONFIG_DIR: join(t, "casa"), ...LIGA },
+      encoding: "utf8",
+      timeout: 15000,
+      killSignal: "SIGKILL",
+    });
+    afirmar(ie.error === undefined && ie.signal === null && ie.status === 0 && ie.stdout === "importou\n" && ie.stderr === "", "import() por node -e: não roda principal");
+
+    // ponta a ponta com o hooks/ real e um roteiro
+    const campos = lerBoard(claudeMd);
+    const regra = (campo, responde) => ({ quando: { id: campo }, responde });
+    const roteiro = (sem = []) => ({
+      regras: [
+        regra("Tipo", { escolha: "✨ Melhoria" }),
+        regra("Severidade", { escolha: "S2", confianca: 0.75 }),
+        regra("Classe", { escolha: "⚪ Padrão", confianca: 0.9 }),
+        regra("Rota", { escolha: "Curta", confianca: 0.71 }),
+        regra("Módulo", { escolha: "skills", confianca: 0.64 }),
+      ].filter((x) => !sem.includes(x.quando.id)),
+    });
+    afirmar(campos.get("Tipo").includes("✨ Melhoria") && campos.get("Classe").includes("⚪ Padrão"), "rótulos do roteiro existem no ## Board");
+    const comRoteiro = (obj) => {
+      const tt = arvore({ hooks: "real" });
+      const f = join(tt, "roteiro.json");
+      writeFileSync(f, JSON.stringify(obj));
+      return { tt, f };
+    };
+    let rt = comRoteiro(roteiro());
+    r = cli(rt.tt, completo(rt.tt), { BRAIN_JEV: "triagem", BRAIN_JEV_FALSO: rt.f });
+    const esperadoCli =
+      CABECALHO_ESPERADO +
+      [
+        "| Tipo | ✨ Melhoria | 95% | = | |",
+        "| Severidade | S3 | 12% | S2 (75%) | ⚠ revisar |",
+        "| Classe | ⚪ Padrão | 90% | = | |",
+        "| Rota | — | — | Curta (71%) | |",
+        "| Módulo | skills | 64% | = | ⚠ revisar |",
+      ].join("\n") +
+      "\n";
+    afirmar(r.ok && r.out === esperadoCli && r.codigo === 0, "ponta a ponta com roteiro: stdout byte a byte");
+    afirmar(/^jev-triagem: \d+ ms\n$/.test(r.err) && !existsSync(join(rt.tt, "entrada.json")), "ponta a ponta: ms no stderr, entrada apagada");
+
+    // --estado com a lista, espaço e maiúsculas
+    t = arvore({ hooks: "real" });
+    r = cli(t, ["--estado"], { BRAIN_JEV: " Contexto , TRIAGEM ", BRAIN_JEV_FALSO: "sim" });
+    afirmar(r.ok && r.out === "ligado\n" && r.codigo === 0, "--estado com BRAIN_JEV em lista com espaço e maiúsculas");
+
+    // padrao indisponivel, e sem padrao
+    rt = comRoteiro({ ...roteiro(["Módulo"]), padrao: { indisponivel: "http" } });
+    r = cli(rt.tt, completo(rt.tt), { BRAIN_JEV: "triagem", BRAIN_JEV_FALSO: rt.f });
+    afirmar(r.ok && r.codigo === 0 && r.out === "Sem a sugestão do Jev: o Jev ficou indisponível (http: falso). A classificação acima é só a da sessão.\n", "roteiro com padrao indisponivel");
+    rt = comRoteiro(roteiro(["Módulo"]));
+    r = cli(rt.tt, completo(rt.tt), { BRAIN_JEV: "triagem", BRAIN_JEV_FALSO: rt.f });
+    afirmar(r.ok && r.codigo === 0 && r.out === "Sem a sugestão do Jev: o Jev ficou indisponível (resposta_invalida: roteiro). A classificação acima é só a da sessão.\n", "roteiro sem padrao");
+
+    // lento: vira timeout em menos de 12 s
+    t = arvore({ hooks: "real" });
+    r = cli(t, completo(t), { BRAIN_JEV: "triagem", BRAIN_JEV_FALSO: "lento" });
+    afirmar(r.ok && r.codigo === 0 && r.out.startsWith("Sem a sugestão do Jev: o Jev ficou indisponível (timeout") && r.ms < 12000, `lento: timeout em ${r.ms} ms`);
+
+    // handle vivo do cliente não segura o processo
+    const vivo =
+      'module.exports={ligado:(uso)=>uso==="triagem",decidir:async(_e,p)=>{setInterval(()=>{},1000);' +
+      'const s={};for(const [k,v] of Object.entries(p)){const n=Object.keys(v.opcoes);s[k]={estado:"ok",tipo:"escolha",escolha:n[0],confianca:1,probabilidades:Object.fromEntries(n.map((x,i)=>[x,i===0?1:0]))}}return s}};';
+    t = arvore({ hooks: vivo });
+    r = cli(t, completo(t));
+    afirmar(r.ok && r.codigo === 0 && r.ms < 3000 && r.out.startsWith("**Sugestão do Jev**"), `handle vivo do cliente: sai em ${r.ms} ms`);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
 }
 

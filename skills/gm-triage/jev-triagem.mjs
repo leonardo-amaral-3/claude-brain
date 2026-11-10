@@ -2,7 +2,7 @@
 // Só módulos `node:` de arquivo e caminho. Nenhum módulo de processo ou de rede é importado e este
 // arquivo não chama a rede: quando ela existe, é do hooks/jev.js.
 
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -405,3 +405,21 @@ export async function principal(argv, { carregar = carregarCliente, stdout = pro
 
 const diagnostico = (cliente, motivo) =>
   cliente ? "jev-triagem: cliente carregado, desligado\n" : `jev-triagem: cliente indisponível: ${motivo}\n`;
+
+// Bloco de execução: só quando este arquivo é o process.argv[1]; importado (teste, node -e) não roda nada.
+const sair = (codigo) => process.stdout.write("", () => process.exit(codigo));
+
+const eExecutavel = () => {
+  try {
+    return Boolean(process.argv[1]) && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+};
+
+if (eExecutavel()) {
+  principal(process.argv.slice(2)).then(sair, (e) => {
+    process.stderr.write("jev-triagem: erro interno: " + primeiraLinha(e, 120) + "\n");
+    sair(1);
+  });
+}
