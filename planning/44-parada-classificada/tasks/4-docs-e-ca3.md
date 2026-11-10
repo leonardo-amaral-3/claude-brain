@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: O portão no `CLAUDE.md`, a doc e o README, e a prova do CA3
 

@@ -309,7 +309,7 @@ claude-brain/
 │   └── brain.config.example.json
 ├── skills/                     15 skills → ~/.claude/skills/
 │   └── _comum/                 fonte dos blocos comuns, carimbada por scripts/skills-comum.mjs
-├── scripts/                    skills-comum.mjs — carimba e checa os blocos comuns das skills
+├── scripts/                    skills-comum.mjs (blocos comuns das skills), classificar-parada.mjs (motivo da PARADA, atrás da flag do Jev)
 ├── hooks/                      8 arquivos → ~/.claude/hooks/
 │   ├── brain-config.js         lê o brain-workspaces.json (compartilhado pelos outros)
 │   ├── jev.js                  cliente do Jev (TypeSafe AI); cada uso liga em BRAIN_JEV

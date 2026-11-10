@@ -324,6 +324,24 @@ empilhada), as decisões registradas que o obrigam, paradas além da tabela e fa
 `CLAUDE.md` não declara. Medido: o texto-base do despacho da #29 caiu de 2.871 para 1.718 bytes sem
 perder nada que a tabela não diga.
 
+**A parada classificada (opcional, atrás da flag do Jev).** Quem despacha pode passar a saída da
+sessão por `node scripts/classificar-parada.mjs`. O script lê do stdin, pega a última linha e
+escreve uma linha JSON com cinco campos:
+- `estado`: `classificada`, `sem-classificacao` ou `desligado`;
+- `categoria`: o id de uma das linhas **para** da tabela do `## Modo despachado` de
+  `skills/_comum/convencoes.md`, ou `gate-aberto`, ou `outro`;
+- `probabilidade`;
+- `escala`;
+- `porque`.
+
+`escala: true` é escalada obrigatória. Acontece em parada reservada ao humano (`producao`,
+`escolha-de-produto`), em `outro`, em confiança abaixo do limiar, em erro ou tempo esgotado do
+Jev, em resposta inválida e quando aquela tabela diverge da lista do script. `escala: false`
+deixa a categoria para a política da orquestradora, que não mora neste repo. `desligado` (sem a
+flag ou sem a chave do cliente do Jev, do #42) e código de saída diferente de `0` querem dizer a
+mesma coisa: ler a frase como sempre. A linha `PARADA:` não muda. A categoria é inferida, e a
+sessão nunca a declara.
+
 ## Uma worktree por card
 
 Todo card em voo trabalha numa pasta só dele: `<workspace>/<repo>-<n>-<slug>` — irmã do repo,
