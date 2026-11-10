@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: O cliente do Jev — `hooks/jev.js` e a parte cliente do `jev.mjs`
 
