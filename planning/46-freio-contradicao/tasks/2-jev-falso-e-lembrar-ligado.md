@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: Jev falso por hook, `juizJev.ts` provisório e o `lembrar` ligado
 

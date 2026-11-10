@@ -10,6 +10,8 @@ import type { Buscador, Diagnostico } from "./search.js";
 import { matchExpr, normalizar as normalize } from "./search.js";
 import type { Grafo, Entidade } from "./grafo.js";
 import { registrarDecisao, decisoesRelacionadas } from "./memoria.js";
+import { julgarContradicoes, formatarAviso } from "./contradicao.js";
+import { obterJulgarPar } from "./juizJev.js";
 import type { Lease } from "./lease.js";
 
 const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"] as const;
@@ -556,13 +558,16 @@ export function registerTools(
       });
       indexer.scan();
       vigia.agendar("decisao");
-      const aviso = relacionadas.length
-        ? "\n\nJá havia registro sobre o mesmo assunto — confira se alguma contradiz esta e, se sim, " +
-          "chame lembrar de novo com supersede:<id>:\n" +
-          relacionadas
-            .map((d) => `  #${d.id} (${d.data}${d.escopo ? ", " + d.escopo : ""}, semelhança ${d.semelhanca.toFixed(2)}): ${d.fato}`)
-            .join("\n")
-        : "";
+      // O julgamento roda DEPOIS da gravação: a decisão nunca espera o Jev, e nada daqui pode virar
+      // erro da tool — a linha já está no banco, e um erro faria quem chamou gravar de novo.
+      let marcas: Map<number, number> | null = null;
+      try {
+        const julgar = relacionadas.length ? await obterJulgarPar() : null;
+        marcas = await julgarContradicoes(args.fato, relacionadas, julgar);
+      } catch (err) {
+        console.error("[brain] contradicao: aviso sem marca:", (err as Error).message);
+      }
+      const aviso = formatarAviso(relacionadas, marcas);
       return text(`Registrado como #${r.id} em ${r.path}` + (args.supersede ? ` (substitui #${args.supersede})` : "") + aviso);
     }
   );

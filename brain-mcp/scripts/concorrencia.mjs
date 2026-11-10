@@ -2534,6 +2534,182 @@ caso("montar-pergunta-e-prazo", async () => {
   }
 });
 
+// ---------------------------------------------------------------- #46: freio de contradição (servidor)
+// Sobem `dist/index.js` com o hook, que troca `dist/juizJev.js` pelo Jev falso: nenhum processo
+// daqui alcança o Jev real, qualquer que seja o ambiente de quem roda. `BRAIN_JEV_FALSO` vai
+// SEMPRE explícito no `envExtra` (o `subirServidor` herda o ambiente de quem roda o teste).
+const { cosseno } = await import(pathToFileURL(join(root, "scripts", "embeddings-falso.mjs")).href);
+
+// Cada fato é uma frase só, de 22 palavras e 101 caracteres (o título do `.md` é a frase inteira,
+// até 110), e os três diferem em UMA palavra entre as cinco primeiras: o nome do `.md` sai dos 60
+// primeiros caracteres do slug, e palavra diferente depois deles faria um sobrescrever o outro.
+const COLA_FATO_FREIO = "da nossa regra para gravar fato no cofre e avisar quem le se algo ja dito for do mesmo tema hoje";
+const fatoFreio = (palavra, marcador = "") => `${palavra} ${COLA_FATO_FREIO}${marcador}`;
+const hojeUtc = () => new Date().toISOString().slice(0, 10);
+
+async function semelhancaEntre(a, b) {
+  const [va] = await embutirFalso([a]);
+  const [vb] = await embutirFalso([b]);
+  return cosseno(vb, va).toFixed(2);
+}
+
+/** Sobe um servidor com o Jev falso no modo pedido e uma fixture com cofre de decisões. */
+async function servidorComJevFalso(nome, modo, envExtra = {}) {
+  const fx = criarFixture(nome, {}, { comDecisoes: true });
+  fx.registroJev = join(fx.dir, "jev-falso.log");
+  const s = subirServidor(fx, nome, {
+    BRAIN_JEV_FALSO: modo,
+    BRAIN_JEV_FALSO_REGISTRO: fx.registroJev,
+    ...envExtra,
+  });
+  await ate(() => s.bootou(), 30000, () => `o servidor bootar -> ${s.diagnostico()}`);
+  await s.handshake();
+  return { fx, s };
+}
+
+const gravarFreio = (s, fato) => s.chamarCru("lembrar", { fato, tipo: "decisao", escopo: "freio" });
+
+const linhasDoRegistro = (fx) =>
+  existsSync(fx.registroJev)
+    ? readFileSync(fx.registroJev, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    : [];
+
+/** R4 em cada caso de servidor: nada recusado, `supersede` vazio e nenhuma vizinha supersedida. */
+function afirmarR4(fx, resposta, idNova, idsVizinhas) {
+  ok(!resposta.falhou, `a tool recusou ou deu erro: ${resposta.resumo()}`);
+  const db = openDb(fx.db);
+  try {
+    const nova = db.prepare("SELECT supersede FROM decisoes WHERE id = ?").get(idNova);
+    ok(nova && nova.supersede === null, `supersede da nova devia ser NULL, veio ${JSON.stringify(nova)}`);
+    for (const id of idsVizinhas) {
+      const v = db.prepare("SELECT supersedida_por FROM decisoes WHERE id = ?").get(id);
+      ok(v && v.supersedida_por === null, `a vizinha #${id} foi supersedida sozinha: ${JSON.stringify(v)}`);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+function lerDecisaoPorFato(fx, fato) {
+  const db = openDb(fx.db);
+  try {
+    return db.prepare("SELECT id, doc_path FROM decisoes WHERE fato = ?").get(fato) ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+/** O texto que o `lembrar` devolve hoje para B com uma única vizinha (A), sem marca. */
+async function textoDeHoje(idB, pathB, idA, fatoA, fatoB) {
+  const s = await semelhancaEntre(fatoB, fatoA);
+  return `Registrado como #${idB} em ${pathB}` + CABECALHO_AVISO + `  #${idA} (${hojeUtc()}, freio, semelhança ${s}): ${fatoA}`;
+}
+
+caso("lembrar-com-jev-desligado-fica-como-hoje", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-desligado", "desligado");
+  const fatoA = fatoFreio("Alfa");
+  const fatoB = fatoFreio("Beta");
+  const a = await gravarFreio(s, fatoA);
+  ok(!a.falhou, `gravar A falhou: ${a.resumo()}`);
+  const b = await gravarFreio(s, fatoB);
+  const dA = lerDecisaoPorFato(fx, fatoA);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA && dB, "A e B deviam estar gravadas");
+  ok(b.texto.includes(`#${dA.id} (`), `A devia estar na lista de vizinhas: ${b.texto}`);
+  const esperado = await textoDeHoje(dB.id, dB.doc_path, dA.id, fatoA, fatoB);
+  ok(b.texto === esperado, `texto diverge do de hoje:\n${b.texto}\n--- esperado:\n${esperado}`);
+  afirmarR4(fx, b, dB.id, [dA.id]);
+  ok(linhasDoRegistro(fx).length === 0, "com o Jev desligado o juiz nem devia existir, mas o registro tem linhas");
+});
+
+caso("lembrar-com-jev-falso-marca-a-contradicao", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-ligado", "ligado");
+  const fatoA1 = fatoFreio("Alfa", " [p=0.93]");
+  const fatoA2 = fatoFreio("Beta");
+  const fatoB = fatoFreio("Gama");
+  ok(!(await gravarFreio(s, fatoA1)).falhou, "gravar A1 falhou");
+  ok(!(await gravarFreio(s, fatoA2)).falhou, "gravar A2 falhou");
+  const b = await gravarFreio(s, fatoB);
+  const dA1 = lerDecisaoPorFato(fx, fatoA1);
+  const dA2 = lerDecisaoPorFato(fx, fatoA2);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA1 && dA2 && dB, "A1, A2 e B deviam estar gravadas");
+
+  // Primeiro as vizinhas esperadas na lista, só depois a marca.
+  const linhas = b.texto.split("\n");
+  const linhaA1 = linhas.find((l) => l.startsWith(`  #${dA1.id} (`));
+  const linhaA2 = linhas.find((l) => l.startsWith(`  #${dA2.id} (`));
+  ok(linhaA1 && linhaA2, `A1 e A2 deviam estar na lista:\n${b.texto}`);
+  const sA1 = await semelhancaEntre(fatoB, fatoA1);
+  const sA2 = await semelhancaEntre(fatoB, fatoA2);
+  ok(
+    linhaA1 === `  #${dA1.id} (${hojeUtc()}, freio, semelhança ${sA1}) [contradição provável, Jev 0.93]: ${fatoA1}`,
+    `linha de A1 sem a marca esperada: ${linhaA1}`
+  );
+  ok(
+    linhaA2 === `  #${dA2.id} (${hojeUtc()}, freio, semelhança ${sA2}): ${fatoA2}`,
+    `linha de A2 devia ser a de hoje: ${linhaA2}`
+  );
+  afirmarR4(fx, b, dB.id, [dA1.id, dA2.id]);
+
+  // R6: só `nova` e `anterior` saem, e um par por vizinha.
+  const registro = linhasDoRegistro(fx);
+  for (const { par } of registro) {
+    ok(
+      JSON.stringify(Object.keys(par).sort()) === JSON.stringify(["anterior", "nova"]),
+      `o par levou chaves a mais: ${JSON.stringify(par)}`
+    );
+  }
+  const dessaNova = registro.filter(({ par }) => par.nova === fatoB);
+  ok(dessaNova.length === 2, `esperava 2 pares com a nova, vieram ${dessaNova.length}`);
+  const anteriores = dessaNova.map(({ par }) => par.anterior).sort();
+  ok(JSON.stringify(anteriores) === JSON.stringify([fatoA1, fatoA2].sort()), `anteriores errados: ${anteriores}`);
+
+  // R5: o `.md` é o de hoje, sem rastro do julgamento.
+  const md = readFileSync(dB.doc_path, "utf8");
+  const literal = `---\ndata: ${hojeUtc()}\ntipo: decisao\nescopo: freio\n---\n\n# ${fatoB}\n\n${fatoB}\n`;
+  ok(md === literal, `o .md de B diverge do formato de hoje:\n${md}`);
+});
+
+caso("lembrar-com-jev-em-erro-grava-e-avisa-como-hoje", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-erro", "erro");
+  const fatoA = fatoFreio("Alfa");
+  const fatoB = fatoFreio("Beta");
+  ok(!(await gravarFreio(s, fatoA)).falhou, "gravar A falhou");
+  const b = await gravarFreio(s, fatoB);
+  const dA = lerDecisaoPorFato(fx, fatoA);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA && dB, "A e B deviam estar gravadas apesar do erro do Jev");
+  ok(existsSync(dB.doc_path), "o .md de B devia existir");
+  const esperado = await textoDeHoje(dB.id, dB.doc_path, dA.id, fatoA, fatoB);
+  ok(b.texto === esperado, `com o Jev em erro o texto devia ser o de hoje:\n${b.texto}`);
+  afirmarR4(fx, b, dB.id, [dA.id]);
+  const dessaNova = linhasDoRegistro(fx).filter(({ par }) => par.nova === fatoB);
+  ok(dessaNova.length === 1, `esperava 1 chamada do juiz para B, vieram ${dessaNova.length}`);
+});
+
+caso("lembrar-com-jev-lento-respeita-o-prazo", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-lento", "lento", { BRAIN_CONTRADICAO_PRAZO_MS: "300" });
+  const fatoA = fatoFreio("Alfa");
+  const fatoB = fatoFreio("Beta");
+  ok(!(await gravarFreio(s, fatoA)).falhou, "gravar A falhou");
+  const inicio = Date.now();
+  const b = await gravarFreio(s, fatoB);
+  const levou = Date.now() - inicio;
+  ok(levou < 5000, `o lembrar devia respeitar o prazo de 300 ms, levou ${levou} ms`);
+  const dA = lerDecisaoPorFato(fx, fatoA);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA && dB, "B devia estar gravada");
+  ok(!b.texto.includes("contradição provável"), `não devia haver marca:\n${b.texto}`);
+  const esperado = await textoDeHoje(dB.id, dB.doc_path, dA.id, fatoA, fatoB);
+  ok(b.texto === esperado, `sem marca o texto devia ser o de hoje:\n${b.texto}`);
+  afirmarR4(fx, b, dB.id, [dA.id]);
+  await dormir(1000);
+  ok(s.vivo, `o servidor morreu depois do prazo: ${s.diagnostico()}`);
+  const busca = await s.chamarCru("search_context", { query: "regra para gravar fato", limit: 3 });
+  ok(!busca.falhou, `search_context depois do prazo falhou: ${busca.resumo()}`);
+});
+
 // ---------------------------------------------------------------- execução
 console.log(`fixture: ${fixture}`);
 console.log(`TTL_MS=${TTL_MS} TIQUE_MS=${TIQUE_MS} | servidores: TTL=${TTL_SERVIDOR_MS} ms\n`);
