@@ -1,15 +1,17 @@
-// Teste do cliente do Jev (hooks/jev.js), sem rede. Parte cliente: T1-T10.
-// (A parte do hook, T11-T16, entra na task 2 do #42.)
+// Teste do cliente do Jev (hooks/jev.js) e do filtro do hook de contexto, sem rede.
+// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev).
 //
-// Uso: npm run jev        sai 0 se tudo passou, 1 na primeira falha ("FALHOU: <caso>").
+// Uso: npm run jev        sai 0 se tudo passou, 1 na primeira falha ("FALHOU: <caso>"),
+//                         2 se nao deu para medir ("NAO MEDI: <motivo>"): ambiente sem indice/dist,
+//                         ou prompt de prova que nao serve mais. Dois nao e verde.
 //
 // Por que o env e o fetch sao trocados antes de qualquer coisa: este script nunca pode falar com a
 // TypeSafe AI nem herdar a chave. Se um caso esquecer de injetar o `fetch` espiao, o global lanca e
 // o caso falha em vez de sair para a rede.
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -334,3 +336,191 @@ function filho(argumentos, env, entrada) {
 }
 
 console.log("jev: T1-T10 OK (parte cliente; sem rede)");
+
+// ==== Parte hook: T11-T16 ======================================================================
+// Roda o hook da worktree contra o de origin/dev, sempre com o cliente falso: nada aqui toca a rede.
+
+function naoMedi(motivo) {
+  console.error("NÃO MEDI: " + motivo);
+  process.exit(2);
+}
+
+const repo = join(root, "..");
+const hookDaWorktree = join(repo, "hooks", "brain-contexto.js");
+const norm = (s) => String(s).toLowerCase().replace(/\\/g, "/");
+const semCr = (s) => s.replace(/\r/g, "");
+
+// Pre-voo minimo, o mesmo do injecao.mjs: sem indice e sem dist/ o hook nao injeta nada, e "nao
+// injetou" seria indistinguivel de "o filtro esvaziou o bloco".
+const cfgDoHook = require(join(repo, "hooks", "brain-config.js"));
+const conf = cfgDoHook.carregar();
+if (!conf) naoMedi(`sem lista de workspaces utilizavel em ${cfgDoHook.ARQUIVO}`);
+if (!conf.db || !existsSync(conf.db)) naoMedi(`indice nao encontrado: ${conf.db || "(chave db ausente)"}`);
+const distDoIndice = join(dirname(conf.db), "..", "dist");
+for (const modulo of ["db.js", "search.js"]) {
+  if (!existsSync(join(distDoIndice, modulo))) naoMedi(`${join(distDoIndice, modulo)} nao existe: o hook importa o dist/ da instalacao`);
+}
+
+// Pasta temporaria com a referencia (hook e config de origin/dev) e os roteiros; apagada na saida.
+const pastaTemporaria = mkdtempSync(join(tmpdir(), "jev-hook-"));
+process.on("exit", () => rmSync(pastaTemporaria, { recursive: true, force: true }));
+
+// O hook faz require('./brain-config.js'): a referencia precisa dos dois lado a lado, da mesma ref.
+const doGit = (arquivo) => {
+  try {
+    return execFileSync("git", ["show", `origin/dev:hooks/${arquivo}`], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 8 * 1024 * 1024 });
+  } catch {
+    return null;
+  }
+};
+const hookDeReferencia = join(pastaTemporaria, "referencia", "brain-contexto.js");
+{
+  const hook = doGit("brain-contexto.js");
+  const config = doGit("brain-config.js");
+  if (hook === null || config === null) naoMedi("git show origin/dev:hooks/brain-contexto.js falhou (falta o fetch de origin/dev?)");
+  mkdirSync(join(pastaTemporaria, "referencia"));
+  writeFileSync(hookDeReferencia, hook);
+  writeFileSync(join(pastaTemporaria, "referencia", "brain-config.js"), config);
+}
+
+const CWD_DE_PROVA = join(homedir(), "pessoal", "claude-brain");
+const PROMPT_DE_PROVA = "como o hook de contexto filtra os trechos que injeta";
+const PROMPT_DE_ENTIDADE = "/gm-spec #42";
+
+// Um hook, um prompt: devolve a stdout crua, a stderr e quanto levou. O env nunca leva a chave.
+function rodarHook(caminho, prompt, env) {
+  return new Promise((resolver) => {
+    const ambiente = { ...jev.envSemJev(process.env), ...env };
+    if (!env.BRAIN_HOOK_DEBUG) delete ambiente.BRAIN_HOOK_DEBUG;
+    const inicio = Date.now();
+    const proc = spawn(process.execPath, [caminho], { env: ambiente, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    // O harness real da 10 s ao hook; aqui o corte e mais folgado so para nao pendurar o teste.
+    const corte = setTimeout(() => proc.kill("SIGKILL"), 15000);
+    proc.stdout.on("data", (d) => (stdout += d));
+    proc.stderr.on("data", (d) => (stderr += d));
+    proc.on("close", (codigo) => {
+      clearTimeout(corte);
+      resolver({ codigo, stdout, stderr, ms: Date.now() - inicio });
+    });
+    proc.stdin.end(JSON.stringify({ hook_event_name: "UserPromptSubmit", cwd: CWD_DE_PROVA, prompt }));
+  });
+}
+
+// O indice vivo muda durante a rodada (o servidor escreve nele). Por isso cada comparacao roda
+// referencia e worktree em seguida e, se divergir, repete o par uma vez: so a divergencia que se
+// repete conta.
+async function parIgual(prompt, envDaWorktree) {
+  let ultimo;
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    const referencia = await rodarHook(hookDeReferencia, prompt, {});
+    const worktree = await rodarHook(hookDaWorktree, prompt, envDaWorktree);
+    ultimo = { referencia, worktree };
+    if (semCr(referencia.stdout) === semCr(worktree.stdout)) return { igual: true, ...ultimo };
+  }
+  return { igual: false, ...ultimo };
+}
+
+// Caminhos dos slots de um bloco: a linha logo depois da linha de meta de cada `N. titulo`.
+function caminhosDoBloco(stdout) {
+  if (!stdout.trim()) return [];
+  const texto = JSON.parse(stdout).hookSpecificOutput.additionalContext;
+  const linhas = texto.split("\n");
+  const caminhos = [];
+  linhas.forEach((l, i) => {
+    if (/^\d+\. /.test(l) && linhas[i + 2] !== undefined) caminhos.push(norm(linhas[i + 2].trim()));
+  });
+  return caminhos;
+}
+const textoDoBloco = (stdout) => (stdout.trim() ? JSON.parse(stdout).hookSpecificOutput.additionalContext : "");
+
+// Linhas de debug `[brain-contexto] jev <posicao> <probabilidade> <path>`: so os candidatos enviados.
+const candidatosEnviados = (stderr) =>
+  [...stderr.matchAll(/^\[brain-contexto\] jev (\d+) (\S+) (.+)$/gm)].map((m) => ({ posicao: Number(m[1]), probabilidade: Number(m[2]), caminho: norm(m[3]) }));
+
+const FALSO_SIM = { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim" };
+
+// ---- T11: flag desligada = byte a byte o hook de origin/dev -------------------------------
+const t11 = await parIgual(PROMPT_DE_PROVA, {});
+if (!textoDoBloco(t11.referencia.stdout).includes("busca lexica automatica")) {
+  naoMedi("troque o prompt de prova: com a flag desligada o hook nao injeta pelo caminho de texto");
+}
+confere(t11.igual, "T11 flag desligada: stdout igual a do hook de origin/dev");
+const caminhosDeT11 = caminhosDoBloco(t11.worktree.stdout);
+
+// pre-condicao: candidatos suficientes para T16 (>= 6), contados pelas linhas de debug
+const sondagem = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { ...FALSO_SIM, BRAIN_HOOK_DEBUG: "1" });
+const enviados = candidatosEnviados(sondagem.stderr);
+if (enviados.length < 6) naoMedi(`troque o prompt de prova: so ${enviados.length} candidatos chegam ao Jev (T16 precisa de 6 ou mais)`);
+
+// ---- T12: o Jev nega tudo = stdout vazia ---------------------------------------------------
+{
+  const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "nao" });
+  confere(r.codigo === 0 && r.stdout === "", `T12 falso nao: stdout vazia (saiu ${JSON.stringify(r.stdout.slice(0, 40))})`);
+}
+
+// ---- T13: o Jev aprova tudo = os mesmos caminhos de T11, na mesma ordem, com o cabecalho novo --
+{
+  // Repete o par (sem filtro, com filtro) se o indice mexeu entre uma e outra.
+  let ok = false;
+  let detalhe = "";
+  for (let tentativa = 0; tentativa < 2 && !ok; tentativa++) {
+    const sem = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, {});
+    const com = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { ...FALSO_SIM, BRAIN_HOOK_DEBUG: "1" });
+    const n = candidatosEnviados(com.stderr).length;
+    const cabecalho = `filtrada pelo Jev: ${n} de ${n} candidatos passaram; abaixo, os 5 primeiros`;
+    ok = igual(caminhosDoBloco(sem.stdout), caminhosDoBloco(com.stdout)) && textoDoBloco(com.stdout).includes(cabecalho);
+    detalhe = `n=${n}`;
+  }
+  confere(ok, `T13 falso sim: mesmos caminhos e cabecalho novo (${detalhe})`);
+}
+
+// ---- T14: Jev indisponivel, sem chave, ou lento = igual ao de hoje --------------------------
+{
+  const casos = [
+    ["indisponivel", { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "indisponivel" }],
+    ["sem chave nem falso", { BRAIN_JEV: "contexto" }],
+    ["lento", { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "lento" }],
+  ];
+  for (const [nome, env] of casos) {
+    const r = await parIgual(PROMPT_DE_PROVA, env);
+    confere(r.igual, `T14 ${nome}: stdout igual a do hook de origin/dev`);
+    // 2200 ms de prazo do hook + 1000 ms de folga para o resto do hook e o spawn
+    if (nome === "lento") confere(r.worktree.ms < 3200, `T14 lento resolve em < 3200 ms (levou ${r.worktree.ms})`);
+  }
+}
+
+// ---- T15: caminho de entidade nao muda e nao chama o cliente -------------------------------
+{
+  const sem = await parIgual(PROMPT_DE_ENTIDADE, {});
+  const bloco = textoDoBloco(sem.referencia.stdout);
+  if (!bloco || bloco.includes("busca lexica automatica")) {
+    naoMedi("troque o prompt de entidade: com a flag desligada o bloco esta vazio ou nao veio do grafo");
+  }
+  const com = await parIgual(PROMPT_DE_ENTIDADE, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "nao" });
+  confere(com.igual, "T15 entidade com falso nao: igual ao da flag desligada");
+}
+
+// ---- T16: o Jev aprova so os candidatos de 6 em diante = so esses, na ordem do ranking -----
+{
+  const n = enviados.length;
+  const aprovados = enviados.slice(5);
+  const anteriores = enviados.slice(0, 5).map((c) => c.caminho);
+  // A regra casa por substring de caminho: um caminho aprovado que tambem aparece entre os cinco
+  // primeiros aprovaria o candidato errado, e a prova nao provaria a ordem.
+  if (aprovados.some((a) => anteriores.some((b) => b.includes(a.caminho) || a.caminho.includes(b)))) {
+    naoMedi("troque o prompt de prova: um candidato de 6 em diante repete o caminho de um dos cinco primeiros");
+  }
+  const roteiro = join(pastaTemporaria, "roteiro-t16.json");
+  writeFileSync(
+    roteiro,
+    JSON.stringify({ regras: aprovados.map((a) => ({ quando: { trechoId: a.caminho }, responde: { probabilidade: 0.95 } })), padrao: { probabilidade: 0.05 } })
+  );
+  const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
+  const esperados = aprovados.map((a) => a.caminho);
+  confere(igual(caminhosDoBloco(r.stdout), esperados), `T16 so os candidatos 6..${n}, na ordem do ranking`);
+  confere(textoDoBloco(r.stdout).includes(`${n - 5} de ${n} candidatos passaram; abaixo, os ${n - 5} primeiros`), `T16 cabecalho ${n - 5} de ${n}`);
+}
+
+console.log("jev: T11-T16 OK (parte hook; cliente falso, sem rede)");

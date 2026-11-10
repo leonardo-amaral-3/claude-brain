@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: O filtro no passo 5 do hook — `brain-contexto.js` e T11–T16
 
