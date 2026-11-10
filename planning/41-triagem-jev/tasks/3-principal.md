@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `principal` e `carregarCliente`, testados com o `carregar` injetado
 

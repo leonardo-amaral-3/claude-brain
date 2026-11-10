@@ -4,7 +4,8 @@
 //
 // Antes de qualquer caso o env perde as variáveis do Jev e o fetch passa a lançar: este script nunca
 // pode falar com a TypeSafe AI nem herdar a chave. O estado "ligado" vem só do falso (BRAIN_JEV_FALSO).
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +27,7 @@ globalThis.fetch = () => {
   throw new Error("rede proibida no teste");
 };
 
-const { USO, CAMPOS, LIMIAR_PCT, PRAZO_MS, FOLGA_MS, MAX_RESUMO, INSTRUCOES, DESCRICOES, normalizar, lerBoard, sensivel, sugerir, renderizar } =
+const { USO, CAMPOS, LIMIAR_PCT, PRAZO_MS, FOLGA_MS, MAX_RESUMO, INSTRUCOES, DESCRICOES, normalizar, lerBoard, sensivel, sugerir, renderizar, principal } =
   await import("../skills/gm-triage/jev-triagem.mjs");
 
 let falhas = 0;
@@ -333,6 +334,91 @@ console.log("R2: resumo e guarda");
   for (const texto of naoCasam) {
     t = await tenta(texto);
     afirmar(t.r.estado === "ligado" && t.f.chamadas.length === 1, `passa: ${texto.slice(0, 50)}`);
+  }
+}
+
+// --- principal, com carregar, stdout e stderr injetados ---
+console.log("principal");
+{
+  const tmp = mkdtempSync(join(tmpdir(), "jev-triagem-teste-"));
+  try {
+    const captura = () => {
+      const c = { out: "", err: "" };
+      c.stdout = { write: (x) => void (c.out += x) };
+      c.stderr = { write: (x) => void (c.err += x) };
+      return c;
+    };
+    const arquivos = (entrada = JSON.stringify({ resumo: RESUMO, proposta: PROPOSTA })) => {
+      const e = join(tmp, "entrada.json");
+      const m = join(tmp, "CLAUDE.md");
+      writeFileSync(e, entrada);
+      writeFileSync(m, claudeMd);
+      return { e, m };
+    };
+    const rodarP = async (argv, carregar) => {
+      const c = captura();
+      const codigo = await principal(argv, { carregar, stdout: c.stdout, stderr: c.stderr });
+      return { ...c, codigo };
+    };
+    const nunca = () => {
+      throw new Error("carregar não devia ser chamado");
+    };
+
+    // R1: --estado com cliente indisponível
+    let r = await rodarP(["--estado"], () => ({ cliente: null, motivo: "jev.js não instalado" }));
+    afirmar(r.out === "" && r.codigo === 0 && r.err === "jev-triagem: cliente indisponível: jev.js não instalado\n", "--estado indisponível: stdout vazio, diagnóstico no stderr, código 0");
+    const desl = criarFalso({ ligado: false, decidir: () => ({}) });
+    r = await rodarP(["--estado"], () => ({ cliente: desl, motivo: null }));
+    afirmar(r.out === "" && r.codigo === 0 && r.err === "jev-triagem: cliente carregado, desligado\n", "--estado desligado");
+    const quebra = criarFalso({ ligado: () => { throw new Error("x"); }, decidir: () => ({}) });
+    r = await rodarP(["--estado"], () => ({ cliente: quebra, motivo: null }));
+    afirmar(r.out === "" && r.codigo === 0, "--estado com ligado que lança → desligado");
+    r = await rodarP(["--estado"], () => ({ cliente: falsoPadrao(), motivo: null }));
+    afirmar(r.out === "ligado\n" && r.codigo === 0 && r.err === "", "--estado ligado → stdout exatamente ligado");
+
+    // validação do argv
+    for (const argv of [[], ["--entrada", "a"], ["--claude-md", "a"], ["--estado", "x"], ["--claude-md", "a", "--entrada", "b", "c"], ["--claude-md", "a", "--claude-md", "b"], ["--x"], ["--claude-md", "a", "--outro", "b"]]) {
+      r = await rodarP(argv, nunca);
+      afirmar(r.codigo === 2 && r.out === "" && r.err.startsWith("uso:"), `argv inválido → código 2 sem carregar: ${JSON.stringify(argv)}`);
+    }
+
+    // R1: modo completo desligado apaga a entrada sem ler e não chama decidir
+    let { e, m } = arquivos("conteúdo que não pode ser lido");
+    const espia = criarFalso({ ligado: false, decidir: () => ({}) });
+    r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: espia, motivo: null }));
+    afirmar(r.out === "" && r.codigo === 0 && r.err === "jev-triagem: cliente carregado, desligado\n" && !existsSync(e) && espia.chamadas.length === 0 && existsSync(m), "modo completo desligado: entrada apagada, sem decidir, CLAUDE.md intacto");
+    ({ e, m } = arquivos());
+    r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: null, motivo: "quebrado" }));
+    afirmar(r.out === "" && r.codigo === 0 && !existsSync(e) && r.err.includes("quebrado"), "modo completo sem cliente: entrada apagada");
+
+    // R2: JSON inválido
+    ({ e, m } = arquivos("{não é json"));
+    let f = falsoPadrao();
+    r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: f, motivo: null }));
+    afirmar(r.out === "Sem a sugestão do Jev: não consegui ler entrada.json. A classificação acima é só a da sessão.\n" && r.codigo === 0 && !existsSync(e) && f.chamadas.length === 0 && r.err === "", "entrada com JSON inválido: mensagem, entrada apagada, sem decidir, sem linha de ms");
+    // R2: entrada ausente
+    rmSync(e, { force: true });
+    r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: f, motivo: null }));
+    afirmar(r.out.startsWith("Sem a sugestão do Jev: não consegui ler entrada.json") && r.codigo === 0, "entrada inexistente: não consegui ler");
+
+    // R3: CLAUDE.md sem ## Board, e ilegível
+    ({ e, m } = arquivos());
+    writeFileSync(m, "# nada aqui\n");
+    r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: f, motivo: null }));
+    afirmar(r.out === "Sem a sugestão do Jev: não achei o ## Board em CLAUDE.md. A classificação acima é só a da sessão.\n" && !existsSync(e) && f.chamadas.length === 0 && r.err === "", "CLAUDE.md sem ## Board");
+    ({ e, m } = arquivos());
+    r = await rodarP(["--claude-md", join(tmp, "nao-existe.md"), "--entrada", e], () => ({ cliente: f, motivo: null }));
+    afirmar(r.out.startsWith("Sem a sugestão do Jev: não consegui ler nao-existe.md") && !existsSync(e), "CLAUDE.md ilegível: entrada apagada mesmo assim");
+
+    // modo completo ligado, com o falso em processo
+    ({ e, m } = arquivos());
+    f = falsoPadrao();
+    r = await rodarP(["--entrada", e, "--claude-md", m], () => ({ cliente: f, motivo: null }));
+    const esperado = renderizar(await rodar(falsoPadrao()));
+    afirmar(r.out === esperado + "\n" && r.out.endsWith("|\n") && r.codigo === 0, "modo completo ligado: markdown no stdout com \\n final");
+    afirmar(/^jev-triagem: \d+ ms\n$/.test(r.err) && !existsSync(e) && f.chamadas.length === 1, "modo completo ligado: ms no stderr, entrada apagada, uma chamada");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
   }
 }
 
