@@ -11,7 +11,7 @@
 // que sobem `dist/index.js` de verdade e falam JSON-RPC por stdio. Os de servidor recebem o stub
 // determinístico de embeddings (ver embeddings-falso.mjs e a emenda 2026-09-09 da spec).
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -2708,6 +2708,92 @@ caso("lembrar-com-jev-lento-respeita-o-prazo", async () => {
   ok(s.vivo, `o servidor morreu depois do prazo: ${s.diagnostico()}`);
   const busca = await s.chamarCru("search_context", { query: "regra para gravar fato", limit: 3 });
   ok(!busca.falhou, `search_context depois do prazo falhou: ${busca.resumo()}`);
+});
+
+caso("contradicao-mede-com-jev-falso", async () => {
+  // Dois temas sem palavra em comum, para que só os do mesmo tema fiquem acima de 0,82. Os
+  // marcadores `[p=...]` só entram em A e D (os "antigos"): N1 e N2 não têm, e é por isso que os
+  // temas continuam sem palavra comum entre si.
+  const COLA_Y = "o relogio do servidor precisa marcar horario de verao sem pular nenhuma execucao agendada durante a madrugada de domingo nesta regiao";
+  const fatos = {
+    A: `Alfa ${COLA_FATO_FREIO} [p=0.9]`,
+    C: `Beta ${COLA_FATO_FREIO}`,
+    D: `Delta ${COLA_Y} [p=0.8]`,
+    N1: `Gama ${COLA_FATO_FREIO}`,
+    N2: `Sigma ${COLA_Y}`,
+  };
+  const vetores = {};
+  for (const [nome, fato] of Object.entries(fatos)) vetores[nome] = (await embutirFalso([fato]))[0];
+  // Confere pelo próprio stub, antes de rodar o script, quem é vizinho de quem.
+  for (const [a, b] of [["N1", "A"], ["N1", "C"], ["N2", "D"]]) {
+    ok(cosseno(vetores[a], vetores[b]) >= 0.82, `${a}×${b} devia ficar >= 0,82: ${cosseno(vetores[a], vetores[b])}`);
+  }
+  for (const [a, b] of [["N1", "D"], ["N2", "A"], ["N2", "C"], ["N2", "N1"]]) {
+    ok(cosseno(vetores[a], vetores[b]) < 0.82, `${a}×${b} devia ficar < 0,82: ${cosseno(vetores[a], vetores[b])}`);
+  }
+
+  const fx = criarFixture("contradicao-mede", {}, { comDecisoes: true });
+  const db = openDb(fx.db);
+  const ids = {};
+  try {
+    const inserir = db.prepare(
+      "INSERT INTO decisoes (ts, data, tipo, escopo, fato, supersede, embedding) VALUES (?, ?, 'decisao', 'freio', ?, ?, ?)"
+    );
+    let ts = 1000;
+    for (const nome of ["A", "C", "D", "N1", "N2"]) {
+      const supersede = nome === "N1" ? ids.A : null;
+      const r = inserir.run(ts++, hojeUtc(), fatos[nome], supersede, paraBlob(vetores[nome]));
+      ids[nome] = Number(r.lastInsertRowid);
+    }
+  } finally {
+    db.close();
+  }
+  const contar = () => {
+    const d = openDb(fx.db);
+    try {
+      return d.prepare("SELECT COUNT(*) AS n FROM decisoes").get().n;
+    } finally {
+      d.close();
+    }
+  };
+  const snapshots = () => readdirSync(tmpdir()).filter((n) => n.startsWith("brain-eval-")).sort();
+
+  const rodar = (rotulo, jev, args) => {
+    const registro = join(fx.dir, `jev-contradicao-${rotulo}.log`);
+    const antes = { linhas: contar(), snapshots: snapshots() };
+    const r = spawnSync(process.execPath, ["--import", hookStub, join(root, "scripts", "contradicao.mjs"), ...args], {
+      cwd: root,
+      env: { ...process.env, BRAIN_DB: fx.db, BRAIN_CONFIG: fx.config, BRAIN_JEV_FALSO: jev, BRAIN_JEV_FALSO_REGISTRO: registro },
+      encoding: "utf8",
+    });
+    ok(contar() === antes.linhas, `rodada ${rotulo}: a contagem de decisoes mudou`);
+    ok(JSON.stringify(snapshots()) === JSON.stringify(antes.snapshots), `rodada ${rotulo}: sobrou diretório brain-eval-*`);
+    const chamadas = existsSync(registro) ? readFileSync(registro, "utf8").split("\n").filter(Boolean).length : 0;
+    return { ...r, chamadas };
+  };
+
+  // (1) Jev ligado, sem --enviar: o primeiro portão fechado.
+  const semEnviar = rodar("sem-enviar", "ligado", []);
+  ok(semEnviar.status === 2, `sem --enviar devia sair 2, saiu ${semEnviar.status}\n${semEnviar.stderr}`);
+  ok(semEnviar.stdout.includes("não enviei nada"), `faltou "não enviei nada":\n${semEnviar.stdout}`);
+  ok(semEnviar.chamadas === 0, "sem --enviar o juiz não podia ser chamado");
+
+  // (2) --enviar com o Jev desligado: o segundo portão fechado.
+  const desligado = rodar("desligado", "desligado", ["--enviar"]);
+  ok(desligado.status === 2, `com o Jev desligado devia sair 2, saiu ${desligado.status}\n${desligado.stderr}`);
+  ok(desligado.stdout.includes("não enviei nada"), `faltou "não enviei nada":\n${desligado.stdout}`);
+  ok(desligado.chamadas === 0, "com o Jev desligado o juiz não podia ser chamado");
+
+  // (3) Os dois portões abertos: mede.
+  const medido = rodar("medido", "ligado", ["--enviar", "--max-novas", "1"]);
+  ok(medido.status === 0, `a medição devia sair 0, saiu ${medido.status}\n${medido.stderr}`);
+  const linhas = [
+    "decisões novas: 2 (1 com substituição, 1 sem) · pares julgados: 3 · sem julgamento (erro ou prazo): 0",
+    "substituições na lista: 1 · marcadas (acertos): 1 · não marcadas (perdidas): 0 · fora da lista: 0",
+    "marcas sem substituição (teto das inventadas): 1 de 2 pares",
+  ];
+  for (const linha of linhas) ok(medido.stdout.includes(linha), `faltou a linha "${linha}":\n${medido.stdout}`);
+  ok(medido.chamadas === 3, `esperava 3 pares no registro do juiz, vieram ${medido.chamadas}`);
 });
 
 // ---------------------------------------------------------------- execução
