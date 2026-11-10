@@ -345,8 +345,14 @@ foi o cliente falso do #42 (`BRAIN_JEV_FALSO` definida, mesmo vazia: `porque: "f
 deixa a categoria para a política da orquestradora, que não mora neste repo. `desligado` (sem a
 flag ou sem a chave do cliente do Jev, do #42) e código de saída diferente de `0` querem dizer a
 mesma coisa: ler a frase como sempre. A stdin é o texto já terminado (um arquivo, um `printf`), e
-não a sessão ao vivo: se ela não fechar em 5 s, o script sai com código `2`. A linha `PARADA:` não muda. A categoria é inferida, e a
-sessão nunca a declara.
+não a sessão ao vivo: se ela não fechar em 5 s, o script sai com código `2`. A linha `PARADA:` não
+muda. A categoria é inferida, e a sessão nunca a declara.
+
+**Não ligue o uso `parada` em `BRAIN_JEV` antes do CA4 do #44.** A categoria `gate-aberto` descreve,
+ao pé da letra, toda `PARADA` (a convenção manda fechar com o gate deixado aberto), e pode absorver
+uma parada reservada (`producao`, `escolha-de-produto`) com confiança alta, que então sai
+`escala: false`. O CA4 mede essa confusão com as `PARADA` reais; até ele rodar, com o aval do
+Leonardo para mandar os motivos ao Jev, o classificador fica desligado.
 
 ## Uma worktree por card
 
