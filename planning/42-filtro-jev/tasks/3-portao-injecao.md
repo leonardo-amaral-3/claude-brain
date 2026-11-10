@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: O portão `--portao jev` no `injecao.mjs`
 

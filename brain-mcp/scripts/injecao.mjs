@@ -3,6 +3,16 @@
 //
 //   node scripts/injecao.mjs [--dias N | --desde YYYY-MM-DD --ate YYYY-MM-DD] [--base <ref>]
 //   node scripts/injecao.mjs --caso "<prompt>" [--cwd <path>]
+//   node scripts/injecao.mjs --desde YYYY-MM-DD --ate YYYY-MM-DD --base <ref> --portao jev
+//
+// `--portao <ca2|jev>` (padrao `ca2`) escolhe o portao de saida. `ca2` e o de sempre (taxa de
+// injecao). `jev` e o do #42: (a) com a flag do Jev desligada o hook novo emite a MESMA stdout do
+// base em todo o corpus, e (b) com o cliente falso em modo oraculo o filtro preserva o que o base
+// injetava de esperado e so deixa passar esperado. Exige --desde, --ate e --base explicitos.
+// Codigos do `jev`: 0 passou, 1 reprovou, 2 nao medi. `--portao` nao vale com `--caso`.
+//
+// A SAIDA DESTE SCRIPT NAO VAI PARA PR NEM CARD, salvo as linhas de contagem: o corpus traz
+// conteudo dos dois workspaces e o repo e publico. O modo `jev` so imprime contagens e indices.
 //
 // Por que antes-e-depois no mesmo corpus, e não contra um número fixo: a janela de `--dias` muda
 // todo dia, então um limiar fixo mediria a mistura de trabalho da semana, não o efeito da
@@ -69,6 +79,19 @@ const baseRef = valor("base") ?? "dev";
 const argDias = valor("dias");
 const argDesde = valor("desde");
 const argAte = valor("ate");
+const argBase = valor("base");
+const portao = valor("portao") ?? "ca2";
+if (portao !== "ca2" && portao !== "jev") fail(`--portao desconhecido: ${portao} (esperado ca2 ou jev)`);
+if (portao !== "ca2" && caso !== undefined) fail("--portao não vale com --caso");
+
+// Exit 2 do portão `jev`: a medição não aconteceu, o que é diferente de reprovar.
+function naoMedi(motivo) {
+  console.error("NÃO MEDI: " + motivo);
+  process.exit(2);
+}
+if (portao === "jev" && (argDesde === undefined || argAte === undefined || argBase === undefined)) {
+  naoMedi("o portão do #42 é sobre janela e base fixas: passe --desde, --ate e --base");
+}
 
 // ---------------------------------------------------------------- pré-voo do ambiente
 //
@@ -80,6 +103,10 @@ const argAte = valor("ate");
 const cfgPath = join(repo, "hooks", "brain-config.js");
 if (!fs.existsSync(cfgPath)) fail(`não achei ${cfgPath} — este script roda de dentro do repo`);
 const cfg = require(cfgPath);
+
+const jevPath = join(repo, "hooks", "jev.js");
+if (!fs.existsSync(jevPath)) fail(`não achei ${jevPath} — este script roda de dentro do repo`);
+const jev = require(jevPath);
 
 const conf = cfg.carregar();
 if (!conf) {
@@ -140,10 +167,17 @@ const blocoDe = (saida) => {
   }
 };
 
-function rodar(hookPath, prompt, cwd) {
+// O `env` do filho é sempre explícito. Todo filho sai de `jev.envSemJev(process.env)`: sem a chave
+// da API e sem `BRAIN_JEV*`. É isto que mantém "a medição não usa rede" verdadeiro numa máquina que
+// um dia tiver `TYPESAFE_API_KEY` no ambiente: o hook e o cliente herdariam a chave e o corpus iria
+// para fora. Quem quer o cliente falso o repõe por cima, sem nunca repor a chave.
+const envLimpo = () => jev.envSemJev(process.env);
+
+function rodar(hookPath, prompt, cwd, env = envLimpo()) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [hookPath], {
       stdio: ["pipe", "pipe", DEBUG ? "inherit" : "ignore"],
+      env,
     });
     let saida = "";
     let pronto = false;
@@ -155,13 +189,13 @@ function rodar(hookPath, prompt, cwd) {
     };
     const t = setTimeout(() => {
       p.kill();
-      encerra({ bloco: null, timeout: true });
+      encerra({ bloco: null, saida: "", timeout: true });
     }, TIMEOUT_HOOK);
     p.stdout.on("data", (d) => {
       saida += d;
     });
-    p.on("error", () => encerra({ bloco: null, erro: true }));
-    p.on("close", () => encerra({ bloco: blocoDe(saida) }));
+    p.on("error", () => encerra({ bloco: null, saida: "", erro: true }));
+    p.on("close", () => encerra({ bloco: blocoDe(saida), saida }));
     p.stdin.on("error", () => {}); // hook que sai antes de ler a stdin fecha o pipe; não é erro
     p.stdin.end(JSON.stringify({ prompt, cwd }));
   });
@@ -194,7 +228,13 @@ async function emLote(itens, tarefa, rotulo) {
 // rodadas. Nunca reprova por limiar.
 
 if (caso !== undefined) {
-  const r = await rodar(hookDepois, caso, cwdCaso);
+  // O --caso inspeciona o filtro com o cliente falso e nunca com o real: repõe só as três variáveis
+  // do Jev como vieram, e a chave não passa.
+  const envCaso = envLimpo();
+  for (const nome of ["BRAIN_JEV", "BRAIN_JEV_FALSO", "BRAIN_JEV_LIMIAR_CONTEXTO"]) {
+    if (process.env[nome] !== undefined) envCaso[nome] = process.env[nome];
+  }
+  const r = await rodar(hookDepois, caso, cwdCaso, envCaso);
   if (r.timeout) console.error(`(o hook estourou ${TIMEOUT_HOOK / 1000}s)`);
   if (r.bloco) process.stdout.write(r.bloco + "\n");
   process.exit(0);
@@ -386,6 +426,195 @@ function resolverBase() {
   };
 }
 
+// ---------------------------------------------------------------- portão `jev` (#42)
+//
+// Declarada como função (hoisted) porque usa o que está definido acima; só é chamada depois de
+// `base` e `compara` existirem. Sai com 0/1/2 por conta própria.
+
+class NaoMedi extends Error {}
+const naoMediAqui = (motivo) => {
+  throw new NaoMedi(motivo);
+};
+
+async function portaoJev() {
+  let codigo;
+  try {
+    codigo = await medirPortaoJev();
+  } catch (e) {
+    if (!(e instanceof NaoMedi)) throw e;
+    console.error("NÃO MEDI: " + e.message);
+    codigo = 2;
+  } finally {
+    // O temporário do base vive até aqui porque o golden também roda o base (hoje o ca2 o apaga
+    // logo depois do corpus).
+    if (base && base.tmp) fs.rmSync(base.tmp, { recursive: true, force: true });
+  }
+  process.exit(codigo);
+}
+
+async function medirPortaoJev() {
+  {
+    if (!base) naoMediAqui("não há hook de referência (--base) para comparar");
+    if (!compara) naoMediAqui("o hook é igual ao base: não há o que o portão do #42 medir");
+    let reprovou = false;
+
+    // (a) Corpus: flag desligada, base e worktree um seguido do outro. O índice vivo muda durante
+    // a rodada (o Vigia do servidor escreve nele), então só conta a divergência que se repete.
+    const par = async (p) => {
+      const b = await rodar(base.path, p.prompt, p.cwd);
+      const w = await rodar(hookDepois, p.prompt, p.cwd);
+      return { b, w };
+    };
+    const diverge = ({ b, w }) => semCr(b.saida) !== semCr(w.saida);
+    const falhou = ({ b, w }) => !!(b.timeout || b.erro || w.timeout || w.erro);
+
+    const pares = await emLote(prompts, par, "corpus");
+    const repetidos = new Map();
+    for (let i = 0; i < pares.length; i++) {
+      if (falhou(pares[i])) naoMediAqui(`timeout ou erro ao rodar o hook no prompt de índice ${i}`);
+      if (diverge(pares[i])) repetidos.set(i, await par(prompts[i]));
+    }
+    const divergentes = [];
+    for (const [i, segundo] of repetidos) {
+      if (falhou(segundo)) naoMediAqui(`timeout ou erro ao repetir o prompt de índice ${i}`);
+      if (diverge(segundo)) divergentes.push(i);
+    }
+    const cB = conta(pares.map((x) => x.b));
+    const cW = conta(pares.map((x) => x.w));
+    console.log(`Janela: ${j.rotulo} · ${prompts.length} prompts humanos`);
+    console.log(`Taxa de injeção — base:  ${cB.inj}/${prompts.length} = ${cB.taxa.toFixed(1)}%`);
+    console.log(`Taxa de injeção — árvore: ${cW.inj}/${prompts.length} = ${cW.taxa.toFixed(1)}%`);
+    console.log(`Divergências na primeira passada: ${repetidos.size}, repetidas depois: ${divergentes.length}`);
+    console.log(`Saídas diferentes com a flag desligada: ${divergentes.length}`);
+    if (divergentes.length) {
+      console.log(`  índices (no máximo 10): ${divergentes.slice(0, 10).join(", ")}`);
+      reprovou = true;
+    }
+
+    // (b) Golden com o cliente falso em modo oráculo, nos dois workspaces.
+    const golden = JSON.parse(fs.readFileSync(process.env.BRAIN_GOLDEN || join(root, "scripts", "golden.json"), "utf8"));
+    const tmpRoteiro = fs.mkdtempSync(join(os.tmpdir(), "injecao-oraculo-"));
+    try {
+      const alvosDe = (c) => [].concat(c.esperado ?? []).map((a) => norm(String(a)));
+      const regras = [];
+      const norm = (t) => String(t).toLowerCase().replace(/\\/g, "/"); // a `norm` do eval.mjs
+      for (const c of golden) {
+        if (c.tipo === "negativo") continue;
+        for (const alvo of alvosDe(c)) {
+          regras.push({ quando: { pergunta: c.q, trechoId: alvo }, responde: { probabilidade: 0.95 } });
+        }
+      }
+      const roteiro = join(tmpRoteiro, "roteiro.json");
+      fs.writeFileSync(roteiro, JSON.stringify({ regras, padrao: { probabilidade: 0.05 } }));
+
+      const envDepois = { ...envLimpo(), BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro };
+      const prefixos = (conf.workspaces || []).map((w) => w.prefixo).filter((d) => d && fs.existsSync(d));
+      if (!prefixos.length) naoMediAqui("nenhum prefixo de workspace existente para rodar o golden");
+
+      // O caminho de cada slot é a linha logo depois da linha de meta (`N. título` / `[meta]` / caminho).
+      const caminhosDe = (bloco) => {
+        if (!bloco) return [];
+        const ls = bloco.split("\n");
+        const out = [];
+        ls.forEach((l, i) => {
+          if (/^\d+\. /.test(l) && ls[i + 2] !== undefined) out.push(norm(ls[i + 2].trim()));
+        });
+        return out;
+      };
+      const casa = (caminho, alvos) => alvos.some((a) => caminho.includes(a));
+      const parGolden = async (c, cwd) => {
+        const A = await rodar(base.path, c.q, cwd);
+        const D = await rodar(hookDepois, c.q, cwd, envDepois);
+        return { A, D };
+      };
+      const perdeu = (c, { A, D }) => {
+        const alvos = alvosDe(c);
+        const emD = new Set(caminhosDe(D.bloco));
+        return caminhosDe(A.bloco).some((p) => casa(p, alvos) && !emD.has(p));
+      };
+
+      const tarefas = [];
+      golden.forEach((c, indice) => prefixos.forEach((cwd, w) => tarefas.push({ c, indice, cwd, w })));
+      const execs = await emLote(
+        tarefas,
+        async (t) => {
+          let r = await parGolden(t.c, t.cwd);
+          // Violação do (b1) na primeira passada repete o par antes de contar (índice vivo muda).
+          if (t.c.tipo !== "negativo" && !r.A.timeout && !r.D.timeout && perdeu(t.c, r)) r = await parGolden(t.c, t.cwd);
+          return { ...t, ...r };
+        },
+        "golden"
+      );
+
+      let blocosA = 0;
+      let blocosD = 0;
+      let slotsA = 0;
+      let slotsAok = 0;
+      let slotsD = 0;
+      let slotsDok = 0;
+      let preservados = 0;
+      let esperadosEmA = 0;
+      let negativos = 0;
+      let negVaziosA = 0;
+      let negVaziosD = 0;
+      const violacoesB1 = [];
+      const violacoesB2 = [];
+      for (const e of execs) {
+        if (e.A.timeout || e.A.erro || e.D.timeout || e.D.erro) {
+          naoMediAqui(`timeout ou erro no caso ${e.indice} do golden (workspace ${e.w})`);
+        }
+        if (e.A.bloco) blocosA++;
+        if (e.D.bloco) blocosD++;
+        if (e.c.tipo === "negativo") {
+          negativos++;
+          if (!e.A.bloco) negVaziosA++;
+          if (!e.D.bloco) negVaziosD++;
+          else violacoesB2.push(`caso ${e.indice} (workspace ${e.w}): negativo com bloco`);
+          continue;
+        }
+        const alvos = alvosDe(e.c);
+        const pA = caminhosDe(e.A.bloco);
+        const pD = caminhosDe(e.D.bloco);
+        slotsA += pA.length;
+        slotsAok += pA.filter((p) => casa(p, alvos)).length;
+        slotsD += pD.length;
+        slotsDok += pD.filter((p) => casa(p, alvos)).length;
+        // (b1): todo esperado que o base injeta continua no bloco filtrado.
+        const esperadosA = pA.filter((p) => casa(p, alvos));
+        esperadosEmA += esperadosA.length;
+        const perdidos = esperadosA.filter((p) => !pD.includes(p));
+        preservados += esperadosA.length - perdidos.length;
+        if (perdidos.length) violacoesB1.push(`caso ${e.indice} (workspace ${e.w}): ${perdidos.length} perdido(s)`);
+        // (b2): com precisão de 2,0% hoje (P6), o oráculo prova o ENCANAMENTO (só entra o que o
+        // cliente aprovou), e não a qualidade do Jev.
+        const intrusos = pD.filter((p) => !casa(p, alvos));
+        if (intrusos.length) violacoesB2.push(`caso ${e.indice} (workspace ${e.w}): ${intrusos.length} slot(s) não esperado(s)`);
+      }
+      const pct = (x, y) => (y ? `${((x / y) * 100).toFixed(1)}%` : "n/a");
+      console.log(`\nGolden: ${execs.length} execuções (${golden.length} casos × ${prefixos.length} workspaces)`);
+      console.log(`Blocos antes/depois: ${blocosA}/${blocosD}`);
+      console.log(`Precisão antes ${slotsAok}/${slotsA} = ${pct(slotsAok, slotsA)}`);
+      console.log(`Precisão depois ${slotsDok}/${slotsD} = ${pct(slotsDok, slotsD)}`);
+      console.log(`Preservados ${preservados}/${esperadosEmA}`);
+      console.log(`Negativos vazios antes/depois: ${negVaziosA}/${negVaziosD} de ${negativos}`);
+      if (esperadosEmA === 0) naoMediAqui("nenhum esperado no bloco do base: o (b1) não provou nada");
+      for (const v of [...violacoesB1.slice(0, 10).map((v) => "(b1) " + v), ...violacoesB2.slice(0, 10).map((v) => "(b2) " + v)]) {
+        console.log("  " + v);
+      }
+      if (violacoesB1.length || violacoesB2.length) reprovou = true;
+    } finally {
+      fs.rmSync(tmpRoteiro, { recursive: true, force: true });
+    }
+
+    if (reprovou) {
+      console.error("FALHOU: portão do #42 reprovado");
+      return 1;
+    }
+    console.log("\nPortão do #42 OK");
+    return 0;
+  }
+}
+
 // ---------------------------------------------------------------- aferição
 
 const j = janela();
@@ -402,11 +631,13 @@ const semCr = (s) => s.replace(/\r/g, "");
 const iguais = base ? semCr(base.texto) === semCr(fs.readFileSync(hookDepois, "utf8")) : false;
 const compara = !!base && !iguais;
 
+if (portao === "jev") await portaoJev();
+
 const depois = await emLote(prompts, (p) => rodar(hookDepois, p.prompt, p.cwd), "depois");
 const antes = compara ? await emLote(prompts, (p) => rodar(base.path, p.prompt, p.cwd), "antes") : null;
 if (base && base.tmp) fs.rmSync(base.tmp, { recursive: true, force: true });
 
-const conta = (res) => {
+function conta(res) {
   const m = new Map(MOTIVOS.map(([k]) => [k, 0]));
   let inj = 0;
   let timeouts = 0;
@@ -419,7 +650,7 @@ const conta = (res) => {
     m.set(k, m.get(k) + 1);
   });
   return { m, inj, timeouts, erros, taxa: (inj / res.length) * 100 };
-};
+}
 
 const cD = conta(depois);
 const cA = antes ? conta(antes) : null;
