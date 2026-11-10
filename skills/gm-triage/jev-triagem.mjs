@@ -103,3 +103,202 @@ export function sensivel(resumo) {
   for (const [nome, re] of PADROES_SENSIVEIS) if (re.test(texto)) return nome;
   return null;
 }
+
+// Chave de comparação entre a proposta da sessão e os rótulos do ## Board: sem U+FE0F, sem o
+// prefixo não alfanumérico (o emoji), sem diferença de caixa.
+const chave = (x) => semPrefixo(String(x).normalize("NFC").replace(/️/g, "").trim()).toLowerCase();
+
+const pct = (p) => Math.floor(p * 100 + 1e-9);
+
+const primeiraLinha = (e, max) => String(e?.message ?? e).split("\n")[0].slice(0, max);
+
+const prazoEmSegundos = (ms) => {
+  const s = ms / 1000;
+  return Number.isInteger(s) ? String(s) : s.toLocaleString("pt-BR");
+};
+
+const falhou = (motivo, ms) => (ms === undefined ? { estado: "falhou", motivo } : { estado: "falhou", motivo, ms });
+
+const campoVazio = (campo, proposta, nota, extra = {}) => ({
+  campo,
+  proposta,
+  pProposta: null,
+  escolha: null,
+  pEscolha: null,
+  revisar: false,
+  nota,
+  ...extra,
+});
+
+// Pede ao Jev, numa chamada só, a escolha de cada campo e devolve a leitura pronta para renderizar.
+// `cliente` tem a forma do hooks/jev.js: ligado(uso, env) e decidir(estado, perguntas, opcoes).
+export async function sugerir({ opcoes, entrada, cliente, prazoMs = PRAZO_MS, folgaMs = FOLGA_MS }) {
+  // 1. desligado é tudo o que não prova ligado === true
+  try {
+    if (!cliente || cliente.ligado(USO, process.env) !== true) return { estado: "desligado" };
+  } catch {
+    return { estado: "desligado" };
+  }
+
+  // 2. o resumo
+  const resumo = String(entrada?.resumo ?? "").trim();
+  if (resumo === "") return falhou("o resumo para o Jev veio vazio");
+  if ([...resumo].length > MAX_RESUMO) return falhou(`o resumo para o Jev passou de ${MAX_RESUMO} caracteres`);
+  const achado = sensivel(resumo);
+  if (achado) return falhou(`o resumo parece ter ${achado}; nada foi enviado`);
+
+  // 3. um item por campo: pergunta, única opção, ou nota
+  const perguntas = {};
+  const itens = new Map(); // campo → item pronto, ou { pendente, proposta, rotulos }
+  for (const campo of CAMPOS) {
+    let proposta = entrada?.proposta?.[campo] ?? null;
+    const rotulos = opcoes?.get(campo);
+    if (!rotulos || rotulos.length === 0) {
+      itens.set(campo, campoVazio(campo, proposta, "não declarado no ## Board"));
+      continue;
+    }
+    if (proposta !== null && !rotulos.includes(proposta)) {
+      const alvo = chave(proposta);
+      const iguais = rotulos.filter((r) => chave(r) === alvo);
+      if (iguais.length === 1) proposta = iguais[0];
+    }
+    const dentro = proposta !== null && rotulos.includes(proposta);
+    if (rotulos.length === 1) {
+      const unico = rotulos[0];
+      if (proposta === null || dentro) {
+        itens.set(campo, {
+          campo,
+          proposta,
+          pProposta: proposta === null ? null : 100,
+          escolha: unico,
+          pEscolha: 100,
+          revisar: false,
+          nota: "única opção",
+        });
+      } else {
+        itens.set(campo, {
+          campo,
+          proposta,
+          pProposta: null,
+          escolha: unico,
+          pEscolha: 100,
+          revisar: true,
+          nota: "proposta fora do ## Board",
+        });
+      }
+      continue;
+    }
+    perguntas[campo] = {
+      tipo: "escolha",
+      instrucao: INSTRUCOES[campo],
+      opcoes: Object.fromEntries(rotulos.map((r) => [r, descricao(campo, r)])),
+    };
+    itens.set(campo, { pendente: true, proposta, dentro });
+  }
+
+  // 4. uma chamada só, com guarda de tempo própria
+  const perguntados = CAMPOS.filter((c) => c in perguntas);
+  let ms = 0;
+  let resultado = null;
+  if (perguntados.length > 0) {
+    const inicio = performance.now();
+    let temporizador;
+    const estouro = Symbol("estouro");
+    const prazo = new Promise((resolve) => {
+      temporizador = setTimeout(() => resolve(estouro), prazoMs + folgaMs);
+    });
+    try {
+      const chamada = Promise.resolve().then(() => cliente.decidir(resumo, perguntas, { uso: USO, timeoutMs: prazoMs }));
+      resultado = await Promise.race([chamada, prazo]);
+      ms = Math.round(performance.now() - inicio);
+      if (resultado === estouro) return falhou(`o Jev não respondeu em ${prazoEmSegundos(prazoMs)} s`, ms);
+    } catch (e) {
+      ms = Math.round(performance.now() - inicio);
+      return falhou(`o cliente do Jev falhou: ${primeiraLinha(e, 120)}`, ms);
+    } finally {
+      clearTimeout(temporizador);
+    }
+
+    const invalida = (campo) => falhou(`resposta inválida do Jev no campo ${campo}`, ms);
+    if (resultado === null || typeof resultado !== "object" || !perguntados.some((c) => c in resultado)) {
+      return invalida(perguntados[0]);
+    }
+    const prob = (p) => typeof p === "number" && Number.isFinite(p) && p >= 0 && p <= 1;
+    for (const campo of perguntados) {
+      const r = resultado[campo];
+      if (r && typeof r === "object" && r.estado === "indisponivel") {
+        const detalhe = r.detalhe ? `: ${String(r.detalhe).slice(0, 60)}` : "";
+        return falhou(`o Jev ficou indisponível (${r.motivo}${detalhe})`, ms);
+      }
+      const item = itens.get(campo);
+      const enviadas = perguntas[campo].opcoes;
+      if (
+        !r ||
+        typeof r !== "object" ||
+        r.estado !== "ok" ||
+        typeof r.escolha !== "string" ||
+        !Object.hasOwn(enviadas, r.escolha) ||
+        !r.probabilidades ||
+        typeof r.probabilidades !== "object" ||
+        !prob(r.probabilidades[r.escolha]) ||
+        (item.dentro && !prob(r.probabilidades[item.proposta]))
+      ) {
+        return invalida(campo);
+      }
+    }
+  }
+
+  // 5. porcentagens inteiras e a marca, sobre o valor já arredondado
+  const campos = CAMPOS.map((campo) => {
+    const item = itens.get(campo);
+    if (!item.pendente) return item;
+    const r = resultado[campo];
+    const pEscolha = pct(r.probabilidades[r.escolha]);
+    if (item.dentro) {
+      const pProposta = pct(r.probabilidades[item.proposta]);
+      return { campo, proposta: item.proposta, pProposta, escolha: r.escolha, pEscolha, revisar: pProposta < LIMIAR_PCT, nota: null };
+    }
+    if (item.proposta === null) {
+      return { campo, proposta: null, pProposta: null, escolha: r.escolha, pEscolha, revisar: pEscolha < LIMIAR_PCT, nota: null };
+    }
+    return {
+      campo,
+      proposta: item.proposta,
+      pProposta: null,
+      escolha: r.escolha,
+      pEscolha,
+      revisar: true,
+      nota: "proposta fora do ## Board",
+    };
+  });
+  return { estado: "ligado", ms, campos };
+}
+
+const CABECALHO =
+  "**Sugestão do Jev** — só leitura, nada disto é gravado. `⚠ revisar` = o Jev dá menos de 70% ao valor proposto.\n\n" +
+  "| Campo | Proposta da sessão | Jev nela | Escolha do Jev | |\n" +
+  "|---|---|---|---|---|";
+
+function linha(c) {
+  const dash = "—";
+  const celulas = [c.campo, c.proposta ?? dash];
+  let marca = c.revisar ? "⚠ revisar" : "";
+  if (c.nota === "não declarado no ## Board") {
+    celulas.push(dash, dash);
+    marca = "não declarado no `## Board`";
+  } else if (c.nota === "única opção") {
+    celulas.push(c.proposta === null ? dash : "100% (única opção)", c.proposta === null || c.proposta !== c.escolha ? `${c.escolha} (100%)` : "=");
+  } else {
+    celulas.push(c.pProposta === null ? dash : `${c.pProposta}%`, c.escolha === c.proposta ? "=" : `${c.escolha} (${c.pEscolha}%)`);
+    if (c.nota === "proposta fora do ## Board") marca = "⚠ revisar (proposta fora do `## Board`)";
+  }
+  return `| ${celulas.join(" | ")} |${marca ? ` ${marca} |` : " |"}`;
+}
+
+export function renderizar(resultado) {
+  if (resultado?.estado === "falhou") {
+    return `Sem a sugestão do Jev: ${resultado.motivo}. A classificação acima é só a da sessão.`;
+  }
+  if (resultado?.estado !== "ligado") return "";
+  return [CABECALHO, ...resultado.campos.map(linha)].join("\n");
+}

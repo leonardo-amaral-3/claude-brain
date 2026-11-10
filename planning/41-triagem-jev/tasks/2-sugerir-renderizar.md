@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `sugerir` e `renderizar`, com o cliente falso em processo
 
