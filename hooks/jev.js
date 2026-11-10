@@ -490,16 +490,26 @@ async function julgar(pergunta, trechos, opcoes) {
 
 // --- CLI -------------------------------------------------------------------------------------
 
-async function executarCli() {
-  let entrada = '';
-  process.stdin.setEncoding('utf8');
-  for await (const pedaco of process.stdin) entrada += pedaco;
+const ENVELOPE_INVALIDO = { ok: false, motivo: 'entrada_invalida' };
+let envelopeEscrito = false;
 
+function escreverEnvelope(envelope) {
+  if (envelopeEscrito) return; // uma linha so, mesmo que algo falhe depois de escrever
+  envelopeEscrito = true;
+  process.stdout.write(JSON.stringify(envelope) + '\n');
+  process.exitCode = 0;
+}
+
+async function executarCli() {
   let envelope;
   try {
+    // A leitura da stdin fica dentro do try: um erro no pipe vira o envelope, nao um stack trace.
+    let entrada = '';
+    process.stdin.setEncoding('utf8');
+    for await (const pedaco of process.stdin) entrada += pedaco;
     const pedido = JSON.parse(entrada);
     if (!ehObjeto(pedido)) {
-      envelope = { ok: false, motivo: 'entrada_invalida' };
+      envelope = ENVELOPE_INVALIDO;
     } else if (pedido.op === 'decidir') {
       envelope = { ok: true, resultado: await decidir(pedido.estado, pedido.perguntas, { uso: pedido.uso, timeoutMs: pedido.timeoutMs }) };
     } else if (pedido.op === 'julgar') {
@@ -508,17 +518,16 @@ async function executarCli() {
         resultado: await julgar(pedido.pergunta, pedido.trechos, { uso: pedido.uso, instrucao: pedido.instrucao, timeoutMs: pedido.timeoutMs }),
       };
     } else {
-      envelope = { ok: false, motivo: 'entrada_invalida' };
+      envelope = ENVELOPE_INVALIDO;
     }
   } catch (_) {
-    envelope = { ok: false, motivo: 'entrada_invalida' };
+    envelope = ENVELOPE_INVALIDO;
   }
-  process.stdout.write(JSON.stringify(envelope) + '\n');
-  process.exitCode = 0;
+  escreverEnvelope(envelope);
 }
 
 if (require.main === module) {
-  executarCli();
+  executarCli().catch(() => escreverEnvelope(ENVELOPE_INVALIDO));
 }
 
 module.exports = {
