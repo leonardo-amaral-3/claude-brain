@@ -172,7 +172,8 @@ const USO_DO_JEV = "parada";
 //   - `indisponivel` (rede, HTTP, chave, tempo) vira rejeição, que `classificar` escala como "erro":
 //     com a flag ligada, indisponível não é "desligado".
 //   - O #42 não recebe `signal`; o teto de tempo é o do próprio `classificar`, e o `timeoutMs` do
-//     cliente fica no mesmo valor para nunca sobrar chamada pendurada depois dele.
+//     cliente fica no mesmo valor (o `tempoMs` que `classificar` recebeu) para nunca sobrar chamada
+//     pendurada depois dele.
 export function daFormaDo42(cliente, { env = process.env, timeoutMs = TEMPO_MS } = {}) {
   return {
     ligado: () => cliente.ligado(USO_DO_JEV, env),
@@ -207,7 +208,10 @@ const lerConvencoesDoRepo = () =>
 export async function classificar(motivo, deps = {}) {
   const { lerConvencoes = lerConvencoesDoRepo, tempoMs = TEMPO_MS, limiar = LIMIAR } = deps;
   // Criado aqui, e não no topo do módulo, para quem só importa o script não carregar nada do ambiente.
-  const cliente = deps.cliente ?? daFormaDo42(clienteDo42);
+  // O prazo do cliente do #42 é o mesmo `tempoMs` do teto daqui (achado 9 do G4): com prazos
+  // diferentes, o cliente desistiria antes e a saída diria "erro" onde a causa foi "tempo". `deps.jev`
+  // troca o módulo do #42, só para o teste provar isso sem rede.
+  const cliente = deps.cliente ?? daFormaDo42(deps.jev ?? clienteDo42, { timeoutMs: tempoMs });
 
   // 1. Ligado? Sem rede. Falha aqui escala (fail-closed): com a flag ligada, não é "desligado".
   let ligado;

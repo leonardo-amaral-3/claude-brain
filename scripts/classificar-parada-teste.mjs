@@ -279,6 +279,15 @@ console.log("C9 — o adaptador `daFormaDo42`, contra um cliente com a forma do 
   const { resultado } = await classificar("m", { cliente: fora });
   afirmar(resultado.estado === "sem-classificacao" && resultado.porque === "erro", "ponta a ponta: indisponivel → sem-classificacao, erro");
   afirmar((await daFormaDo42(falsoDo42(null, false)).ligado()) === false, "desligado do #42 passa como falso");
+
+  // O adaptador padrão de `classificar` recebe o mesmo prazo (achado 9): `deps.jev` troca o módulo
+  // do #42, e o falso guarda o `timeoutMs` que chegou ao `decidir`.
+  for (const tempoMs of [undefined, 1234, 8000]) {
+    const antes = chamadas.length;
+    await classificar("m", { jev: falsoDo42({ estado: "ok", tipo: "escolha", escolha: opcoes[1], confianca: 0.9 }), tempoMs });
+    const pedido = chamadas.slice(antes).find((chamada) => chamada.o !== undefined);
+    afirmar(pedido?.o.timeoutMs === (tempoMs ?? 5000), `o adaptador padrão recebe o tempoMs de classificar (${tempoMs ?? "padrão 5000"})`);
+  }
 }
 
 console.log("C9 — processos de verdade (R2, CA2)");
