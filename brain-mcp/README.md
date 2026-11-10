@@ -218,6 +218,8 @@ npm run eval               # golden set: nDCG@5 sobre snapshot (--base <ref> é 
 npm run colher             # recolhe o golden set da tabela uso, preservando os casos manuais
 npm run uso                # quantas vezes o Claude chamou cada tool
 npm run smoke              # sobe o servidor por stdio e testa as tools
+npm run jev                # cliente do Jev e filtro do hook (T1-T16), só com o cliente falso, sem rede
+node scripts/injecao.mjs --desde <dia> --ate <dia> --base origin/dev --portao jev   # portão do filtro do Jev no hook
 node dist/cli.js --git     # relê o histórico de git dos repos
 node dist/cli.js --github  # força sync de cards/PRs
 node dist/cli.js --force   # toma a liderança de um servidor vivo em vez de recusar
@@ -229,6 +231,22 @@ banco (úteis para testar sem mexer no seu índice); `BRAIN_LEASE_TTL_MS` ajusta
 `BRAIN_SOMENTE_CONSULTA=1` sobe um servidor que só consulta: não disputa o lease, não varre, não gera
 embeddings, e a tool `reindex` recusa até com `forcar: true`. Ele ainda aquece o modelo, porque a
 busca semântica continua valendo. É o modo que o `eval --base` usa contra o snapshot.
+
+### Jev (opcional, desligado)
+
+O hook `brain-contexto.js` e outros consumidores podem consultar o Jev (TypeSafe AI) por um cliente único,
+`hooks/jev.js`. **Vem desligado**: sem a variável abaixo o hook injeta exatamente como antes, e nada sai
+da máquina sem o uso em `BRAIN_JEV` e `TYPESAFE_API_KEY`.
+
+- `BRAIN_JEV`: lista, separada por vírgula, dos usos ligados. Usos: `contexto`, `triagem`, `spec`, `parada`, `roteador`, `lembrar`. Sem curinga.
+- `TYPESAFE_API_KEY`: a chave. Nunca em arquivo do repo nem de config.
+- `BRAIN_JEV_FALSO`: cliente falso (nunca toca a rede), usado nos testes. Definida, mesmo vazia, o real não roda.
+  Para forçar o falso, use sempre um valor **não vazio** (`sim`, `nao`, `indisponivel`, `lento` ou o caminho de um
+  roteiro): no Windows, definir vazio apaga a variável (`set BRAIN_JEV_FALSO=` no cmd, `$env:BRAIN_JEV_FALSO=''` no
+  PowerShell), e com o uso em `BRAIN_JEV` e a chave definidos o cliente real rodaria.
+- `BRAIN_JEV_LIMIAR_CONTEXTO`: limiar de P(sim) do filtro do hook, entre 0 e 1 (padrão 0,5).
+
+O contrato do cliente está em `planning/42-filtro-jev/spec.md`, § *Contrato do cliente do Jev (estável)*.
 
 ## Registro no Claude Code
 

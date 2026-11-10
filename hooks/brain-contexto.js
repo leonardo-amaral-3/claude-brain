@@ -234,6 +234,71 @@ const LIMITE_BRUTO = 24; // sobre-busca porque o filtro de workspace corta boa p
 const LIMITE_FINAL = 5;
 const SNIP = 220;
 
+const LIMITE_JEV = 10; // quantos candidatos do passo 5 vao ao Jev
+const LIMIAR_JEV = 0.5; // provisorio: ver ### Limiar da spec do #42
+const INSTRUCAO_JEV = 'O trecho é relevante para o que o usuário pediu na pergunta?';
+// O hook passa o prazo do cliente explicito e corre contra ele + 200: as duas constantes ficam
+// amarradas aqui, e um TIMEOUT_MS diferente no jev.js nao separa uma da outra sem aviso. O prazo
+// proprio nao e derivado do jev.js de proposito: ele existe para o caso do jev.js quebrado.
+const TIMEOUT_JEV = 2000;
+const PRAZO_HOOK_JEV = TIMEOUT_JEV + 200;
+
+// O uso so liga com `contexto` na lista; conferido aqui para nem carregar o jev.js sem ele.
+const usaJev = () =>
+  String(process.env.BRAIN_JEV || '')
+    .split(',')
+    .some((u) => u.trim().toLowerCase() === 'contexto');
+
+// Vazio ou fora de [0,1] vale o padrao: permite medir outros limiares sem PR, sem arriscar um valor absurdo.
+const limiarJev = () => {
+  const s = String(process.env.BRAIN_JEV_LIMIAR_CONTEXTO || '').trim();
+  const n = s ? Number(s) : NaN;
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : LIMIAR_JEV;
+};
+
+// Devolve { passaram, enviados, limiar }, ou null = "filtro indisponivel, injete como hoje".
+const filtrarComJev = async (alvo, cands) => {
+  let timer;
+  try {
+    const jev = require('./jev.js');
+    if (!jev.ligado('contexto')) return null;
+    const limiar = limiarJev();
+    // Candidato sem texto nao vai ao Jev (emenda 3 da spec do #42): o cliente o recusaria com
+    // `entrada_invalida`, e isso abandonaria o filtro do prompt inteiro. Ele so fica fora do bloco
+    // filtrado. Acontece porque o piso de tokens tambem le o breadcrumb.
+    const enviados = cands.filter((r) => String(r.full_text || '') !== '');
+    if (!enviados.length) return { passaram: [], enviados: 0, limiar };
+    const prazo = new Promise((r) => {
+      timer = setTimeout(() => r(null), PRAZO_HOOK_JEV);
+    });
+    const vs = await Promise.race([
+      jev.julgar(
+        alvo,
+        enviados.map((r) => ({
+          id: String(r.path),
+          texto: String(r.full_text || ''),
+          titulo: r.breadcrumb || '',
+          fonte: r.source || '',
+        })),
+        { uso: 'contexto', instrucao: INSTRUCAO_JEV, timeoutMs: TIMEOUT_JEV }
+      ),
+      prazo,
+    ]);
+    if (!Array.isArray(vs) || vs.length !== enviados.length || vs.some((v) => !v || v.estado !== 'ok')) return null;
+    if (DEBUG) {
+      vs.forEach((v, i) =>
+        process.stderr.write('[brain-contexto] jev ' + (i + 1) + ' ' + v.probabilidade + ' ' + enviados[i].path + '\n')
+      );
+    }
+    return { passaram: enviados.filter((_, i) => vs[i].probabilidade >= limiar), enviados: enviados.length, limiar };
+  } catch (e) {
+    if (DEBUG) process.stderr.write('[brain-contexto] jev ' + (e && e.stack ? e.stack : e) + '\n');
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 // A frase final e a MESMA nos dois caminhos (entidade e lexico) — constante, para nao derivarem.
 const RODAPE =
   'Para a metade semantica, filtros por source/repo/feature, ou o documento inteiro, chame ' +
@@ -406,7 +471,17 @@ const fim = (saida) => {
       return n >= minimo && n / toks.length >= 0.5;
     };
 
-    const achados = resultados.filter(daqui).filter(relevante).slice(0, LIMITE_FINAL);
+    // Filtro do Jev (#42), so com `contexto` em BRAIN_JEV. Tres escolhas:
+    // - o piso de tokens vem ANTES do Jev: o filtro so tira candidato, entao o que sai da maquina
+    //   diminui, e sem candidato o cliente nem e chamado;
+    // - um `indisponivel` em QUALQUER trecho abandona o filtro inteiro (jev = null): um bloco
+    //   julgado pela metade nao seria nem o de hoje nem o filtrado;
+    // - o hook tem prazo proprio (PRAZO_HOOK_JEV) porque nao pode ficar preso num jev.js quebrado.
+    // A ordem do ranking e mantida; o Jev so decide quem fica.
+    const candidatos = resultados.filter(daqui).filter(relevante);
+    let achados = candidatos.slice(0, LIMITE_FINAL);
+    const jev = usaJev() && candidatos.length ? await filtrarComJev(alvo, candidatos.slice(0, LIMITE_JEV)) : null;
+    if (jev) achados = jev.passaram.slice(0, LIMITE_FINAL);
     if (!achados.length) return fim();
 
     const linhas = achados.map((r, i) =>
@@ -419,11 +494,17 @@ const fim = (saida) => {
       )
     );
 
-    const texto =
-      'Cerebro (busca lexica automatica sobre este prompt — voce nao gastou tool call nenhuma):\n\n' +
-      linhas.join('\n\n') +
-      '\n\nIsto e so a metade lexica e os 5 primeiros. ' +
-      RODAPE;
+    // "busca lexica automatica" fica no cabecalho filtrado de proposito: e o que o motivo() do
+    // injecao.mjs usa para contar `texto`.
+    const cabecalho = jev
+      ? 'Cerebro (busca lexica automatica sobre este prompt, filtrada pelo Jev: ' +
+        jev.passaram.length + ' de ' + jev.enviados + ' candidatos passaram; abaixo, os ' + achados.length +
+        ' primeiros — voce nao gastou tool call nenhuma):\n\n'
+      : 'Cerebro (busca lexica automatica sobre este prompt — voce nao gastou tool call nenhuma):\n\n';
+    const fecho = jev
+      ? '\n\nIsto e so a metade lexica, filtrada pelo Jev (limiar ' + jev.limiar + '). '
+      : '\n\nIsto e so a metade lexica e os 5 primeiros. ';
+    const texto = cabecalho + linhas.join('\n\n') + fecho + RODAPE;
 
     fim(
       JSON.stringify({
