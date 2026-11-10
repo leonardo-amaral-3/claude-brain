@@ -498,6 +498,16 @@ async function medirPortaoJev() {
       const alvosDe = (c) => [].concat(c.esperado ?? []).map((a) => norm(String(a)));
       const regras = [];
       const norm = (t) => String(t).toLowerCase().replace(/\\/g, "/"); // a `norm` do eval.mjs
+      // A regra casa `pergunta` por igualdade com o que o hook manda ao julgar: o prompt aparado, ou
+      // so o argumento de um slash command. Caso positivo cujo `q` tem espaco nas pontas ou comeca
+      // com `/` nunca casaria, e viraria um "perdido" falso no (b1). Melhor nao medir que reprovar o
+      // hook certo.
+      const foraDoOraculo = golden
+        .map((c, i) => (c.tipo !== "negativo" && (String(c.q) !== String(c.q).trim() || String(c.q).startsWith("/")) ? i : -1))
+        .filter((i) => i >= 0);
+      if (foraDoOraculo.length) {
+        naoMediAqui(`o oráculo casa a pergunta exata, e os casos ${foraDoOraculo.slice(0, 10).join(", ")} do golden têm espaço nas pontas ou são slash command`);
+      }
       for (const c of golden) {
         if (c.tipo === "negativo") continue;
         for (const alvo of alvosDe(c)) {
