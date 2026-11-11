@@ -566,6 +566,9 @@ console.log("strings: deploy nas listas de categorias da Fase 4 e dos docs (CA7)
   afirmar(fase4.includes("data, faturamento, deploy, migration"), "a Fase 4 lista as quatro categorias");
   afirmar(doc.includes("dado, faturamento, deploy ou migration"), "docs/esteira-gm.md lista as quatro categorias");
   afirmar(template.includes("(dado, faturamento, deploy, migration)"), "o template lista as quatro categorias");
+  // Achado 10 do G4: a linha da Verificação pós-deploy do template da spec cita as quatro, como a Fase 4.
+  const linhaVerificacao = fase4.split("\n").find((l) => l.startsWith("[query/checagem que prova que funcionou"));
+  afirmar(linhaVerificacao?.includes("dado, faturamento, deploy ou migration") && !linhaVerificacao.includes("dados ou regra de faturamento"), "o template da spec: Verificação pós-deploy obrigatória nas quatro categorias");
   for (const [nome, texto] of [["a Fase 4", fase4], ["docs/esteira-gm.md", doc], ["o template", template]]) {
     for (const velha of ["data, faturamento rules or migrations", "(data, faturamento, migration)", "(dado, faturamento, migration)"]) {
       afirmar(!texto.includes(velha), `${nome} não tem mais a lista de três: ${velha}`);

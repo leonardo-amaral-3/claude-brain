@@ -172,7 +172,7 @@ Write `planning/<folder>/spec.md`. Keep the exact section names — downstream s
 [como reverter se der errado em prod — ou N/A + por quê]
 
 ## Verificação pós-deploy
-[query/checagem que prova que funcionou; obrigatória quando toca dados ou regra de faturamento — ou N/A + por quê]
+[query/checagem que prova que funcionou; obrigatória quando a spec é sensível — toca dado, faturamento, deploy ou migration (Fase 4) — ou N/A + por quê]
 
 ## Plano de testes
 [qual teste prova cada critério de aceite — nome do arquivo/suíte e o caso]
