@@ -87,6 +87,12 @@ afirmar(igual(mFix.get("Módulo"), ["Comum"]), "fixture: Módulo com uma opção
 afirmar(!mFix.has("Rota"), "fixture: linha sem rótulo fica fora");
 afirmar(!mFix.has("Severidade"), "fixture: o que está depois do próximo ## não é lido");
 afirmar(lerBoard("# sem board\n- **Tipo** field `x`: A=`1`").size === 0, "sem ## Board → mapa vazio");
+// achado 5 do G4: texto depois do último id não descarta a opção
+{
+  const resto = lerBoard("## Board\n- **Módulo** field `x`: hooks=`a1` · docs=`f9cf9726` (novo)\n- **Tipo** field `y`: A=`1` · B=`2`.");
+  afirmar(igual(resto.get("Módulo"), ["hooks", "docs"]), "comentário depois do último id: a opção fica");
+  afirmar(igual(resto.get("Tipo"), ["A", "B"]), "ponto final depois do último id: a opção fica");
+}
 
 // --- sensivel ---
 console.log("sensivel");

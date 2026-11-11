@@ -84,7 +84,8 @@ export function lerBoard(texto) {
       if (!m) continue;
       const rotulos = [];
       for (const pedaco of m[1].split(" · ")) {
-        const r = /^(.+?)=`[^`]+`$/.exec(pedaco.trim());
+        // o que vem depois do id (um comentário, o ponto final) não tira a opção da lista
+        const r = /^(.+?)=`[^`]+`/.exec(pedaco.trim());
         if (r) rotulos.push(r[1].trim());
       }
       if (rotulos.length > 0) mapa.set(nome, rotulos);
