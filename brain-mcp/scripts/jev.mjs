@@ -1,5 +1,5 @@
 // Teste do cliente do Jev (hooks/jev.js) e do filtro do hook de contexto, sem rede.
-// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev).
+// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev); a escolha do T16 tem caso sintetico sem indice.
 //
 // Uso: npm run jev        sai 0 se tudo passou, 1 na primeira falha ("FALHOU: <caso>"),
 //                         2 se nao deu para medir ("NAO MEDI: <motivo>"): ambiente sem indice/dist,
@@ -357,6 +357,63 @@ function naoMedi(motivo) {
   process.exit(2);
 }
 
+// Escolha dos aprovados do T16 (#51). O roteiro do falso casa por substring do caminho normalizado
+// (regraCasa do hooks/jev.js), e o hook usa o caminho como id: aprovar um caminho aprova todo
+// trecho cujo caminho o contem. Fica de fora (1) todo candidato de 6 em diante cujo caminho colide,
+// por substring nos dois sentidos, com o de um dos cinco primeiros, e (2) todo candidato de 6 em
+// diante cujo caminho esta contido no de um que ficou de fora, porque a regra dele aprovaria aquele.
+// Devolve os aprovados na ordem do ranking; vazio = nao ha como provar a ordem com este prompt.
+function aprovadosDoT16(enviados) {
+  const colide = (a, b) => a.includes(b) || b.includes(a);
+  const cinco = enviados.slice(0, 5);
+  const resto = enviados.slice(5);
+  const fora = [...cinco, ...resto.filter((c) => cinco.some((b) => colide(c.caminho, b.caminho)))];
+  return resto.filter((c) => !fora.includes(c) && !fora.some((x) => x.caminho.includes(c.caminho)));
+}
+
+// Roteiro do falso que aprova (0.95) so os caminhos dados; o resto cai no padrao (0.05).
+const roteiroDoT16 = (aprovados) => ({
+  regras: aprovados.map((a) => ({ quando: { trechoId: a.caminho }, responde: { probabilidade: 0.95 } })),
+  padrao: { probabilidade: 0.05 },
+});
+
+// Caso sintetico da escolha (#51): roda antes do pre-voo, sem indice e sem rede.
+{
+  const c = (posicao, caminho) => ({ posicao, probabilidade: 0.95, caminho });
+  const lista = [
+    c(1, "/r/a.md"),
+    c(2, "/r/b.md"),
+    c(3, "/r/c.md"),
+    c(4, "/r/d.md"),
+    c(5, "/r/e.md"),
+    c(6, "/r/e.md"),
+    c(7, "/r/f.md"),
+    c(8, "/r/b.md/g.md"),
+    c(9, "g.md"),
+    c(10, "/r/c"),
+    c(11, "/r/f.md"),
+  ];
+  confere(igual(aprovadosDoT16(lista).map((x) => x.posicao), [7, 11]), "T16 escolha sintetica: so 7 e 11 escapam da colisao");
+  confere(aprovadosDoT16(lista.slice(0, 6).concat([c(7, "/r/a.md"), c(8, "/r/b.md")])).length === 0, "T16 escolha sintetica: tudo colide = nenhum aprovado");
+  const limpa = ["/r/a.md", "/r/b.md", "/r/c.md", "/r/d.md", "/r/e.md", "/r/f.md", "/r/g.md"].map((p, i) => c(i + 1, p));
+  confere(igual(aprovadosDoT16(limpa), limpa.slice(5)), "T16 escolha sintetica: sem colisao aprova 6..n");
+  // O falso real confirma que o roteiro aprova exatamente esses. Sem try/finally: o confere sai com process.exit.
+  const pastaSintetica = mkdtempSync(join(tmpdir(), "jev-t16-"));
+  process.on("exit", () => rmSync(pastaSintetica, { recursive: true, force: true }));
+  const roteiroSintetico = join(pastaSintetica, "roteiro-t16-sintetico.json");
+  writeFileSync(roteiroSintetico, JSON.stringify(roteiroDoT16(aprovadosDoT16(lista))));
+  const vs = await jev.julgar("p", lista.map((x) => ({ id: x.caminho, texto: "t" })), {
+    uso: "contexto",
+    env: { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiroSintetico },
+  });
+  // 0.5 = LIMIAR_JEV do hook (hooks/brain-contexto.js:238).
+  confere(
+    igual(lista.filter((_, i) => vs[i].estado === "ok" && vs[i].probabilidade >= 0.5).map((x) => x.posicao), [7, 11]),
+    "T16 escolha sintetica: o falso aprova so 7 e 11"
+  );
+  console.log("jev: T16 escolha sintetica OK (sem indice)");
+}
+
 const repo = join(root, "..");
 const hookDaWorktree = join(repo, "hooks", "brain-contexto.js");
 const norm = (s) => String(s).toLowerCase().replace(/\\/g, "/");
@@ -514,25 +571,24 @@ if (enviados.length < 6) naoMedi(`troque o prompt de prova: so ${enviados.length
   confere(com.igual, "T15 entidade com falso nao: igual ao da flag desligada");
 }
 
-// ---- T16: o Jev aprova so os candidatos de 6 em diante = so esses, na ordem do ranking -----
+// ---- T16: o Jev aprova so os candidatos de 6 em diante que escapam da colisao = so esses, na ordem do ranking --
 {
   const n = enviados.length;
-  const aprovados = enviados.slice(5);
-  const anteriores = enviados.slice(0, 5).map((c) => c.caminho);
-  // A regra casa por substring de caminho: um caminho aprovado que tambem aparece entre os cinco
-  // primeiros aprovaria o candidato errado, e a prova nao provaria a ordem.
-  if (aprovados.some((a) => anteriores.some((b) => b.includes(a.caminho) || a.caminho.includes(b)))) {
-    naoMedi("troque o prompt de prova: um candidato de 6 em diante repete o caminho de um dos cinco primeiros");
+  const aprovados = aprovadosDoT16(enviados);
+  if (!aprovados.length) {
+    naoMedi("troque o prompt de prova: nenhum candidato de 6 em diante escapa da colisao de caminho com os cinco primeiros");
   }
+  const k = aprovados.length;
   const roteiro = join(pastaTemporaria, "roteiro-t16.json");
-  writeFileSync(
-    roteiro,
-    JSON.stringify({ regras: aprovados.map((a) => ({ quando: { trechoId: a.caminho }, responde: { probabilidade: 0.95 } })), padrao: { probabilidade: 0.05 } })
-  );
+  writeFileSync(roteiro, JSON.stringify(roteiroDoT16(aprovados)));
   const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
   const esperados = aprovados.map((a) => a.caminho);
-  confere(igual(caminhosDoBloco(r.stdout), esperados), `T16 so os candidatos 6..${n}, na ordem do ranking`);
-  confere(textoDoBloco(r.stdout).includes(`${n - 5} de ${n} candidatos passaram; abaixo, os ${n - 5} primeiros`), `T16 cabecalho ${n - 5} de ${n}`);
+  const posicoes = aprovados.map((a) => a.posicao).join(",");
+  confere(igual(caminhosDoBloco(r.stdout), esperados), `T16 so os candidatos ${posicoes} de ${n}, na ordem do ranking`);
+  confere(
+    textoDoBloco(r.stdout).includes(`${k} de ${n} candidatos passaram; abaixo, os ${Math.min(k, 5)} primeiros`),
+    `T16 cabecalho ${k} de ${n}`
+  );
 }
 
 console.log("jev: T11-T16 OK (parte hook; cliente falso, sem rede)");
