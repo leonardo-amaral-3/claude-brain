@@ -238,8 +238,9 @@ fonte; a resposta traz a linha final
 - **Ligar**: `roteador` em `BRAIN_JEV`, no ambiente do processo `claude` (ou no `env` do servidor `brain`
   em `~/.claude.json`), mais `TYPESAFE_API_KEY`. Os dois ficam no parágrafo do Jev acima; o contrato do
   cliente está em `planning/42-filtro-jev/spec.md`. Tirar `roteador` da lista e reabrir a sessão desliga.
-- **O que vai ao Jev**: a query cortada em 500 caracteres, a instrução fixa e a lista de fontes com as
-  descrições. Nunca trecho do corpus.
+- **O que vai ao Jev**: a query sem os espaços das pontas e cortada em 500 code points (um emoji fora
+  do BMP conta como um, e o corte nunca parte um par surrogate), a instrução fixa e a lista de fontes
+  com as descrições. Nunca trecho do corpus.
 - **Limiar e teto**: 0,8 de probabilidade e 1 s de orçamento. São valores de partida, não calibrados.
 - **Cai para a busca como veio** quando: o roteador está desligado; a chamada já traz `source`,
   `repo`, `feature` ou `doc_type` (o Jev não sabe desses filtros, e aí nem é consultado); não há
