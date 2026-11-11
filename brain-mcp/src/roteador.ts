@@ -140,6 +140,16 @@ export function criarEscolherFonteJev(carregar: () => unknown = carregarJev): Es
 
 export const escolherFonteJev: EscolherFonte = criarEscolherFonteJev();
 
+/**
+ * A chamada já restringe a busca? Com `source`, `repo`, `feature` ou `doc_type`, o roteador não
+ * age e o Jev não é consultado (emenda 2026-11-11): o Jev não sabe desses filtros e escolheria uma
+ * fonte que nunca casa com eles (diário, mapa, notas, memória e decisão têm `repo` nulo). O
+ * `incluirArquivadas` não restringe, e por isso não conta.
+ */
+function temFiltro(f: Filtros): boolean {
+  return Boolean(f.source || f.repo || f.feature || f.doc_type);
+}
+
 export async function rotear(
   query: string,
   filtros: Filtros,
@@ -154,7 +164,7 @@ export async function rotear(
   }
 ): Promise<{ resultados: Resultado[]; diag: Diagnostico; roteado: string | null }> {
   const comoVeio = async () => ({ ...(await deps.buscar(query, filtros, limit)), roteado: null });
-  if (!deps.ligado || filtros.source) return comoVeio();
+  if (!deps.ligado || temFiltro(filtros)) return comoVeio();
 
   const teto = deps.tetoMs ?? TETO_ROTEADOR_MS;
   const limiar = deps.limiar ?? LIMIAR_ROTEADOR;

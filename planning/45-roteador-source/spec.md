@@ -20,6 +20,15 @@
 >   independente.
 >
 > O texto aprovado no G2 de 10/11 fica no histórico do comentário `gm:spec` do card.
+>
+> **Emenda 2026-11-11: tratamento do G4 da PR #64** (decisões do braço direito, cofre #1701).
+> - **Achado 2 (emenda autorizada).** O roteador só age quando a chamada não traz **nenhum** filtro
+>   que restrinja a busca: nem `source`, nem `repo`, nem `feature`, nem `doc_type`. Com qualquer um
+>   deles, a busca segue como veio e o Jev não é consultado. O Jev não sabe desses filtros, e as
+>   raízes de `diario`, `mapa`, `notas`, `memoria` e `decisao` têm `repo` nulo: uma rota para elas
+>   numa chamada com `repo` saía vazia por construção e pagava o teto e duas buscas. O
+>   `incluir_arquivadas` não restringe e não conta. Mudam o A4, o passo 1 do `rotear` e a definição
+>   de "chamada sem `source`", que vira "chamada sem filtro".
 
 ## References
 - Card: [#45](https://github.com/leonardo-amaral-3/claude-brain/issues/45) — repo `leonardo-amaral-3/claude-brain`
@@ -72,6 +81,9 @@
 Definições usadas abaixo:
 - **chamada sem `source`**: `search_context` com `query` não vazia e sem a chave `source` (`repo`,
   `feature`, `doc_type`, `incluir_arquivadas` e `limit` podem vir ou não);
+  - *emenda 2026-11-11:* o roteador só age na **chamada sem filtro**, a que vem sem `source`,
+    `repo`, `feature` e `doc_type` (`incluir_arquivadas` e `limit` podem vir ou não). Onde os
+    critérios abaixo dizem "sem `source`" para o roteador agir, leia "sem filtro";
 - **roteador ligado**: no momento da chamada, `process.env.BRAIN_JEV` contém o item `roteador`,
   pela regra do contrato do #42 (lista separada por vírgula, cada item com `trim()` e em minúsculas,
   sem curinga). `BRAIN_JEV=1`, `*`, `todos` ou só outros usos (`contexto`) **não** ligam;
@@ -121,6 +133,8 @@ Definições usadas abaixo:
   hoje.
 - **A4. `source` explícito nunca passa pelo roteador.** Com o roteador ligado, uma chamada com
   `source` não consulta o cliente, e a resposta é a busca como veio.
+  - *Emenda 2026-11-11:* o mesmo vale para `repo`, `feature` e `doc_type`, sozinhos ou juntos.
+    `incluir_arquivadas` sozinho ainda passa pelo roteador.
 - **A4b. Query vazia não consulta.** `query` vazia ou só com espaços devolve `Query vazia — …` como
   hoje (`tools.ts:110`, que fica **antes** de `rotear`), sem consultar o cliente.
 - **A5. Superfície intacta.** O `inputSchema` do `search_context` continua com exatamente
@@ -389,6 +403,8 @@ já carregada.
 
 **`rotear`**, nesta ordem:
 1. `if (!deps.ligado || filtros.source) return { ...(await deps.buscar(query, filtros, limit)), roteado: null };`
+   - *Emenda 2026-11-11:* a condição vira `!deps.ligado || temFiltro(filtros)`, com `temFiltro(f)` =
+     `Boolean(f.source || f.repo || f.feature || f.doc_type)` (não exportada).
 2. `const opcoes = opcoesDoRoteador(deps.fontes)`. Chama
    `deps.escolher(estadoDoRoteador(query), opcoes, teto)`.
    - A chamada fica dentro de `Promise.resolve().then(...)`, para que um `throw` síncrono vire
@@ -653,6 +669,7 @@ para o índice vivo):
 | A3 | `scripts/roteador.mjs` (integração) | `rodape-quando-roteado`: o texto termina em `(roteador: busca restrita a source="mapa" nesta consulta — para outra fonte, passe source)\n\nUse read_doc(path) para ler o documento inteiro ou uma seção.`, e `_meta` é `deepStrictEqual` a `{ brain: { lexicais: 1, vetoriais: 0, semantica: true, colapsados: 1 } }`, o diag do falso **com** `source` (a busca filtrada) |
 | A3, A7 | `scripts/roteador.mjs` (integração) | `ponta-a-ponta-falso`: o padrão de produção de `registerTools`, com `BRAIN_JEV=roteador BRAIN_JEV_FALSO=sim` e o buscador falso, responde `{query:"x"}` com o rodapé de `source="planning"` (o falso `sim` escolhe a primeira opção com 0,95, C6). O buscador registrou `source: "planning"` |
 | A4, A4b | `scripts/roteador.mjs` | `source-explicito-nao-consulta`: `ligado: true`, `source: "code"`. O Jev falso é chamado 0 vezes, `buscar` 1 vez com `code`. Mais `query-vazia-nao-consulta` (integração): `{query:"   "}` com o roteador ligado responde `Query vazia — informe ao menos um termo.` e o Jev falso é chamado 0 vezes |
+| A4 (emenda 2026-11-11) | `scripts/roteador.mjs` | `filtro-explicito-nao-consulta repo`, `… feature`, `… doc_type` e `… repo+feature+doc_type`: `ligado: true`, o Jev falso em `mapa` 0,99 é chamado 0 vezes, `buscar` 1 vez com os filtros como vieram, `roteado === null`. `incluir-arquivadas-ainda-roteia`: só `incluirArquivadas: true` → o Jev é chamado e a busca vai com `source: "mapa"`. Na integração, `filtro-na-chamada-nao-consulta`: `{query, repo}`, `{query, feature}` e `{query, doc_type}` com o roteador ligado não consultam o Jev nem ganham o rodapé. A suíte passa a usar `FILTROS = { incluirArquivadas: false }`, e o `desligado-igual-a-sem-chave` conta 1 consulta (a chamada com `repo` não consulta) |
 | A5 | `scripts/roteador.mjs` (integração) + diff (com `<base>` = `origin/dev`) | `superficie-intacta`: `tools/list` mostra as chaves de `inputSchema.properties` do `search_context`, com `sort()`, iguais a `[doc_type, feature, incluir_arquivadas, limit, query, repo, source]`. As chaves de `_meta.brain` de uma resposta roteada, com `sort()`, são iguais a `[colapsados, lexicais, semantica, vetoriais]`. No diff, `git diff --stat <base>...HEAD -- brain-mcp/src/db.ts` vem vazio (a `uso` não ganha coluna) |
 | A6 | `scripts/roteador.mjs` (integração) | `uso-grava-args-como-vieram`: com o roteador ligado e o Jev falso em `mapa` 0,95, `{query:"x", limit:3}` responde com o rodapé do roteador, e o buscador falso registrou uma chamada com `source: "mapa"`. A última linha de `uso` (`ORDER BY id DESC LIMIT 1`) tem `tool = 'search_context'` e `JSON.parse(args)` `deepStrictEqual` a `{query:"x", limit:3}`, sem `source`. Mais `filtros-intactos` na unidade: `rotear` com `Object.freeze(filtros)` não lança |
 | A7 | `scripts/roteador.mjs` | `sem-http-proprio`: lê `src/roteador.ts` e `src/tools.ts` e falha se algum casar a regex do bloco abaixo. Falha se `src/roteador.ts` não contiver `createRequire`, `"jev.js"` e `USO_ROTEADOR = "roteador"`, ou se algum outro `src/*.ts` contiver `jev.js` |

@@ -228,9 +228,10 @@ em número, e é dela que o `colher` tira o golden set.
 
 ### Roteador de source
 
-Quando o Claude chama `search_context` **sem `source`**, o roteador pergunta ao Jev, antes da busca, em
-qual fonte do índice (`planning`, `github`, `code`, `git`…) o documento deve estar. Com confiança de
-pelo menos 0,8, a busca restringe-se a essa fonte; a resposta traz a linha final
+Quando o Claude chama `search_context` **sem nenhum filtro** (`source`, `repo`, `feature` ou
+`doc_type`), o roteador pergunta ao Jev, antes da busca, em qual fonte do índice (`planning`, `github`,
+`code`, `git`…) o documento deve estar. Com confiança de pelo menos 0,8, a busca restringe-se a essa
+fonte; a resposta traz a linha final
 `(roteador: busca restrita a source="…" nesta consulta — para outra fonte, passe source)`.
 **Vem desligado.**
 
@@ -240,7 +241,8 @@ pelo menos 0,8, a busca restringe-se a essa fonte; a resposta traz a linha final
 - **O que vai ao Jev**: a query cortada em 500 caracteres, a instrução fixa e a lista de fontes com as
   descrições. Nunca trecho do corpus.
 - **Limiar e teto**: 0,8 de probabilidade e 1 s de orçamento. São valores de partida, não calibrados.
-- **Cai para a busca como veio** quando: o roteador está desligado; a chamada já traz `source`; não há
+- **Cai para a busca como veio** quando: o roteador está desligado; a chamada já traz `source`,
+  `repo`, `feature` ou `doc_type` (o Jev não sabe desses filtros, e aí nem é consultado); não há
   cliente, chave ou resposta dentro do teto; a probabilidade fica abaixo do limiar; a escolha é
   `qualquer` ou uma fonte fora da lista; ou a busca restrita não acha nada.
 - **`uso`** grava os argumentos como chegaram: o filtro do roteador não entra na tabela nem no golden
@@ -248,7 +250,7 @@ pelo menos 0,8, a busca restringe-se a essa fonte; a resposta traz a linha final
 - **`eval`, `smoke` e `concorrencia`** limpam o Jev do ambiente dos filhos que sobem, para a medição não
   depender de chave nem de rede.
 - **Atualizar o `jev.js`** só vale depois de reabrir a sessão: o `require` guarda o módulo.
-- **`BRAIN_JEV_FALSO`** numa sessão real, com `roteador` na lista, desvia **toda** busca sem `source`
+- **`BRAIN_JEV_FALSO`** numa sessão real, com `roteador` na lista, desvia **toda** busca sem filtro
   pelo roteiro do falso, sem rede. Serve para teste, não para uso diário.
 - **Medir o ganho (B1)**: não há comando nesta versão. Fica para o card de calibração do Jev. O aviso
   que vai junto: só 7 dos casos do golden sem `source` têm o alvo neste índice, e o teto do ganho é de

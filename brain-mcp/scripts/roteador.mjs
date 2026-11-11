@@ -114,7 +114,9 @@ function jevFalso(comportamento) {
   return { escolher, chamadas };
 }
 
-const FILTROS = { repo: "r", feature: "f", doc_type: "spec", incluirArquivadas: false };
+// Sem filtro que restrinja: com `repo`, `feature` ou `doc_type` o roteador nem age (emenda
+// 2026-11-11, casos `filtro-explicito-nao-consulta`). `incluirArquivadas` nao restringe.
+const FILTROS = { incluirArquivadas: false };
 
 function deps(escolher, buscar, extra = {}) {
   return { ligado: true, fontes: SOURCES, escolher, buscar, ...extra };
@@ -250,6 +252,29 @@ await caso("source-explicito-nao-consulta", async () => {
   assert.equal(b.chamadas.length, 1);
   assert.equal(b.chamadas[0].f.source, "code");
   assert.equal(r.roteado, null);
+});
+
+// Emenda 2026-11-11 (achado 2 do G4): qualquer filtro que restrinja a busca desliga o roteador.
+for (const extra of [{ repo: "r" }, { feature: "f" }, { doc_type: "spec" }, { repo: "r", feature: "f", doc_type: "spec" }]) {
+  await caso(`filtro-explicito-nao-consulta ${Object.keys(extra).join("+")}`, async () => {
+    const jev = jevFalso(async () => ({ opcao: "mapa", probabilidade: 0.99 }));
+    const b = buscadorFalso();
+    const filtros = { ...FILTROS, ...extra };
+    const r = await rot.rotear("x", filtros, 8, deps(jev.escolher, b.buscar));
+    assert.equal(jev.chamadas.length, 0, "o escolhedor foi chamado");
+    assert.equal(b.chamadas.length, 1);
+    assert.deepStrictEqual(b.chamadas[0].f, filtros);
+    assert.equal(r.roteado, null);
+  });
+}
+
+await caso("incluir-arquivadas-ainda-roteia", async () => {
+  const jev = jevFalso(async () => ({ opcao: "mapa", probabilidade: 0.99 }));
+  const b = buscadorFalso();
+  const r = await rot.rotear("x", { incluirArquivadas: true }, 8, deps(jev.escolher, b.buscar));
+  assert.equal(jev.chamadas.length, 1);
+  assert.deepStrictEqual(b.chamadas[0].f, { incluirArquivadas: true, source: "mapa" });
+  assert.equal(r.roteado, "mapa");
 });
 
 // ---------------------------------------------------------------- A6
@@ -527,7 +552,8 @@ await caso("desligado-igual-a-sem-chave", async () => {
     for (const a of chamadas) out.push(await s.chamar(a));
     return out;
   });
-  assert.equal(nulo.chamadas.length, chamadas.length);
+  // So a chamada sem filtro consulta: a com `repo` segue como veio (emenda 2026-11-11).
+  assert.equal(nulo.chamadas.length, 1);
   for (let i = 0; i < chamadas.length; i++) {
     assert.deepStrictEqual(comNulo[i].content, desligado[i].content);
     assert.deepStrictEqual(comNulo[i]._meta, desligado[i]._meta);
@@ -543,6 +569,18 @@ await caso("rodape-quando-roteado", async () => {
     assert.deepStrictEqual(r._meta, { brain: { lexicais: 1, vetoriais: 0, semantica: true, colapsados: 1 } });
     assert.equal(s.buscas.length, 1);
     assert.equal(s.buscas[0].f.source, "mapa");
+  });
+});
+
+await caso("filtro-na-chamada-nao-consulta", async () => {
+  const jev = sempre("mapa", 0.99);
+  await comServidor({ roteador: { ligado: () => true, escolher: jev.escolher } }, async (s) => {
+    for (const a of [{ repo: "r" }, { feature: "f" }, { doc_type: "spec" }]) {
+      const r = await s.chamar({ query: "x", ...a });
+      assert.ok(!textoDe(r).includes("(roteador:"), `${JSON.stringify(a)}: a resposta foi roteada`);
+    }
+    assert.equal(jev.chamadas.length, 0, "o escolhedor foi chamado");
+    assert.deepStrictEqual(s.buscas.map((b) => b.f.source), [undefined, undefined, undefined]);
   });
 });
 
