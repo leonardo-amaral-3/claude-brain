@@ -168,6 +168,13 @@ console.log("classificar: sempre com Jev falso, sem rede (CA1, CA4, CA5, CA10)")
     const r = await classificar({ texto, carregar: async () => (chamado++, jevFalso()), optIn: false });
     afirmar(chamado === 0, "optIn false → carregar não é chamado");
     afirmar(quatro(r, "envio de spec ao Jev não autorizado nesta máquina") && r.cliente === null, "optIn false → quatro indisponíveis com o motivo do opt-in");
+    // Só o literal true liga (achado 8 do G4): sem optIn, ou com um valor que só parece verdadeiro, o
+    // cliente também não é carregado.
+    for (const [rotulo, extra] of [["sem optIn", {}], ['optIn "true"', { optIn: "true" }], ["optIn 1", { optIn: 1 }]]) {
+      let carregou = 0;
+      const r2 = await classificar({ texto, carregar: async () => (carregou++, jevFalso()), ...extra });
+      afirmar(carregou === 0 && quatro(r2, "envio de spec ao Jev não autorizado nesta máquina"), `${rotulo} → carregar não é chamado, motivo do opt-in`);
+    }
   }
 
   // CA4: sem cliente.
@@ -477,10 +484,10 @@ console.log("carregarJev: a fronteira com o contrato do #42, com um jev.js falso
     afirmar(jev.cabe("\n".repeat(24)) === true && jev.cabe("\n".repeat(25)) === false, "R4: cabe conta o escape de cada quebra de linha");
 
     // Ponta a ponta com classificar: spec grande não pergunta; spec pequena passa pelas quatro.
-    const grande = await classificar({ texto: "x".repeat(60), carregar: () => carregarJev({ claudeHome: casaOk }) });
+    const grande = await classificar({ texto: "x".repeat(60), carregar: () => carregarJev({ claudeHome: casaOk }), optIn: true });
     afirmar(CATEGORIAS.every((c) => grande.jev[c].motivo === "spec maior que o limite do cliente") && grande.cliente === join(casaOk, "hooks", "jev.js"), "classificar: spec acima do MAX_ESTADO → maior que o limite, sem perguntar");
     chamadasDoOk.length = 0;
-    const pequena = await classificar({ texto: "spec curta", carregar: () => carregarJev({ claudeHome: casaOk }) });
+    const pequena = await classificar({ texto: "spec curta", carregar: () => carregarJev({ claudeHome: casaOk }), optIn: true });
     afirmar(CATEGORIAS.every((c) => igual(pequena.jev[c], nao(0.95))) && chamadasDoOk.length === 4, "classificar: spec que cabe → quatro perguntas, quatro nao 0,95");
   } finally {
     delete globalThis.__chamadasJev;

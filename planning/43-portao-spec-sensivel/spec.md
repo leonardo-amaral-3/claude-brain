@@ -161,8 +161,12 @@ export const REGISTRO = "sensibilidade.json";  // ao lado do spec.md
 - `async classificar({texto, carregar = carregarJev, optIn, orcamentoMs = ORCAMENTO_MS})` →
   `{jev: Record<categoria, RespostaJev>, cliente: string|null}`. Um único temporizador de
   `orcamentoMs` cobre tudo abaixo e é limpo (`clearTimeout`) no fim:
-  1. `optIn === false` → as quatro `indisponivel`, motivo `"envio de spec ao Jev não autorizado
+  1. `optIn !== true` → as quatro `indisponivel`, motivo `"envio de spec ao Jev não autorizado
      nesta máquina"`, **sem chamar `carregar`**; `cliente: null`.
+     > **Emenda (2026-11-11), achado 8 do G4 da PR #53, autorizada pelo braço direito (cofre #1617).**
+     > Era `optIn === false`: quem chamasse `classificar` sem `optIn` carregava o cliente e mandava a
+     > spec, e o fail-closed do CA10 só valia pelo CLI. Agora só o literal `true` liga; o teste prova
+     > que, sem `optIn`, o `carregar` espião não é chamado. Nenhum critério de aceite muda.
   2. `await carregar()` em corrida com o temporizador. `null` → motivo `"cliente do Jev não
      encontrado"`; estouro → `"tempo esgotado ao carregar o cliente"`. `cliente = jev.origem`.
   3. `jev.cabe` definido e `jev.cabe(texto) === false` → as quatro `indisponivel`, motivo `"spec maior
@@ -383,7 +387,7 @@ diretório temporário; sai 0 se tudo passa, 1 se algo falha.
 | `decidir`: autor sim + Jev indisponível → `["autor","jev-indisponivel"]`, nessa ordem | CA2 |
 | `montarLinha`: o exemplo de `autor (dado); Jev indisponível (as quatro)`, `Spec sensível: não`, e duas categorias `confiança baixa (faturamento, migration)` — string exata | CA2 |
 | `classificar` com Jev falso que grava as chamadas → exatamente as quatro `PERGUNTAS`, e o trecho de cada chamada é igual, byte a byte, ao texto | o que vai ao Jev |
-| `classificar` com `optIn:false` e `carregar` espião → quatro `indisponivel` com o motivo do opt-in, `carregar` **não** chamado | CA10 |
+| `classificar` com `optIn:false`, sem `optIn`, com `"true"` e com `1` (emenda de 2026-11-11), e `carregar` espião → quatro `indisponivel` com o motivo do opt-in, `carregar` **não** chamado | CA10 |
 | `classificar` com `carregar` que devolve `null` → quatro `cliente do Jev não encontrado` | CA4 |
 | `classificar` com `carregar` que nunca resolve e `orcamentoMs: 50` → `tempo esgotado ao carregar o cliente`, e o teste termina | CA5 |
 | `classificar` com `perguntar` que lança síncrono, e que rejeita com `message` contendo `"sk-segredo"` → `erro do cliente (Error)`, e `"sk-segredo"` não aparece na saída | CA1, não vaza |

@@ -174,8 +174,9 @@ export async function classificar({ texto, carregar = carregarJev, optIn, orcame
   const nasQuatro = (motivo) =>
     Object.fromEntries(CATEGORIAS.map((c) => [c, { estado: "indisponivel", motivo }]));
 
-  // Sem autorização para mandar spec, o cliente nem é carregado.
-  if (optIn === false) return { jev: nasQuatro(MOTIVO_SEM_OPT_IN), cliente: null };
+  // Sem autorização para mandar spec, o cliente nem é carregado. Só o literal `true` liga: quem chama
+  // sem `optIn` (undefined) também fica de fora (CA10; achado 8 do G4 da PR #53).
+  if (optIn !== true) return { jev: nasQuatro(MOTIVO_SEM_OPT_IN), cliente: null };
 
   const ESGOTOU = Symbol("esgotou");
   let temporizador;
