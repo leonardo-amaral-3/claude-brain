@@ -57,14 +57,23 @@ const DESCRICAO: Record<string, string> = {
 };
 
 /**
- * Ligado quando `roteador` está na lista de `BRAIN_JEV` (separada por vírgula, sem curinga). É a
- * mesma leitura do cliente, feita aqui para conferir o uso ANTES de carregá-lo. Sem I/O.
+ * Quem decide é o cliente: `jev.ligado('roteador', env)`, a regra única do `BRAIN_JEV` (lista
+ * separada por vírgula, sem curinga) com chave ou `BRAIN_JEV_FALSO` definida (emenda 2026-11-11,
+ * achado 7 do G4). Sem cliente, cliente quebrado ou sem `ligado`, é desligado. Carregar o
+ * `jev.js` não escreve nada (Emenda 1 do #42), e o `require` guarda o módulo.
  * Ligar manda a query ao Jev quando houver chave, o que exige o aval do Leonardo.
  */
-export function roteadorLigado(env: NodeJS.ProcessEnv = process.env): boolean {
-  return String(env.BRAIN_JEV ?? "")
-    .split(",")
-    .some((u) => u.trim().toLowerCase() === USO_ROTEADOR);
+export function roteadorLigado(
+  env: NodeJS.ProcessEnv = process.env,
+  carregar: () => unknown = carregarJev
+): boolean {
+  try {
+    const jev = carregar() as { ligado?: unknown } | null | undefined;
+    if (jev == null || typeof jev !== "object" || typeof jev.ligado !== "function") return false;
+    return (jev.ligado as (uso: string, env: NodeJS.ProcessEnv) => unknown)(USO_ROTEADOR, env) === true;
+  } catch {
+    return false;
+  }
 }
 
 /** A query cortada em 500 code points (não parte um par surrogate). Vai como string. */

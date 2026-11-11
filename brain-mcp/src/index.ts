@@ -67,15 +67,16 @@ if (SOMENTE_CONSULTA) {
   );
 }
 
-// Só informativa: a decisão de rotear é de cada chamada (`BRAIN_JEV` é lido na hora).
+// Só informativa: a decisão de rotear é de cada chamada (`BRAIN_JEV` é lido na hora). O
+// `roteadorLigado` é o `ligado` do cliente: sem chave e sem o falso, ele é falso e nada se imprime.
 if (roteadorLigado()) {
   if (process.env.BRAIN_JEV_FALSO === undefined) {
     console.error(
-      "[brain] roteador de source pedido (roteador em BRAIN_JEV): com TYPESAFE_API_KEY, a query das buscas sem source vai ao Jev"
+      "[brain] roteador de source ligado (roteador em BRAIN_JEV, com TYPESAFE_API_KEY): a query das buscas sem filtro vai ao Jev"
     );
   } else {
     console.error(
-      "[brain] roteador de source com o Jev FALSO (BRAIN_JEV_FALSO): as buscas sem source seguem o roteiro do falso, sem rede"
+      "[brain] roteador de source com o Jev FALSO (BRAIN_JEV_FALSO): as buscas sem filtro seguem o roteiro do falso, sem rede"
     );
   }
 }

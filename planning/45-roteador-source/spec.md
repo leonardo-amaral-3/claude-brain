@@ -29,6 +29,13 @@
 >   numa chamada com `repo` saía vazia por construção e pagava o teto e duas buscas. O
 >   `incluir_arquivadas` não restringe e não conta. Mudam o A4, o passo 1 do `rotear` e a definição
 >   de "chamada sem `source`", que vira "chamada sem filtro".
+> - **Achado 7.** O `roteadorLigado` deixa de ter parser próprio do `BRAIN_JEV`: ele carrega o
+>   cliente pela mesma resolução do C1, dentro de `try`, e devolve `jev.ligado('roteador', env) === true`.
+>   A regra fica num lugar só, no cliente, e passa a exigir também chave ou `BRAIN_JEV_FALSO`
+>   definida: com `roteador` na lista e sem chave, o roteador fica desligado e o adaptador nem é
+>   chamado. Sem cliente, cliente quebrado ou sem `ligado`, é desligado. O "sem I/O" e o "conferir
+>   o uso antes de carregar" saem: carregar o `jev.js` não escreve nada (Emenda 1 do #42) e o
+>   `require` guarda o módulo. A linha de boot passa a dizer "ligado" e "buscas sem filtro".
 
 ## References
 - Card: [#45](https://github.com/leonardo-amaral-3/claude-brain/issues/45) — repo `leonardo-amaral-3/claude-brain`
@@ -352,7 +359,8 @@ export async function rotear(
 ): Promise<{ resultados: Resultado[]; diag: Diagnostico; roteado: string | null }>;
 ```
 
-**`roteadorLigado`** devolve
+**`roteadorLigado`** (*substituído pela emenda 2026-11-11, achado 7: ver o topo; o texto abaixo é o
+de 10/11*) devolve
 `String(env.BRAIN_JEV ?? "").split(",").some((u) => u.trim().toLowerCase() === USO_ROTEADOR)`.
 É a mesma leitura do C2, e o mesmo padrão do `usaJev()` do hook do #42: conferir o uso **antes** de
 carregar o `jev.js`. Sem I/O. Um comentário diz que ligar manda a query ao Jev quando houver chave,
@@ -442,6 +450,11 @@ já carregada.
 - `inputSchema`, `text()`, o wrapper de `uso` e as outras tools não mudam.
 
 ### `brain-mcp/src/index.ts`
+
+*Emenda 2026-11-11 (achado 7):* nas duas linhas abaixo, "pedido (roteador em BRAIN_JEV): com
+TYPESAFE_API_KEY" vira "ligado (roteador em BRAIN_JEV, com TYPESAFE_API_KEY):", e "buscas sem
+source" vira "buscas sem filtro". A primeira só aparece com chave, porque o `roteadorLigado` agora é o
+`ligado` do cliente.
 
 Importar `roteadorLigado`. Logo depois do bloco de boot (`index.ts:49-67`), quando ele for
 verdadeiro, emitir:
@@ -639,7 +652,8 @@ Mesmo assim, na 🧪 Validação em Dev, depois de `sync.sh push` e `npm run bui
    nada. Ele mostra que o eval instalado acha o `~/.claude/hooks/jev.js` (sem cliente, sairia `2`).
    A limpeza dos filhos ele só mostra com a mesma ressalva do A1;
 3. um `search_context` sem `source` numa sessão real, que não pode ter a linha `(roteador: …)`;
-4. o stderr do boot, que não pode ter `[brain] roteador de source pedido`.
+4. o stderr do boot, que não pode ter `[brain] roteador de source` (emenda 2026-11-11: a linha com
+   chave diz `ligado`, e não mais `pedido`).
 
 O grupo B (ligar o roteador com chave e aval, medir o B1) é uma verificação à parte. Ela só existe
 depois do aval (G2-B) e do modo de medição com chave (G2-E), e fica registrada no card quando

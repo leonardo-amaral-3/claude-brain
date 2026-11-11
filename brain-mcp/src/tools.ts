@@ -52,8 +52,9 @@ export function registerTools(
   aoAssumirLideranca: () => void,
   produto: string,
   /**
-   * O padrão é o de produção: `ligado` lê `BRAIN_JEV` a cada chamada (o uso `roteador`) e o
-   * escolhedor é o adaptador do cliente do Jev. Só o teste (`scripts/roteador.mjs`) passa outro.
+   * O padrão é o de produção: `ligado` pergunta ao cliente do Jev a cada chamada (o uso
+   * `roteador`, que lê `BRAIN_JEV` na hora) e o escolhedor é o adaptador do cliente. Só o teste
+   * (`scripts/roteador.mjs`) passa outro.
    */
   roteador: { ligado: () => boolean; escolher: EscolherFonte } = {
     ligado: () => roteadorLigado(),

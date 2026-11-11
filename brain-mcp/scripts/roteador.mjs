@@ -134,13 +134,40 @@ await caso("desligado-nao-consulta", async () => {
   assert.equal(r.roteado, null);
 });
 
+// Emenda 2026-11-11 (achado 7 do G4): a regra e a do `ligado` do cliente da worktree, que tambem
+// exige chave ou BRAIN_JEV_FALSO. A lista e provada com o falso definido; a chave nunca faz rede
+// aqui, porque `ligado` nao tem I/O.
 await caso("ligado-pela-lista", () => {
   for (const v of [undefined, "1", "*", "todos", "contexto", ""]) {
-    assert.equal(rot.roteadorLigado(v === undefined ? {} : { BRAIN_JEV: v }), false, `BRAIN_JEV=${v}`);
+    const env = v === undefined ? { BRAIN_JEV_FALSO: "sim" } : { BRAIN_JEV: v, BRAIN_JEV_FALSO: "sim" };
+    assert.equal(rot.roteadorLigado(env), false, `BRAIN_JEV=${v}`);
   }
   for (const v of ["roteador", " Roteador ,contexto", "contexto,roteador"]) {
-    assert.equal(rot.roteadorLigado({ BRAIN_JEV: v }), true, `BRAIN_JEV=${v}`);
+    assert.equal(rot.roteadorLigado({ BRAIN_JEV: v, BRAIN_JEV_FALSO: "sim" }), true, `BRAIN_JEV=${v}`);
   }
+  assert.equal(rot.roteadorLigado({ BRAIN_JEV: "roteador" }), false, "sem chave e sem falso");
+  assert.equal(rot.roteadorLigado({ BRAIN_JEV: "roteador", TYPESAFE_API_KEY: "" }), false, "chave vazia");
+  assert.equal(rot.roteadorLigado({ BRAIN_JEV: "roteador", TYPESAFE_API_KEY: "x" }), true, "com chave");
+  assert.equal(rot.roteadorLigado({ BRAIN_JEV: "roteador", BRAIN_JEV_FALSO: "" }), true, "falso vazio");
+  const env = { BRAIN_JEV: "roteador", BRAIN_JEV_FALSO: "sim" };
+  for (const [nome, carregar] of [
+    ["carregar-lanca", () => {
+      throw new Error("x");
+    }],
+    ["carregar-null", () => null],
+    ["sem-ligado", () => ({ decidir: async () => ({}) })],
+    ["ligado-lanca", () => ({
+      ligado: () => {
+        throw new Error("x");
+      },
+    })],
+    ["ligado-nao-booleano", () => ({ ligado: () => "sim" })],
+  ]) {
+    assert.equal(rot.roteadorLigado(env, carregar), false, nome);
+  }
+  const visto = [];
+  assert.equal(rot.roteadorLigado(env, () => ({ ligado: (...a) => (visto.push(a), true) })), true);
+  assert.deepStrictEqual(visto, [["roteador", env]]);
 });
 
 // ---------------------------------------------------------------- A2
@@ -533,7 +560,7 @@ await caso("desligado-igual-a-sem-chave", async () => {
       return out;
     })
   );
-  // padrao de producao, ligado e sem chave: o cliente de verdade da worktree responde sem_chave
+  // padrao de producao, roteador na lista e sem chave: o `ligado` do cliente da worktree diz falso
   const semChave = await comEnv({ BRAIN_JEV: "roteador", BRAIN_JEV_FALSO: undefined, TYPESAFE_API_KEY: undefined }, () =>
     comServidor({}, async (s) => {
       const out = [];
