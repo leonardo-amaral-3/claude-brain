@@ -1,5 +1,7 @@
 // Entrada de `node --import`: registra um hook de resolução ESM que troca `dist/embeddings.js`
-// pelo stub determinístico de embeddings-falso.mjs. Ver o porquê lá.
+// pelo stub determinístico de embeddings-falso.mjs (ver o porquê lá) e `dist/juizJev.js` pelo Jev
+// falso de jev-falso.mjs. Com isto todo processo que os testes sobem com este hook fica incapaz de
+// alcançar o Jev real, qualquer que seja a flag ou a chave no ambiente de quem roda (#46).
 //
 // Um hook de resolução (e não uma cópia do dist/, nem monkey-patch) porque ESM não deixa
 // substituir binding exportado de fora e porque a costura precisa valer do OUTRO lado de uma
@@ -8,6 +10,7 @@
 import { register } from "node:module";
 
 const falso = new URL("./embeddings-falso.mjs", import.meta.url).href;
+const jevFalso = new URL("./jev-falso.mjs", import.meta.url).href;
 
 // O hook roda numa thread própria, então não enxerga as variáveis daqui: o caminho do stub vai
 // embutido no fonte. Inline em data: URL para não precisar de um terceiro arquivo de duas linhas.
@@ -15,10 +18,14 @@ register(
   "data:text/javascript," +
     encodeURIComponent(
       `const falso = ${JSON.stringify(falso)};\n` +
+        `const jevFalso = ${JSON.stringify(jevFalso)};\n` +
         `export async function resolve(spec, ctx, next) {\n` +
         `  const r = await next(spec, ctx);\n` +
         `  if (r.url.endsWith("/dist/embeddings.js")) {\n` +
         `    return { url: falso, format: "module", shortCircuit: true };\n` +
+        `  }\n` +
+        `  if (r.url.endsWith("/dist/juizJev.js")) {\n` +
+        `    return { url: jevFalso, format: "module", shortCircuit: true };\n` +
         `  }\n` +
         `  return r;\n` +
         `}\n`
