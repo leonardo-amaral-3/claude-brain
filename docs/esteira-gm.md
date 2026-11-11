@@ -85,9 +85,16 @@ pelo card, construída com exploração do código e perguntas focadas, endureci
 adversarial e liberada por uma escolha sua no portão. Publicada como comentário no card, para que
 os passos seguintes a encontrem no GitHub.
 
-Em spec sensível (dado, faturamento, migration), o portão G2 pede um segundo olhar. Se o workspace
-declara que **não há segundo humano**, ou se você escolhe seguir sem ele, a skill dispara um
-**revisor de IA independente**: um agente de contexto novo, que recebe só o caminho da spec — não a
+Spec sensível é a que toca **dado, faturamento, deploy ou migration**, e quem decide é a regra do
+`skills/gm-spec/sensivel.mjs`, não o julgamento livre da sessão: vale qualquer condição — o autor
+disse sim, o Jev disse sim, o Jev disse não com confiança baixa, ou o Jev não respondeu. O Jev só
+acrescenta a exigência, nunca a dispensa; sem chave, ou sem o opt-in de envio, toda spec é sensível.
+O opt-in é `~/.claude/gm-spec-jev.json` com `{"enviarSpecAoJev": true}`: autoriza mandar o texto da
+spec ao Jev nesta máquina, e vem desligado por padrão.
+
+Em spec sensível, o portão G2 pede um segundo olhar, e o **revisor de IA independente** roda **em
+toda spec sensível** — nas duas respostas do `2º revisor`, ou direto quando o workspace declara que
+**não há segundo humano**. É um agente de contexto novo, que recebe só o caminho da spec — não a
 conversa — e devolve achados com `file:line`. Os achados chegam a você junto da spec, antes da
 aprovação. O contrapeso não depende de o workspace tê-lo declarado.
 
