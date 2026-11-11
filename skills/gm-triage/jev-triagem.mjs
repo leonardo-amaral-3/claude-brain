@@ -99,7 +99,15 @@ export function lerBoard(texto) {
 const PADROES_SENSIVEIS = [
   ["e-mail", /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b/],
   ["URL", /\bhttps?:\/\/|\bwww\./i],
-  ["caminho absoluto", /(^|[\s("'])(~\/|\/(?:home|Users|tmp|var|etc|opt|mnt|srv|root)\/)|\b[A-Za-z]:[\\/]/],
+  // ~/, as raízes conhecidas e o drive do Windows; e, em qualquer raiz, três segmentos ou mais, ou um
+  // arquivo com extensão. Rota de API (/api/aih) e nome de skill (/gm-triage/jev) continuam passando.
+  [
+    "caminho absoluto",
+    /(^|[\s("'=])(~\/|\/(?:home|Users|tmp|var|etc|opt|mnt|srv|root)\/)|\b[A-Za-z]:[\\/]|(^|[\s("'=])\/[\p{L}\p{N}_.\-]+\/[\p{L}\p{N}_.\-]+\/|(^|[\s("'=])\/(?:[\p{L}\p{N}_.\-]+\/)*[\p{L}\p{N}_\-]+\.[\p{L}\p{N}]{1,6}(?![\p{L}\p{N}])/u,
+  ],
+  // ./ e ../; e três segmentos ou mais com uma sequência de três letras (logs/<pasta>/erro.txt), o que
+  // deixa passar o período 10/2026-11/2026 e um arquivo do repo com uma barra só (hooks/brain-contexto.js).
+  ["caminho relativo", /(^|[\s("'=])\.{1,2}[\\/]|(?<![\p{L}\p{N}_.\/\-])(?=[\p{L}\p{N}_.\/\-]*\p{L}{3})[\p{L}\p{N}_.\-]+\/[\p{L}\p{N}_.\-]+\//u],
   // DDD e número com hífen: pega o fixo de 10 dígitos, que o "número longo" não alcança.
   ["telefone", /(?:\(\d{2}\)|\b\d{2})\s?\d{4,5}-\d{4}\b/],
   // Onze dígitos ou mais. Entre eles valem . - ( ) (até dois), a / depois de um grupo de 3+ dígitos

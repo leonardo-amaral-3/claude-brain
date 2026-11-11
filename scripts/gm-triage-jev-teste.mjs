@@ -95,6 +95,14 @@ const casam = [
   ["em https://x.y", "URL"],
   ["arquivo /home/u/a.txt", "caminho absoluto"],
   ["C:/Users/x", "caminho absoluto"],
+  // achado 4 do G4 (medidos na PR #50): qualquer raiz, e caminho relativo; nomes inventados
+  ["em /data/clientes/hospital-x/aih.csv", "caminho absoluto"],
+  ["ver /dados/aih.csv", "caminho absoluto"],
+  ["/srv2/x/y", "caminho absoluto"],
+  ["arquivo ./logs/x.txt", "caminho relativo"],
+  ["em ../dados/x", "caminho relativo"],
+  ["logs/hospital-x/erro.txt", "caminho relativo"],
+  ["relatórios/clínica/março.csv", "caminho relativo"],
   ["CPF 123.456.789-09", "número longo"],
   ["CNS 898001234567890", "número longo"],
   ["AIH 3524100012345", "número longo"],
@@ -128,6 +136,8 @@ const naoCasam = [
   "caiu em 2026-11-10 10:30:15",
   "versões 1.2.3 e 4.5.6",
   "S1 S2 S3, 70% e 10 s",
+  "a rota /api/aih.",
+  "e/ou, entrada/saída, S1/S2/S3",
 ];
 for (const texto of naoCasam) afirmar(sensivel(texto) === null, `não casa: ${texto.slice(0, 50)}`);
 afirmar([...naoCasam[0]].length === 800, "o resumo de 800 pontos de código com emoji tem 800");
