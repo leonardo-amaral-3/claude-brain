@@ -358,17 +358,15 @@ function naoMedi(motivo) {
 }
 
 // Escolha dos aprovados do T16 (#51). O roteiro do falso casa por substring do caminho normalizado
-// (regraCasa do hooks/jev.js), e o hook usa o caminho como id: aprovar um caminho aprova todo
-// trecho cujo caminho o contem. Fica de fora (1) todo candidato de 6 em diante cujo caminho colide,
-// por substring nos dois sentidos, com o de um dos cinco primeiros, e (2) todo candidato de 6 em
-// diante cujo caminho esta contido no de um que ficou de fora, porque a regra dele aprovaria aquele.
-// Devolve os aprovados na ordem do ranking; vazio = nao ha como provar a ordem com este prompt.
+// (regraCasa do hooks/jev.js): a regra de A aprova todo trecho cujo caminho CONTEM o de A, e o hook
+// usa o caminho como id. Fica de fora todo candidato de 6 em diante cujo caminho esta contido no de
+// um dos cinco primeiros (igual incluso), porque a regra dele aprovaria aquele. O sentido inverso
+// (o candidato contem o caminho de um dos cinco) nao aprova ninguem dos cinco e fica (emenda
+// 2026-11-11). O conjunto fecha: um de fora nao contem nenhum aprovado, senao o dos cinco que o
+// contem tambem conteria. Devolve na ordem do ranking; vazio = nao ha como provar.
 function aprovadosDoT16(enviados) {
-  const colide = (a, b) => a.includes(b) || b.includes(a);
   const cinco = enviados.slice(0, 5);
-  const resto = enviados.slice(5);
-  const fora = [...cinco, ...resto.filter((c) => cinco.some((b) => colide(c.caminho, b.caminho)))];
-  return resto.filter((c) => !fora.includes(c) && !fora.some((x) => x.caminho.includes(c.caminho)));
+  return enviados.slice(5).filter((c) => !cinco.some((b) => b.caminho.includes(c.caminho)));
 }
 
 // Roteiro do falso que aprova (0.95) so os caminhos dados; o resto cai no padrao (0.05).
@@ -393,7 +391,8 @@ const roteiroDoT16 = (aprovados) => ({
     c(10, "/r/c"),
     c(11, "/r/f.md"),
   ];
-  confere(igual(aprovadosDoT16(lista).map((x) => x.posicao), [7, 11]), "T16 escolha sintetica: so 7 e 11 escapam da colisao");
+  // 6 repete o 5 e 10 esta contido no 3: fora. 8 contem o 2 e 9 esta contido no 8 (aprovado): ficam.
+  confere(igual(aprovadosDoT16(lista).map((x) => x.posicao), [7, 8, 9, 11]), "T16 escolha sintetica: so 7, 8, 9 e 11 escapam da colisao");
   confere(aprovadosDoT16(lista.slice(0, 6).concat([c(7, "/r/a.md"), c(8, "/r/b.md")])).length === 0, "T16 escolha sintetica: tudo colide = nenhum aprovado");
   const limpa = ["/r/a.md", "/r/b.md", "/r/c.md", "/r/d.md", "/r/e.md", "/r/f.md", "/r/g.md"].map((p, i) => c(i + 1, p));
   confere(igual(aprovadosDoT16(limpa), limpa.slice(5)), "T16 escolha sintetica: sem colisao aprova 6..n");
@@ -408,8 +407,8 @@ const roteiroDoT16 = (aprovados) => ({
   });
   // 0.5 = LIMIAR_JEV do hook (hooks/brain-contexto.js:238).
   confere(
-    igual(lista.filter((_, i) => vs[i].estado === "ok" && vs[i].probabilidade >= 0.5).map((x) => x.posicao), [7, 11]),
-    "T16 escolha sintetica: o falso aprova so 7 e 11"
+    igual(lista.filter((_, i) => vs[i].estado === "ok" && vs[i].probabilidade >= 0.5).map((x) => x.posicao), [7, 8, 9, 11]),
+    "T16 escolha sintetica: o falso aprova so 7, 8, 9 e 11"
   );
   console.log("jev: T16 escolha sintetica OK (sem indice)");
 }
