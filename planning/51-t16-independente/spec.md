@@ -51,6 +51,14 @@ Medidas em 2026-11-11 na worktree (HEAD 69e71ce), com Node v22.23.4 e o índice 
 | `jev.julgar` aceita env e roteiro por opções, sem rede | `hooks/jev.js:104-106` (`envDe`), `:453-463` (ramo do falso); uso igual no T4 (`brain-mcp/scripts/jev.mjs:158,171`) | o caso sintético roda o falso real sem índice e sem rede. `MAX_TRECHOS = 16` (`hooks/jev.js:85`) comporta a lista de 11 |
 | Onde o `NÃO MEDI` de hoje mora | `brain-mcp/scripts/jev.mjs:517-536` | o `if (aprovados.some(...)) naoMedi(...)` da linha 524-526 aborta por **qualquer** colisão |
 
+> **Emenda 2026-11-11 (implementacao, decisao do braco direito, cofre escopo `claude-brain#51`):**
+> (1) A sanidade do lote roda com `--base 3c3b92c` (primeiro pai do merge 69e71ce, a `dev` de antes do #42):
+> `cd brain-mcp && node scripts/injecao.mjs --desde 2026-11-03 --ate 2026-11-09 --base 3c3b92c --portao jev`
+> sai 0 ("Portao do #42 OK"). Com `--base origin/dev` o exit 2 ("o hook e igual ao base") e por desenho,
+> porque o #51 nao toca `hooks/`; onde esta spec e a task dizem `--base origin/dev` nessa sanidade, vale `3c3b92c`.
+> (2) A premissa medida dos 10 candidatos fica datada: no indice de 11/11, em re-medicao feita na
+> implementacao, os aprovados da regra nova sao as posicoes **6, 7 e 8** (k = 3), e nao 6 e 7. A regra nao muda.
+
 ## Technical Overview
 
 O falso casa a regra pelo caminho, e o caminho é o id de todos os trechos de um arquivo. Por isso

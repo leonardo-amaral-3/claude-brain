@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: T16 exclui os candidatos que colidem, com caso sintético sem índice
 
@@ -33,6 +33,10 @@ Node 22: `PATH=/home/leo/.local/share/mise/installs/node/22.23.4/bin:$PATH`, wit
 - Manual checks, **not committed** (spec, `## Plano de testes`): temporarily swap `esperados` for `esperados.slice(1)` → exit `1`, then revert; read the code to confirm the T16 `NÃO MEDI` only remains in `if (!aprovados.length)`.
 - Sanity of the batch (spec, `## Plano de testes`; the script is not touched): `node scripts/injecao.mjs --desde 2026-11-03 --ate 2026-11-09 --base origin/dev --portao jev` (the window of `planning/42-filtro-jev/spec.md`; the gate requires `--desde`, `--ate` and `--base` explicit) still exits 0. Its output does not go to PR or card, only the count lines. Anything other than 0 is out of scope → stop.
 - Acceptance criteria covered: CA1, CA2, CA3.
+
+> **Emenda 2026-11-11** (ver `spec.md`, nota apos `## Premissas medidas`): a sanidade do lote roda com
+> `--base 3c3b92c` (primeiro pai do merge 69e71ce): `node scripts/injecao.mjs --desde 2026-11-03 --ate 2026-11-09 --base 3c3b92c --portao jev` → 0.
+> Com `--base origin/dev` o exit 2 e por desenho (o #51 nao toca `hooks/`). Premissa datada: no indice de hoje os aprovados sao as posicoes 6, 7 e 8; a regra nao muda.
 
 ## Completion Checklist
 
