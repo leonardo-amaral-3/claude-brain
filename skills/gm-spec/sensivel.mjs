@@ -379,8 +379,10 @@ export function lerArgumentos(argv) {
   return { spec, autor };
 }
 
-// O caminho feliz, na ordem da spec: lê e resume o spec.md, classifica, decide, lê o registro, une,
-// grava o registro e só então devolve a saída (que o chamador imprime).
+// O caminho feliz, na ordem da spec: lê e resume o spec.md, lê e valida o registro, classifica, decide,
+// une, grava o registro e só então devolve a saída (que o chamador imprime). O registro vem antes do
+// classificar: um registro que barraria a rodada tem de barrá-la antes de a spec sair da máquina
+// (achado 9 do G4 da PR #53).
 async function executar(argv) {
   const { spec, autor } = lerArgumentos(argv);
   const caminhoSpec = resolve(spec);
@@ -395,12 +397,13 @@ async function executar(argv) {
   if (texto.trim() === "") throw new ErroDeUso(`${caminhoSpec} está vazio`);
   const sha256 = createHash("sha256").update(bytesDoSpec).digest("hex");
 
+  const caminhoRegistro = join(dirname(caminhoSpec), REGISTRO);
+  const registro = lerRegistro(caminhoRegistro);
+
   const optIn = optInLigado(claudeHomePadrao());
   const { jev, cliente } = await classificar({ texto, optIn });
   const rodada = decidir({ autor, jev });
 
-  const caminhoRegistro = join(dirname(caminhoSpec), REGISTRO);
-  const registro = lerRegistro(caminhoRegistro);
   const { uniao, novos } = unir(registro.uniao, rodada.categorias);
   registro.rodadas.push({
     data: new Date().toISOString(),

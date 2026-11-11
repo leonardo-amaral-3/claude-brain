@@ -230,9 +230,15 @@ node "<Base directory da skill>/sensivel.mjs" --spec <caminho do spec.md> --auto
   repetida ou desconhecida, valor fora de `sim|nao` → mensagem em pt-BR no stderr, **nada** no
   stdout, código **2**.
 - `--spec`: o nome do arquivo tem de ser `spec.md`; ilegível, vazio ou só espaços em branco → código 2.
-- Caminho feliz: lê o arquivo, `sha256` do conteúdo, `classificar` (com `optIn = optInLigado(...)`),
-  `decidir`, lê o registro, `unir`, grava o registro, e escreve **uma** linha JSON no stdout, código
-  **0** (o código não diz o veredito):
+- Caminho feliz: lê o arquivo, `sha256` do conteúdo, lê e valida o registro, `classificar` (com
+  `optIn = optInLigado(...)`), `decidir`, `unir`, grava o registro, e escreve **uma** linha JSON no
+  stdout, código **0** (o código não diz o veredito):
+
+  > **Emenda (2026-11-11), achado 9 do G4 da PR #53, autorizada pelo braço direito (cofre #1617).**
+  > A ordem era `classificar`, `decidir`, lê o registro: um registro corrompido só barrava a rodada
+  > depois de a spec já ter saído da máquina. Agora o registro é lido e validado antes; corrompido →
+  > código 2 sem carregar o cliente. O teste prova com opt-in ligado e um cliente espião instalado.
+  > Nenhum critério de aceite muda.
 
 ```json
 {"sensivel":true,"motivos":["jev-indisponivel"],"novos":[],"linha":"Spec sensível: sim — Jev indisponível (as quatro)","spec":"/abs/planning/43-x/spec.md","bytes":12345,"sha256":"<hex>","cliente":null,"optIn":false,"limiar":0.9,"categorias":{"dado":{"autor":"nao","jev":{"estado":"indisponivel","motivo":"envio de spec ao Jev não autorizado nesta máquina"},"motivos":["jev-indisponivel"]},"faturamento":{},"deploy":{},"migration":{}}}
@@ -404,6 +410,7 @@ diretório temporário; sai 0 se tudo passa, 1 se algo falha.
 | CLI com opt-in ligado em `<tmp>/gm-spec-jev.json` e o mesmo ambiente → motivo `cliente do Jev não encontrado`, `optIn:true`, ainda sensível | CA10, CA4 |
 | CLI duas rodadas: a 1ª com `--autor dado=sim,...`, a 2ª com `nao` ×4 → a 2ª ainda tem `autor (dado)` na `linha` e o registro tem duas rodadas | CA9 |
 | CLI com `sensibilidade.json` corrompido → código 2, stdout vazio | registro |
+| CLI com `sensibilidade.json` corrompido, opt-in ligado e cliente espião em `<tmp>/hooks/jev.js` → código 2 e o espião não é carregado; sem o registro, o mesmo espião é carregado (emenda de 2026-11-11) | registro, CA10 |
 | CLI com `--autor` incompleto, valor `talvez`, categoria repetida, `--autor` repetido, argumento posicional, `--spec` inexistente, `--spec` vazio, `--spec` que não se chama `spec.md` → código 2, stdout vazio | CA5 (uso) |
 | CLI por link simbólico para o `sensivel.mjs` → roda o `main` (código 0, uma linha JSON) | ponto de entrada |
 | Estático: o fonte de `sensivel.mjs` não casa `/fetch\s*\(\|XMLHttpRequest\|WebSocket\|undici\|["'](node:)?(http\|https\|http2\|net\|tls\|dgram\|child_process)["']/`, e só tem `import(` dentro de `carregarJev` | CA6 |

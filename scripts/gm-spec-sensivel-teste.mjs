@@ -366,6 +366,35 @@ console.log("CLI: o script como processo, em diretório temporário e ambiente i
       }
     }
 
+    // Achado 9 do G4: o registro é lido antes do classificar. Com opt-in ligado e um cliente espião
+    // instalado, um registro corrompido sai com código 2 sem carregar o cliente.
+    {
+      const pastaE = join(casa, "espiao");
+      mkdirSync(pastaE);
+      const specE = join(pastaE, "spec.md");
+      writeFileSync(specE, specFixture);
+      const marca = join(raiz, "espiao-carregado");
+      mkdirSync(join(casa, "hooks"), { recursive: true });
+      writeFileSync(join(casa, "hooks", "jev.js"), `require("node:fs").writeFileSync(${JSON.stringify(marca)}, "carregado");
+module.exports = { MAX_ESTADO: 200000, decidir: async () => ({ sensivel: { estado: "ok", tipo: "noul", sim: false, probabilidade: 0.01 } }) };
+`);
+      writeFileSync(join(casa, "gm-spec-jev.json"), JSON.stringify({ enviarSpecAoJev: true }));
+      try {
+        writeFileSync(registroDe(pastaE), "{quebrado");
+        const r = rodar(["--spec", specE, "--autor", AUTOR_NAO]);
+        afirmar(r.status === 2 && r.stdout === "" && r.stderr.includes("sensibilidade.json ilegível"), "registro corrompido + opt-in + cliente espião → código 2");
+        afirmar(!existsSync(marca), "registro corrompido: o cliente espião não é carregado");
+        // Controle: o mesmo espião, com o registro ausente, é carregado (o teste acima mede algo).
+        rmSync(registroDe(pastaE));
+        const controle = rodar(["--spec", specE, "--autor", AUTOR_NAO]);
+        afirmar(controle.status === 0 && existsSync(marca), "controle: sem registro, o espião é carregado e a rodada sai com código 0");
+      } finally {
+        rmSync(join(casa, "hooks"), { recursive: true, force: true });
+        rmSync(join(casa, "gm-spec-jev.json"), { force: true });
+        rmSync(marca, { force: true });
+      }
+    }
+
     // Erros de uso: código 2 e nada no stdout.
     {
       const vazio = join(casa, "vazio");
