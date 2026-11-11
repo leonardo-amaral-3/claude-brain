@@ -382,7 +382,7 @@ process.on("exit", () => rmSync(pastaTemporaria, { recursive: true, force: true 
 
 // Caso sintetico da escolha (#51): roda antes do pre-voo, sem indice e sem rede.
 {
-  const c = (posicao, caminho) => ({ posicao, probabilidade: 0.95, caminho });
+  const c = (posicao, caminho) => ({ posicao, caminho });
   const lista = [
     c(1, "/r/a.md"),
     c(2, "/r/b.md"),
