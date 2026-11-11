@@ -3,6 +3,35 @@
 > Profundidade **Lite** (decisão #1388). Rota do card: Curta (G1, decisão #1376). Desenho: decisões
 > #1397 e #1398, revistas depois do revisor de IA independente (#1413).
 
+> **Emenda 2026-11-11 (G4 da PR #61, braço direito, cofre #1691).** O parecer do `/code-review high`
+> contra `a6f6172` mudou quatro pontos desta spec; o resto vale como está.
+> - **R2, R6 e `### tools.ts` (achado 1).** A vizinha cujo `id` é o `supersede` da própria chamada
+>   não vai ao Jev: o handler julga `relacionadas.filter((v) => v.id !== args.supersede)` e formata o
+>   aviso com `relacionadas` inteira. Ela continua na lista, sem marca; com o Jev desligado o retorno
+>   é o de hoje (R1). O diff de `tools.ts` ganha esse filtro além dos imports e do bloco do
+>   julgamento. Prova: `lembrar-com-supersede-nao-julga-a-substituida` (servidor, Jev falso `ligado`:
+>   A1 e A2 que o falso marcaria, `supersede: A1` → A1 sem marca, A2 marcada, e o registro do falso
+>   só tem o par com A2).
+> - **R3 e `prazoJulgamentoMs` (achado 3).** Vale só inteiro de 1 a `PRAZO_MAXIMO_MS = 2147483647`
+>   (o teto do `setTimeout`; acima, o timer dispara em ~1 ms e marca nenhuma apareceria); acima, volta
+>   a `PRAZO_PADRAO_MS`. `montar-pergunta-e-prazo` soma `"2147483647"` → 2147483647,
+>   `"2147483648"` → 4000 e `"99999999999999999999"` → 4000.
+> - **`### Fronteira com o #42: juizJev.ts` (achado 4).** Cai "Este arquivo não tem teste próprio".
+>   `juiz-jev-ponte-real` importa o `dist/juizJev.js` real num filho sem o hook de troca e sem
+>   `NODE_OPTIONS`, com `envSemJev` + `BRAIN_JEV=lembrar` e o `BRAIN_JEV_FALSO` do #42, sem
+>   `TYPESAFE_API_KEY`: roteiro que só responde à pergunta `contradiz` com `estado` =
+>   `montarPergunta(par)` → P(sim) 0,37; `sim` → 0,95; par fora do roteiro → o juiz rejeita;
+>   `lembrar` fora de `BRAIN_JEV`, ou `BRAIN_JEV` ausente → `obterJulgarPar()` `null`. O `fetch` do
+>   filho lança e é contado: zero chamadas.
+> - **`PERGUNTA_CONTRADICAO` (achado 9).** Passa a ser constante exportada de `contradicao.ts`, usada
+>   por `montarPergunta` e importada pelo `juizJev.ts`, no lugar da cópia literal da emenda
+>   2026-11-10. O texto não muda. O ramo `"não"` do `criarJulgarPar` fica: o `ClienteJev` genérico é
+>   a fronteira do G2 (#1413).
+> - Consequência no Plano de testes (achados 5 e 6): o falso de `scripts/jev-falso.mjs` passa a ler
+>   `BRAIN_CONTRADICAO_FALSO` e `BRAIN_CONTRADICAO_FALSO_REGISTRO` (os mesmos quatro modos), e não
+>   `BRAIN_JEV_FALSO`/`BRAIN_JEV_FALSO_REGISTRO`, que ficam só com o sentido do contrato do #42; todo
+>   filho que os casos do #46 sobem parte de `envSemJev(process.env)`.
+
 ## References
 - Card: [#46](https://github.com/leonardo-amaral-3/claude-brain/issues/46) — repo `leonardo-amaral-3/claude-brain`
 - Dependência: [#42](https://github.com/leonardo-amaral-3/claude-brain/issues/42) — dono do cliente do Jev e da flag
