@@ -388,6 +388,12 @@ module.exports = { MAX_ESTADO: 200000, decidir: async () => ({ sensivel: { estad
         rmSync(registroDe(pastaE));
         const controle = rodar(["--spec", specE, "--autor", AUTOR_NAO]);
         afirmar(controle.status === 0 && existsSync(marca), "controle: sem registro, o espião é carregado e a rodada sai com código 0");
+        // Achado 6 do G4: o registro guarda o placeholder, nunca o caminho absoluto; o stdout guarda o absoluto.
+        const saidaControle = umaLinhaJson(controle);
+        const textoDoRegistro = readFileSync(registroDe(pastaE), "utf8");
+        afirmar(saidaControle?.cliente === join(casa, "hooks", "jev.js"), "stdout: cliente é o caminho absoluto do jev.js carregado");
+        afirmar(JSON.parse(textoDoRegistro).rodadas[0].cliente === "<CLAUDE_HOME>/hooks/jev.js", "registro: cliente é <CLAUDE_HOME>/hooks/jev.js");
+        afirmar(!textoDoRegistro.includes(casa), "registro: nenhum caminho absoluto da máquina");
       } finally {
         rmSync(join(casa, "hooks"), { recursive: true, force: true });
         rmSync(join(casa, "gm-spec-jev.json"), { force: true });

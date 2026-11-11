@@ -42,6 +42,11 @@ export const ROTULOS = {
 };
 export const OPT_IN = "gm-spec-jev.json"; // em <CLAUDE_HOME>; conteúdo {"enviarSpecAoJev": true}
 export const REGISTRO = "sensibilidade.json"; // ao lado do spec.md
+// O `cliente` de cada rodada no registro: o literal com o placeholder, nunca o caminho absoluto. O
+// registro mora ao lado do spec.md, que neste repo público fica em planning/, e o caminho levaria o
+// usuário e o home da máquina junto (achado 6 do G4 da PR #53). A linha JSON do stdout mantém o
+// caminho absoluto, para o G4 conferir qual módulo foi carregado (cofre #1404).
+export const CLIENTE_NO_REGISTRO = "<CLAUDE_HOME>/hooks/jev.js";
 
 /** @typedef {{estado:"ok", resposta:"sim"|"nao", confianca:number} | {estado:"indisponivel", motivo:string}} RespostaJev */
 /** @typedef {{perguntar:(pergunta:string, trecho:string)=>Promise<unknown>, cabe?:(trecho:string)=>boolean, origem:string}} Jev */
@@ -409,7 +414,7 @@ async function executar(argv) {
     data: new Date().toISOString(),
     sha256,
     autor,
-    cliente,
+    cliente: cliente === null ? null : CLIENTE_NO_REGISTRO,
     // O que fica no registro é só o veredito da rodada e os motivos fixos do Jev, nunca texto da spec.
     categorias: Object.fromEntries(
       CATEGORIAS.map((c) => [c, { motivos: rodada.categorias[c].motivos, jev: rodada.categorias[c].jev }]),

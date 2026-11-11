@@ -215,6 +215,11 @@ export const REGISTRO = "sensibilidade.json";  // ao lado do spec.md
   > **Correção (2026-11-11), achado 5 do G4 da PR #53.** A conferência de cada entrada da `uniao`
   > entrou agora: antes, `uniao.dado = "autor"` (uma string) ou um motivo desconhecido era descartado
   > em silêncio na união, e a spec podia voltar a `Spec sensível: não` sem sair com código 2.
+- `cliente` de cada rodada: `null` ou o literal `<CLAUDE_HOME>/hooks/jev.js`, nunca o caminho
+  absoluto. A linha JSON do stdout mantém o caminho absoluto (cofre #1404, para o G4 conferir).
+  > **Correção (2026-11-11), achado 6 do G4 da PR #53.** O registro gravava o caminho absoluto do
+  > `jev.js` (com o usuário e o home da máquina) ao lado do `spec.md`, que neste repo público mora em
+  > `planning/`.
 - Escrito depois da decisão e **antes** de imprimir; falha ao escrever → código 2 com a mensagem do
   sistema. Nada de texto da spec vai para ele (só sha, autor, motivos e os motivos fixos do Jev).
 
