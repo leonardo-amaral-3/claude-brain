@@ -265,9 +265,13 @@ await caso("filtros-intactos", async () => {
 
 // ---------------------------------------------------------------- A7
 
+// A outra ponte ao MESMO `hooks/jev.js`: a do #46 (lembrar), que chegou com o merge da dev. Ela
+// tambem nao pode abrir HTTP proprio; o "um cliente so" e o arquivo, nao o numero de pontes.
+const PONTES = ["roteador.ts", "juizJev.ts"];
+
 await caso("sem-http-proprio", () => {
   const regex = /fetch\(|node:https?|undici|XMLHttpRequest/;
-  for (const f of ["roteador.ts", "tools.ts"]) {
+  for (const f of ["roteador.ts", "tools.ts", "juizJev.ts"]) {
     const t = readFileSync(join(root, "src", f), "utf8");
     assert.ok(!regex.test(t), `${f} casa ${regex}`);
   }
@@ -275,7 +279,7 @@ await caso("sem-http-proprio", () => {
   for (const trecho of ["createRequire", '"jev.js"', 'USO_ROTEADOR = "roteador"']) {
     assert.ok(r.includes(trecho), `roteador.ts sem ${trecho}`);
   }
-  for (const f of readdirSync(join(root, "src")).filter((n) => n.endsWith(".ts") && n !== "roteador.ts")) {
+  for (const f of readdirSync(join(root, "src")).filter((n) => n.endsWith(".ts") && !PONTES.includes(n))) {
     assert.ok(!readFileSync(join(root, "src", f), "utf8").includes("jev.js"), `${f} cita jev.js`);
   }
 });

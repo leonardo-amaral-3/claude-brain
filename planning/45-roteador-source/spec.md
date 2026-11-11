@@ -136,6 +136,11 @@ Definições usadas abaixo:
   - O roteador não abre nenhuma conexão HTTP própria: `src/roteador.ts` e `src/tools.ts` não contêm
     `fetch(`, `node:http`, `node:https`, `undici` nem `XMLHttpRequest`.
   - Nenhum outro arquivo de `src/` cita `jev.js`.
+  - *Nota 2026-11-11 (merge da `dev` com o #46, PR #61).* O `src/juizJev.ts` do #46 é a segunda
+    ponte ao **mesmo** `hooks/jev.js`, pela mesma ordem do C1, com o uso `lembrar`. O "um cliente só"
+    é o arquivo, e não o número de pontes: o item acima passa a ler "nenhum outro arquivo de `src/`
+    além de `roteador.ts` e `juizJev.ts` cita `jev.js`", e a regex do HTTP próprio vale também para
+    o `juizJev.ts`. Sem isso o `sem-http-proprio` ficava vermelho só pelo merge.
 - **A8. Medição nunca leva o Jev aos filhos.** `scripts/eval.mjs`, `scripts/smoke.mjs` e
   `scripts/concorrencia.mjs` trocam `process.env` por `envSemJev(process.env)` (C6) antes de subir
   qualquer processo filho que suba o servidor. Sem o cliente achável, eles não medem: o eval sai
