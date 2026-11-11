@@ -59,6 +59,35 @@ Medidas em 2026-11-11 na worktree (HEAD 69e71ce), com Node v22.23.4 e o índice 
 > (2) A premissa medida dos 10 candidatos fica datada: no indice de 11/11, em re-medicao feita na
 > implementacao, os aprovados da regra nova sao as posicoes **6, 7 e 8** (k = 3), e nao 6 e 7. A regra nao muda.
 
+> **Emenda 2026-11-11 (G4 da PR #56, `/gm-correcao`, decisoes do braco direito no cofre #1629, escopo `claude-brain#51`):**
+> Onde o resto desta spec disser outra coisa, vale esta nota.
+> (1) **Colisao num sentido so** (achado 3). Substitui "substring nos dois sentidos" no CA2, no
+> comentario e no codigo de `aprovadosDoT16` e na decisao "Colisao nos dois sentidos com os cinco
+> primeiros". O `regraCasa` casa o id que CONTEM o `trechoId` da regra, entao so fica de fora o
+> candidato de 6 em diante cujo caminho esta contido no de um dos cinco primeiros (igual incluso).
+> Com um sentido so, a segunda exclusao ("contido no de quem ficou de fora") deixa de ter efeito: quem
+> contem um excluido e um dos cinco. A funcao vira
+> `enviados.slice(5).filter((c) => !cinco.some((b) => b.caminho.includes(c.caminho)))`, e o conjunto
+> continua fechado (um excluido nao contem nenhum aprovado, senao o dos cinco que o contem tambem
+> conteria). No caso sintetico, o 8 (`/r/b.md/g.md`, contem o 2) e o 9 (`g.md`, contido no 8) passam a
+> ser aprovados; o 6 (repete o 5) e o 10 (contido no 3) seguem fora. Esperado: **7, 8, 9 e 11**, nos
+> itens 2 e 5. No indice de 11/11 os aprovados seguem 6, 7 e 8.
+> (2) **Esperados limitados a 5** (achado 1): `esperados = aprovados.slice(0, 5).map(...)`, como o
+> cabecalho e o `jev.passaram.slice(0, LIMITE_FINAL)` do hook.
+> (3) **Todo veredito `ok`** (achado 4): o caso sintetico ganha um 5o `confere`,
+> `vs.length === lista.length && vs.every((v) => v.estado === "ok")`, antes da checagem dos aprovados.
+> (4) **T16 sonda de novo e repete uma vez** (achado 6). Sai do "Fora do escopo": o T16 sonda logo antes
+> da propria rodada e repete sonda + rodada uma vez se divergir, no molde do T13. As duas checagens
+> (caminhos e cabecalho) viram um `confere` so, com o detalhe da ultima tentativa. A sondagem antes do
+> T12 fica como pre-condicao (n >= 6).
+> (5) **Ordem so com 2+ caminhos** (achado 2, refutado em parte). Com k = 1, ou com aprovados que
+> dividem um caminho, o T16 continua valendo e prova "so esses"; "na ordem do ranking" so se aplica com
+> 2 ou mais caminhos distintos, e a mensagem do T16 diz isso. **Sem** `NAO MEDI` para menos de 2.
+> (6) Limpeza (achados 7 e 8): o caso sintetico grava o roteiro na `pastaTemporaria`, criada antes
+> dele (sem `pastaSintetica` nem segundo handler de `exit`), e a fabrica `c` fica `{ posicao, caminho }`.
+> (7) Achado 5 (o falso casar por substring e o id do trecho nao ser unico) virou o card #57: muda o
+> formato do roteiro, que e contrato estavel do #42.
+
 ## Technical Overview
 
 O falso casa a regra pelo caminho, e o caminho é o id de todos os trechos de um arquivo. Por isso
