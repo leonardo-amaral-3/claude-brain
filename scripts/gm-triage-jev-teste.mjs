@@ -98,6 +98,17 @@ const casam = [
   ["CPF 123.456.789-09", "número longo"],
   ["CNS 898001234567890", "número longo"],
   ["AIH 3524100012345", "número longo"],
+  // achado 2 do G4 (medidos na PR #50), e as outras grafias dos mesmos números; todos inventados
+  ["CNPJ 12.345.678/0001-90", "número longo"],
+  ["CNPJ 12345678/0001-90", "número longo"],
+  ["tel (11) 98765-4321", "telefone"],
+  ["tel (11)98765-4321", "telefone"],
+  ["+55 11 98765-4321", "telefone"],
+  ["tel 11 98765 4321", "número longo"],
+  ["tel (11) 3456-7890", "telefone"],
+  ["tel 11 3456-7890", "telefone"],
+  ["CNS 123 4567 8901 2345", "número longo"],
+  ["CPF 123 456 789 09", "número longo"],
   ["erro at f (a.js:1:2) no meio", "stack trace"],
   ["at com.foo.Bar.run(Bar.java:42)", "stack trace"],
 ];
@@ -112,6 +123,11 @@ const naoCasam = [
   "cita hooks/brain-contexto.js",
   "às 10:30:15 caiu",
   "timeout na exportação de 2026-11-10",
+  // datas e números curtos continuam passando com a guarda alargada
+  "de 10/11/2026 a 12/11/2026",
+  "caiu em 2026-11-10 10:30:15",
+  "versões 1.2.3 e 4.5.6",
+  "S1 S2 S3, 70% e 10 s",
 ];
 for (const texto of naoCasam) afirmar(sensivel(texto) === null, `não casa: ${texto.slice(0, 50)}`);
 afirmar([...naoCasam[0]].length === 800, "o resumo de 800 pontos de código com emoji tem 800");

@@ -100,7 +100,13 @@ const PADROES_SENSIVEIS = [
   ["e-mail", /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b/],
   ["URL", /\bhttps?:\/\/|\bwww\./i],
   ["caminho absoluto", /(^|[\s("'])(~\/|\/(?:home|Users|tmp|var|etc|opt|mnt|srv|root)\/)|\b[A-Za-z]:[\\/]/],
-  ["número longo", /(?:\d[.\-()]{0,2}){11,}/],
+  // DDD e número com hífen: pega o fixo de 10 dígitos, que o "número longo" não alcança.
+  ["telefone", /(?:\(\d{2}\)|\b\d{2})\s?\d{4,5}-\d{4}\b/],
+  // Onze dígitos ou mais. Entre eles valem . - ( ) (até dois), a / depois de um grupo de 3+ dígitos
+  // (CNPJ, e não MM/AAAA) e o espaço, com ")" antes ou "(" depois, entre grupos de até 5 dígitos
+  // (CNS, telefone, CPF espaçado, e não a competência de 6). Na dúvida, recusa: um resumo recusado
+  // só deixa de mostrar a sugestão.
+  ["número longo", /(?:\d(?:[.\-()]{1,2}|(?<=\d{3})\/|(?<!\d{6})\)? (?=\(?\d{1,5}(?!\d))\(?)?){11,}/],
   ["stack trace", /\bat \S+ ?\(?[^()\s]+:\d+(?::\d+)?\)?|Traceback \(most recent call last\)/],
 ];
 
