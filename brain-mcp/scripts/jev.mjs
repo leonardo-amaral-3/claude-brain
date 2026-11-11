@@ -582,7 +582,8 @@ if (enviados.length < 6) naoMedi(`troque o prompt de prova: so ${enviados.length
   const roteiro = join(pastaTemporaria, "roteiro-t16.json");
   writeFileSync(roteiro, JSON.stringify(roteiroDoT16(aprovados)));
   const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
-  const esperados = aprovados.map((a) => a.caminho);
+  // O hook mostra so os LIMITE_FINAL primeiros que passaram (hooks/brain-contexto.js:484), como o cabecalho.
+  const esperados = aprovados.slice(0, 5).map((a) => a.caminho);
   const posicoes = aprovados.map((a) => a.posicao).join(",");
   confere(igual(caminhosDoBloco(r.stdout), esperados), `T16 so os candidatos ${posicoes} de ${n}, na ordem do ranking`);
   confere(
