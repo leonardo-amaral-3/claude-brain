@@ -616,7 +616,7 @@ for (const proibido of ["child_process", "node:http", "node:https", "node:net", 
   afirmar(!fonte.includes(proibido), `jev-triagem.mjs não contém ${proibido}`);
 }
 // invisível cru numa regex some no primeiro editor que o limpe; na fonte, só o escape
-afirmar(!/[﻿️]/.test(fonte), "jev-triagem.mjs sem U+FEFF nem U+FE0F crus (só os escapes)");
+afirmar(!/[\uFEFF\uFE0F]/.test(fonte), "jev-triagem.mjs sem U+FEFF nem U+FE0F crus (só os escapes)");
 
 console.log(falhas === 0 ? "\ntudo certo" : `\n${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);
