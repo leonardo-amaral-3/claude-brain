@@ -80,7 +80,10 @@ if (search.result?.isError || !searchText || searchText.startsWith("Nenhum resul
 const catalogo = await request("tools/call", { name: "list_features", arguments: {} });
 const catalogoText = catalogo.result?.content?.[0]?.text ?? "";
 if (catalogo.error || catalogo.result?.isError) {
-  const motivo = catalogo.error ? JSON.stringify(catalogo.error) : catalogoText;
+  // isError com texto vazio ou ausente: o resultado inteiro é o único sinal da causa.
+  const motivo = catalogo.error
+    ? JSON.stringify(catalogo.error)
+    : catalogoText || JSON.stringify(catalogo.result);
   fail("feature_timeline: o list_features que daria o slug falhou: " + motivo.slice(0, 300));
 }
 const slug = catalogoText
