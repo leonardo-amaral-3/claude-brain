@@ -225,9 +225,9 @@ the suggestion; a divergence stays visible in the table for whoever confirms.
 3. Run `node "<dir>/jev-triagem.mjs" --claude-md "<the CLAUDE.md whose ## Board you will write the
    card on>" --entrada "<that file>"` (Bash `timeout` 30000). The script deletes the file after
    reading it — only a file named like that, directly in its temp dir; any other `--entrada` stays
-   where it is, and stderr says so. Exit 0 → its stdout goes into Step 5 verbatim (it may be one line saying the
-   suggestion is missing, and why). Any other exit, or the call denied → Step 5 carries one line:
-   `Sem a sugestão do Jev: o script auxiliar falhou.`
+   where it is, and stderr says so. Exit 0 → its stdout goes into Step 5 verbatim (it may be one
+   line saying the suggestion is missing, and why). Any other exit, or the call denied → Step 5
+   carries one line: `Sem a sugestão do Jev: o script auxiliar falhou.`
 
 Several cards from one report (Step 1b) → run this step once per card. An *Ajustar* in Step 5 that
 changes a field value or the title runs it again; one that only rewrites the body does not.

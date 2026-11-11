@@ -19,6 +19,31 @@
 > `## Migrations & compatibilidade`, `## Rollback`, `## Verificação pós-deploy` e duas decisões
 > técnicas. O resto do desenho (#1428) fica como estava.
 
+> **Emenda do G4 — 2026-11-11.** O parecer do `/code-review high` na PR #50 (cofre #1566) achou
+> falso negativo na guarda `sensivel` e um `unlink` sem trava. A guarda é o que impede dado de cliente
+> ou de paciente de sair para a TypeSafe AI, e o braço direito autorizou a emenda no despacho do
+> `/gm-correcao 50` (Leonardo entregou o card: cofre #1371; a emenda: cofre #1591). Muda só isto; o resto do desenho fica
+> como estava:
+> - **`sensivel`** (achados 2 e 4). O `"número longo"` une dígitos também pela `/` depois de um grupo
+>   de 3+ dígitos (CNPJ) e pelo espaço entre grupos de até 5 (CNS, telefone, CPF espaçado). Padrão novo
+>   `"telefone"`, para o fixo de 10 dígitos. O `"caminho absoluto"` vale em qualquer raiz com três
+>   segmentos ou mais, ou terminando em arquivo com extensão. Padrão novo `"caminho relativo"`: `./`,
+>   `../`, ou três segmentos com uma sequência de três letras. Os textos que esta spec já provava
+>   passarem continuam passando; na dúvida, a guarda recusa, porque o custo é só a sugestão que não
+>   aparece.
+> - **`principal`** (achado 1). Só apaga a `--entrada` chamada `gm-triage-jev-<8 hex>.json` e posta
+>   direto em `os.tmpdir()`; qualquer outra fica onde está, com aviso no stderr. O Step 4b diz o hex
+>   minúsculo e a pasta.
+> - **`lerBoard`** (achado 5): o pedaço não precisa terminar no id; um comentário depois dele não tira
+>   a opção.
+> - **`renderizar`** (achados 6 e 7): o cabeçalho sai de `LIMIAR_PCT` e diz o caso sem proposta; toda
+>   célula troca `|` por `\|` e quebra de linha por espaço.
+> - **R3** (achado 9): `## Board` presente sem linha de campo legível tem mensagem própria.
+> - **`## Verificação pós-deploy`**, item 4: confere que a entrada some da pasta temporária.
+>
+> As seções abaixo já estão no texto emendado; os commits e a resposta a cada achado estão no
+> comentário `gm:correcao` da PR #50.
+
 ## References
 - Card: [#41](https://github.com/leonardo-amaral-3/claude-brain/issues/41) — repo `leonardo-amaral-3/claude-brain`
 - Dependência: [#42](https://github.com/leonardo-amaral-3/claude-brain/issues/42), dono do cliente do Jev e da lista de usos `BRAIN_JEV`.
@@ -253,7 +278,8 @@ A descrição de um rótulo é `DESCRICOES[campo]?.[semPrefixo(rótulo)] ?? rót
 **`lerBoard(texto): Map<string, string[]>`** — sobre `normalizar(texto)`, recorta do texto o trecho
 entre a linha exatamente `## Board` e a próxima linha que começa com `## `. Para cada nome de
 `CAMPOS`, procura a linha que casa `^- \*\*<nome>\*\* field \`[^\`]+\`:\s*(.+)$`, quebra o resto em
-` · ` e, de cada pedaço que casa `^(.+?)=\`[^\`]+\`$`, guarda o rótulo (`trim`). Fica fora do mapa o
+` · ` e, de cada pedaço que casa `^(.+?)=\`[^\`]+\`` (o que vier depois do id é ignorado: emenda do G4),
+guarda o rótulo (`trim`). Fica fora do mapa o
 campo sem linha, ou com linha sem nenhum rótulo. O rótulo é guardado como está no `## Board`, com o
 emoji (`🐞 Bug`), e é ele que vai ao Jev como nome da opção.
 
@@ -261,13 +287,21 @@ emoji (`🐞 Bug`), e é ele que vai ao Jev como nome da opção.
 guarda é grosseira de propósito: ela não substitui a regra do Step 4b, só segura o deslize óbvio.
 - `"e-mail"`: `/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b/`. Não casa `better-sqlite3@11.5.0`.
 - `"URL"`: `/\bhttps?:\/\/|\bwww\./i`
-- `"caminho absoluto"`: `/(^|[\s("'])(~\/|\/(?:home|Users|tmp|var|etc|opt|mnt|srv|root)\/)|\b[A-Za-z]:[\\\/]/`.
-  Rota de API (`/api/aih`) e nome de skill (`/gm-triage`) **não** contam como caminho: são vocabulário
-  do sistema, não da máquina de alguém.
-- `"número longo"`: `/(?:\d[.\-()]{0,2}){11,}/`, onze dígitos ou mais, juntos ou separados por
-  `.`, `-`, `(`, `)`, como CPF, CNPJ, CNS e AIH. Espaço e `/` não unem dígitos, para não pegar
-  competências (`202610 202611`) e períodos (`10/2026-11/2026`). Por isso não pega telefone com
-  espaço, e isso fica declarado.
+- `"caminho absoluto"` (emenda do G4): `~/`, as raízes `home|Users|tmp|var|etc|opt|mnt|srv|root`,
+  o drive do Windows (`\b[A-Za-z]:[\\\/]`) e, em qualquer raiz, três segmentos ou mais
+  (`/<a>/<b>/…`) ou um arquivo com extensão (`/dados/aih.csv`). Rota de API (`/api/aih`) e nome de
+  skill (`/gm-triage/jev`) **não** contam como caminho: são vocabulário do sistema, não da máquina de
+  alguém.
+- `"caminho relativo"` (emenda do G4): `./` e `../`, e três segmentos ou mais com uma sequência de três
+  letras em algum deles (`logs/<pasta>/erro.txt`). Um arquivo do repo com uma barra só
+  (`hooks/brain-contexto.js`) e o período `10/2026-11/2026` passam.
+- `"telefone"` (emenda do G4): `(?:\(\d{2}\)|\b\d{2})\s?\d{4,5}-\d{4}\b`, DDD e número com hífen,
+  para o fixo de 10 dígitos que o número longo não alcança.
+- `"número longo"`: onze dígitos ou mais, como CPF, CNPJ, CNS e AIH. Entre eles valem `.`, `-`, `(`,
+  `)` (até dois) e, desde a emenda do G4, a `/` depois de um grupo de 3+ dígitos
+  (`12.345.678/0001-90`, e não `MM/AAAA`) e o espaço, com `)` antes ou `(` depois, entre grupos de até
+  5 dígitos (`123 4567 8901 2345`, `(11) 98765-4321`). Competências (`202610 202611`, grupos de 6) e
+  períodos (`10/2026-11/2026`) continuam passando.
 - `"stack trace"`: `/\bat \S+ ?\(?[^()\s]+:\d+(?::\d+)?\)?|Traceback \(most recent call last\)/`
 
 **`sugerir({ opcoes, entrada, cliente, prazoMs = PRAZO_MS, folgaMs = FOLGA_MS })`**. `entrada` é
@@ -344,7 +378,7 @@ Passos, em ordem:
   proposta, e `<escolha> (<pEscolha>%)` quando é outra:
 
 ```markdown
-**Sugestão do Jev** — só leitura, nada disto é gravado. `⚠ revisar` = o Jev dá menos de 70% ao valor proposto.
+**Sugestão do Jev** — só leitura, nada disto é gravado. `⚠ revisar` = o Jev dá menos de 70% ao valor proposto, ou à escolha dele quando não há proposta.
 
 | Campo | Proposta da sessão | Jev nela | Escolha do Jev | |
 |---|---|---|---|---|
@@ -361,6 +395,8 @@ Passos, em ordem:
   - não declarado: `| <campo> | — | — | — | não declarado no \`## Board\` |`;
   - proposta fora: `| <campo> | <proposta> | — | <escolha> (<p>%) | ⚠ revisar (proposta fora do \`## Board\`) |`.
 - Proposta `null` aparece como `—`.
+- O `70` do cabeçalho é o `LIMIAR_PCT`, e toda célula troca `|` por `\|` e quebra de linha por
+  espaço: a proposta é texto livre (emenda do G4).
 
 **`principal(argv, { carregar = carregarCliente, stdout = process.stdout, stderr = process.stderr })`
 → `Promise<number>`** (código de saída). **O `argv` é validado antes de qualquer outra coisa:** são
@@ -374,13 +410,20 @@ Usos:
     `jev-triagem: cliente indisponível: <motivo>`;
   - código 0.
 - `--claude-md <arquivo> --entrada <arquivo>`:
+  0. **Só a entrada do Step 4b é apagada** (emenda do G4): o nome casa
+     `^gm-triage-jev-[0-9a-f]{8}\.json$` e a pasta, pelo `realpath`, é a de `os.tmpdir()`. Qualquer
+     outra `--entrada` (argumentos trocados, caminho errado) fica onde está, e o stderr recebe
+     `jev-triagem: não apaguei <nome>: só apago gm-triage-jev-<8 hex>.json da pasta temporária`.
+     "Apagar", nos passos abaixo, é sempre sob esta regra.
   1. Sem cliente ligado → nada no stdout, o mesmo diagnóstico no stderr, código 0. A `--entrada` é
      apagada se existir (`unlinkSync` em `try`, erro ignorado), **sem ser lida**. O `--claude-md` não
      é tocado.
   2. Ligado: lê a `--entrada` **primeiro** e a apaga num `finally`, leia ou não. Só então lê o
      `--claude-md`. Arquivo ilegível ou JSON inválido → `falhou` com motivo
      `"não consegui ler <nome do arquivo>"`.
-  3. `lerBoard` vazio → `falhou` com motivo `"não achei o ## Board em <nome do arquivo>"`.
+  3. `lerBoard` vazio → `falhou` com motivo `"não achei o ## Board em <nome do arquivo>"`, ou, com a
+     linha `## Board` presente, `"achei o ## Board em <nome do arquivo>, mas nenhuma linha de campo"`
+     (emenda do G4).
   4. Em seguida, `sugerir` e `renderizar`. O texto vai no stdout com `\n` final, quando não vazio.
   5. Quando o resultado traz `ms`, o stderr recebe `jev-triagem: <ms> ms`. Falha anterior a `sugerir`
      não imprime essa linha. Código 0.
@@ -426,7 +469,8 @@ the suggestion; a divergence stays visible in the table for whoever confirms.
 1. Run `node "<dir>/jev-triagem.mjs" --estado` (Bash `timeout` 30000). Empty stdout, a non-zero
    exit, or the call denied → the Jev is off: **say nothing about it**, skip to Step 5, which stays
    exactly as before. Stdout `ligado` → go on.
-2. With `Write`, create `gm-triage-jev-<8 random hex>.json` in the system temp dir:
+2. With `Write`, create `gm-triage-jev-<8 random lowercase hex>.json` directly in the system temp dir
+   (`$TMPDIR`, else `/tmp`):
    `{"resumo": "...", "proposta": {"Tipo": "...", "Severidade": "...", "Classe": "...", "Rota": null, "Módulo": "..."}}`.
    - `proposta`: your Step 3 values, written exactly as the option labels of the `## Board`
      (`"✨ Melhoria"`). `Rota` is `null` unless S1, then `"Hotfix"`.
@@ -439,9 +483,10 @@ the suggestion; a divergence stays visible in the table for whoever confirms.
      (Step 1b).
 3. Run `node "<dir>/jev-triagem.mjs" --claude-md "<the CLAUDE.md whose ## Board you will write the
    card on>" --entrada "<that file>"` (Bash `timeout` 30000). The script deletes the file after
-   reading it. Exit 0 → its stdout goes into Step 5 verbatim (it may be one line saying the
-   suggestion is missing, and why). Any other exit, or the call denied → Step 5 carries one line:
-   `Sem a sugestão do Jev: o script auxiliar falhou.`
+   reading it — only a file named like that, directly in its temp dir; any other `--entrada` stays
+   where it is, and stderr says so. Exit 0 → its stdout goes into Step 5 verbatim (it may be one
+   line saying the suggestion is missing, and why). Any other exit, or the call denied → Step 5
+   carries one line: `Sem a sugestão do Jev: o script auxiliar falhou.`
 
 Several cards from one report (Step 1b) → run this step once per card. An *Ajustar* in Step 5 that
 changes a field value or the title runs it again; one that only rewrites the body does not.
@@ -541,7 +586,9 @@ Na 🧪 Validação em Dev, depois do `./sync.sh push` feito por Leonardo. Abaix
    inventado. Esperado: logo depois dos quatro valores da sessão, a tabela do Jev, com a escolha do
    falso em cada campo (a primeira opção do `## Board`, a 95%), e nenhum campo gravado antes do ponto de
    decisão. Escolher **Rejeitar**. Isso prova que a ferramenta Bash herda a env do `claude` e que o
-   Step 4b roda como escrito.
+   Step 4b roda como escrito. Depois, `ls "${TMPDIR:-/tmp}"/gm-triage-jev-*.json` não acha nada: a
+   entrada foi apagada (emenda do G4). Se achar, o stderr do script disse `não apaguei`, e a sessão
+   escreveu o arquivo fora da pasta que o `os.tmpdir()` do script vê: reprova.
 5. **Permissão (opcional, de Leonardo, fora do repo).** Sem uma regra `allow` para
    `Bash(node ~/.claude/skills/gm-triage/jev-triagem.mjs:*)`, a sessão interativa pode pedir permissão
    para o `--estado`, conforme o modo de permissão. Se isso incomodar, Leonardo acrescenta a regra.
@@ -588,6 +635,10 @@ Na 🧪 Validação em Dev, depois do `./sync.sh push` feito por Leonardo. Abaix
 | R3 | `lerBoard` do `CLAUDE.md` do repo → Módulo `["brain-mcp","hooks","skills","docs"]`, Rota `["Completa","Curta","Hotfix"]`, Tipo com os quatro rótulos com emoji, Status fora do mapa |
 | R3 | `lerBoard` da mesma fixture com CRLF, com BOM e com "Módulo" em NFD → mesmo mapa |
 | R3 | `--claude-md` apontando para um arquivo sem `## Board` → `Sem a sugestão do Jev: não achei o ## Board em <nome>` |
+| R3 | (emenda do G4) `## Board` presente sem linha de campo → `Sem a sugestão do Jev: achei o ## Board em <nome>, mas nenhuma linha de campo`; texto depois do último id (`docs=\`f9cf9726\` (novo)`, ou um ponto final) não tira a opção |
+| R1 | (emenda do G4) as entradas do teste são `gm-triage-jev-<8 hex>.json` em `os.tmpdir()`; argumentos trocados (o `CLAUDE.md` na `--entrada`), o nome certo fora da pasta temporária, e nome fora do padrão (`.txt`, hex maiúsculo) dentro dela → o arquivo fica, ligado ou desligado, e o stderr traz `não apaguei <nome>` |
+| R2 | (emenda do G4) casam também: `CNPJ 12.345.678/0001-90`, `CNPJ 12345678/0001-90`, `CNS 123 4567 8901 2345`, `CPF 123 456 789 09`, `tel 11 98765 4321` (número longo); `tel (11) 98765-4321`, `+55 11 98765-4321`, `tel (11) 3456-7890` (telefone); `/data/clientes/hospital-x/aih.csv`, `/dados/aih.csv`, `/srv2/x/y` (caminho absoluto); `./logs/x.txt`, `../dados/x`, `logs/hospital-x/erro.txt` (caminho relativo). Seguem passando todos os "não casam" de cima, mais `de 10/11/2026 a 12/11/2026`, `2026-11-10 10:30:15`, `versões 1.2.3 e 4.5.6`, `S1 S2 S3, 70% e 10 s`, `a rota /api/aih.` e `e/ou, entrada/saída, S1/S2/S3` |
+| R2 | (emenda do G4) proposta `Bug \| urgente` com quebra de linha → a célula sai com `\|` e espaço, a tabela com o mesmo número de linhas; o cabeçalho não tem limiar escrito à mão, sai de `LIMIAR_PCT`; a fonte do script não tem U+FEFF nem U+FE0F crus |
 | R3 | no caso principal do R2, as chaves de `perguntas[campo].opcoes` são as do `lerBoard`, campo a campo |
 | R2/R3 | `SKILL.md` contém `## Step 4b — Sugestão do Jev`, `jev-triagem.mjs" --estado` e `--entrada` |
 | R4 | `node scripts/skills-comum.mjs --check` → código 0 |
