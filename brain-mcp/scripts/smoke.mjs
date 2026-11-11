@@ -86,14 +86,25 @@ if (catalogo.error || catalogo.result?.isError) {
     : catalogoText || JSON.stringify(catalogo.result);
   fail("feature_timeline: o list_features que daria o slug falhou: " + motivo.slice(0, 300));
 }
+// Índice vazio se reconhece pelo sentinela do list_features (src/tools.ts), e não pela falta de
+// slug: um texto que não parseia é outra falha, de formato, e diz o que chegou.
+if (catalogoText.startsWith("Nenhuma feature encontrada")) {
+  fail(
+    "feature_timeline: o índice não tem nenhuma feature (o list_features não listou nenhuma), " +
+      "então não há slug para provar a tool"
+  );
+}
 const slug = catalogoText
   .split("\n")
   .map((l) => l.match(/^- (\S+) \[/)?.[1])
   .find(Boolean);
 if (!slug) {
+  const recebido = catalogoText
+    ? JSON.stringify(catalogoText.slice(0, 300))
+    : "texto vazio; resultado " + JSON.stringify(catalogo.result ?? null).slice(0, 300);
   fail(
-    "feature_timeline: o índice não tem nenhuma feature (o list_features não listou nenhuma), " +
-      "então não há slug para provar a tool"
+    "feature_timeline: o list_features respondeu num formato inesperado (nenhuma linha " +
+      "'- <slug> [' e não é o 'Nenhuma feature encontrada'): " + recebido
   );
 }
 

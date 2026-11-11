@@ -37,6 +37,29 @@
   arquivo alterado é `brain-mcp/scripts/smoke.mjs`. Nele, só as linhas 76–82 da base (o bloco do
   `feature_timeline`) são substituídas, e as linhas 1–75 e 83–126 da base ficam idênticas.
 
+> **Emenda 2026-11-11 (G4 da PR #58, achados 3 e 6; o texto acima fica como estava).** O G4 achou
+> que, quando o regex `/^- (\S+) \[/` não casava, o bloco sempre dizia "índice sem feature", mesmo
+> quando a causa era formato mudado ou resposta malformada. A partir desta emenda:
+>
+> - **CA2b** passa a reconhecer o índice vazio pelo **sentinela** do `list_features`: o texto começa
+>   com `Nenhuma feature encontrada` (`src/tools.ts:257`). A mensagem e o exit continuam os mesmos, e
+>   `poucas features` continua sem aparecer.
+> - **CA2d (novo).** Dado um `list_features` sem erro cujo texto não tem nenhuma linha que case o
+>   regex e não começa com o sentinela (inclusive texto vazio ou ausente), quando o smoke roda, então
+>   sai `1` com uma linha que começa por
+>   `FALHOU: feature_timeline: o list_features respondeu num formato inesperado` e mostra o começo do
+>   texto recebido (texto vazio → o resultado inteiro). Nunca sai com a mensagem do CA2b.
+> - **CA2c**, achado 6: com `isError` e texto vazio ou ausente, o motivo cai para
+>   `JSON.stringify(catalogo.result)`, e a linha não termina mais em `falhou: ` sem causa.
+> - O bloco de `## Implementation Details` ganha esses dois ramos, só dentro dele. As duas strings
+>   únicas das sabotagens (`.find(Boolean);` e a da chamada `catalogo`) não mudam. O CA3 vale com o
+>   bloco maior: cabeça 1–75 e cauda (as 44 linhas finais) idênticas à base.
+> - O Plano de testes ganha a prova do CA2d, rodada junto com os passos 0 a 6: (a) o regex sabotado
+>   numa cópia ao lado (`\[/` → `\[SABOTADO55/`), com o catálogo real, que não é o sentinela;
+>   (b) `catalogoText` forçado a `""`. Os dois saem `1` com a linha do CA2d e sem a do CA2b. E a do
+>   achado 6: o nome da tool sabotado (passo 4) mais o texto forçado a `""` sai `1` com o
+>   `JSON.stringify` do resultado depois de `falhou: `.
+
 ## Premissas medidas
 
 Todas foram medidas em 2026-11-11 nesta sessão, com Node 22.23.4 e o `dist/` da worktree em
