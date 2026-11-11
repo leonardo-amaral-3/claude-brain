@@ -4,7 +4,7 @@
 // Sai 0 se todos os cenários passam, 1 se algum falha.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -419,13 +419,43 @@ module.exports = { MAX_ESTADO: 200000, decidir: async () => ({ sensivel: { estad
         ["--spec sem valor", ["--autor", AUTOR_NAO, "--spec"]],
         ["sem --autor", ["--spec", caminhoSpec]],
         ["sem --spec", ["--autor", AUTOR_NAO]],
-        ["--spec inexistente", ["--spec", join(casa, "nao-existe", "spec.md"), "--autor", AUTOR_NAO]],
-        ["--spec vazio", ["--spec", join(vazio, "spec.md"), "--autor", AUTOR_NAO]],
         ["--spec que não se chama spec.md", ["--spec", outroNome, "--autor", AUTOR_NAO]],
       ];
+      // A Fase 4 (passo 3, emenda de 2026-11-11) dá uma nova rodada só ao código 2 cuja mensagem é de
+      // argumento, e reconhece essa mensagem por nomear --spec ou --autor. Os dois lados são provados.
+      const deArgumento = /--spec|--autor/;
       for (const [rotulo, argumentos] of casos) {
         const r = rodar(argumentos);
         afirmar(r.status === 2 && r.stdout === "" && r.stderr !== "", `uso: ${rotulo} → código 2, stdout vazio, mensagem no stderr`);
+        afirmar(deArgumento.test(r.stderr), `uso: ${rotulo} → a mensagem nomeia --spec ou --autor (é de argumento)`);
+      }
+      const doAmbiente = [
+        ["--spec inexistente", ["--spec", join(casa, "nao-existe", "spec.md"), "--autor", AUTOR_NAO]],
+        ["--spec vazio", ["--spec", join(vazio, "spec.md"), "--autor", AUTOR_NAO]],
+      ];
+      for (const [rotulo, argumentos] of doAmbiente) {
+        const r = rodar(argumentos);
+        afirmar(r.status === 2 && r.stdout === "" && r.stderr !== "", `ambiente: ${rotulo} → código 2, stdout vazio, mensagem no stderr`);
+        afirmar(!deArgumento.test(r.stderr), `ambiente: ${rotulo} → a mensagem não nomeia --spec nem --autor (não dá nova rodada)`);
+      }
+      {
+        // Registro ilegível e registro impossível de gravar: também não são de argumento.
+        const pastaF = join(casa, "f");
+        mkdirSync(pastaF);
+        writeFileSync(join(pastaF, "spec.md"), specFixture);
+        writeFileSync(registroDe(pastaF), "{quebrado");
+        const ilegivel = rodar(["--spec", join(pastaF, "spec.md"), "--autor", AUTOR_NAO]);
+        afirmar(ilegivel.status === 2 && !deArgumento.test(ilegivel.stderr), "ambiente: registro ilegível → código 2, mensagem que não é de argumento");
+        const pastaG = join(casa, "g");
+        mkdirSync(pastaG);
+        writeFileSync(join(pastaG, "spec.md"), specFixture);
+        chmodSync(pastaG, 0o555);
+        try {
+          const semGravar = rodar(["--spec", join(pastaG, "spec.md"), "--autor", AUTOR_NAO]);
+          afirmar(semGravar.status === 2 && semGravar.stdout === "" && semGravar.stderr.includes("não consegui gravar") && !deArgumento.test(semGravar.stderr), "ambiente: pasta só leitura → código 2, não consegui gravar, mensagem que não é de argumento");
+        } finally {
+          chmodSync(pastaG, 0o755);
+        }
       }
       afirmar(!existsSync(registroDe(vazio)), "spec vazio não cria registro");
     }

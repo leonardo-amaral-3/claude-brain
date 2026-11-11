@@ -210,19 +210,23 @@ that asks the Jev as well and only ever adds to what the author said:
 2. Run, **exactly in this mold, with no environment-variable prefix, no `cd`, and a 60 s timeout on
    the Bash call**: `node "<Base directory for this skill>/sensivel.mjs" --spec <path>
    --autor dado=<sim|nao>,faturamento=<sim|nao>,deploy=<sim|nao>,migration=<sim|nao>`.
-3. Exit code 2 → fix the arguments and run again (if the message is the one about an unreadable
-   `sensibilidade.json`: stop and show it to the human; in dispatched mode, `PARADA`). `node`
-   missing, timeout, any other exit code, or stdout that is not one JSON line → sensitive, with the
-   fixed line `Spec sensível: sim — Jev indisponível (as quatro)`, saying what failed.
+3. Exit code 2 earns **at most one** new run, and only when the message is about the arguments (it
+   names `--spec` or `--autor`): fix them and run again. A second exit code 2, or one whose message
+   is not about the arguments (unreadable or unwritable `sensibilidade.json`, unreadable or empty
+   `spec.md`) → the spec counts as **sensitive**, with the fixed line
+   `Spec sensível: sim — Jev indisponível (as quatro)` and the script's message; the independent
+   reviewer runs, the message is shown to the human, and in dispatched mode the session closes with
+   `PARADA` naming it. `node` missing, timeout, any other exit code, or stdout that is not one JSON
+   line → sensitive, with the same fixed line, saying what failed.
 4. Copy `linha` **verbatim** into the reply, followed by `(sha <first 12 of sha256>, cliente
    <cliente or "nenhum">)`. In dispatched mode this line goes in the final answer.
 5. The rule, for whoever reads the skill: sensitive when any one holds — the author said yes, the Jev
    said yes, the Jev said no with confidence below the script's threshold, or the Jev did not answer.
    The Jev only adds the requirement, never lifts it. Without a key or without the send opt-in, every
    spec is sensitive — fail-closed, an accepted consequence.
-6. **Run again only** on exit code 2 or when `spec.md` changed. The verdict is the union the script
-   returns: a sensitive spec never goes back to not sensitive. Never delete or edit
-   `sensibilidade.json`.
+6. **Run again only** on the one argument retry of step 3 or when `spec.md` changed. The verdict is
+   the union the script returns: a sensitive spec never goes back to not sensitive. Never delete or
+   edit `sensibilidade.json`.
 
 **Sensitive (`sensivel: true`) → the second-reviewer call.** Whether a second human reads the spec
 changes what clearing this gate means — so it is its own call, before the spec goes up: one

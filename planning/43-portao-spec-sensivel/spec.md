@@ -302,19 +302,32 @@ como o resto do arquivo; o que o humano lê, em pt-BR. Conteúdo obrigatório, n
    b. Roda, **exatamente neste molde, sem prefixo de variável de ambiente, sem `cd` e com timeout de
       60 s no Bash**: `node "<Base directory for this skill>/sensivel.mjs" --spec <caminho> --autor
       dado=<sim|nao>,faturamento=<sim|nao>,deploy=<sim|nao>,migration=<sim|nao>`.
-   c. Código 2 → corrigir os argumentos e rodar de novo (se a mensagem é a do `sensibilidade.json`
-      ilegível: parar e mostrar ao humano; em modo despachado, PARADA). `node` ausente, timeout,
-      outro código, ou stdout que não é uma linha JSON → sensível, com a linha fixa
-      `Spec sensível: sim — Jev indisponível (as quatro)`, dizendo o que falhou.
+   c. Código 2 dá direito a **no máximo uma** nova rodada, e só quando a mensagem é de argumento
+      (nomeia `--spec` ou `--autor`): corrigir os argumentos e rodar de novo. Se o 2 se repete, ou se
+      a mensagem não é de argumento (`sensibilidade.json` ilegível ou impossível de gravar, `spec.md`
+      ilegível ou vazio) → a spec conta como **sensível**, com a linha fixa
+      `Spec sensível: sim — Jev indisponível (as quatro)` e a mensagem do script; o revisor
+      independente roda, a mensagem é mostrada ao humano e, em modo despachado, a sessão fecha com
+      `PARADA` nomeando-a. `node` ausente, timeout, outro código, ou stdout que não é uma linha JSON →
+      sensível, com a mesma linha fixa, dizendo o que falhou.
    d. Copia `linha` **verbatim** na resposta, seguida de `(sha <12 primeiros de sha256>, cliente
       <cliente ou "nenhum">)`. Em modo despachado, essa linha vai na resposta final.
    e. A regra, para quem lê a skill: sensível quando vale qualquer uma — o autor disse sim, o Jev
       disse sim, o Jev disse não com confiança abaixo do limiar do script, ou o Jev não respondeu.
       O Jev só acrescenta a exigência, nunca a dispensa. Sem chave ou sem o opt-in de envio, toda
       spec é sensível — o fail-closed, consequência aceita.
-   f. **Rodar de novo só** com código 2 ou com o `spec.md` mudado. O veredito é o da união que o
-      script devolve: uma spec sensível não volta a não sensível. Nunca apagar nem editar o
-      `sensibilidade.json`.
+   f. **Rodar de novo só** na nova rodada única do passo c (código 2 de argumento) ou com o
+      `spec.md` mudado. O veredito é o da união que o script devolve: uma spec sensível não volta a
+      não sensível. Nunca apagar nem editar o `sensibilidade.json`.
+
+   > **Emenda (2026-11-11), achado 1 do G4 da PR #53, autorizada pelo braço direito (cofre #1617).**
+   > Os passos c e f mandavam "corrigir os argumentos e rodar de novo" em todo código 2. Só que o
+   > script também sai com 2 por falha de ambiente que nenhuma troca de argumento resolve (registro
+   > impossível de gravar, `spec.md` ilegível ou vazio): a sessão rodaria em laço, mandando a spec ao
+   > Jev a cada tentativa, ou pararia sem veredito. Agora o 2 dá no máximo uma nova rodada, e só o de
+   > argumento; o resto cai para sensível, com o revisor. O teste prova que toda mensagem de
+   > argumento nomeia `--spec` ou `--autor` e que as de ambiente não. Nenhum critério de aceite muda:
+   > o "corrigir e rodar de novo" do CA5 continua valendo para o erro de uso.
 2. **`2º revisor`** — mesma pergunta de hoje, disparada por `sensivel: true`. A primeira linha do
    texto em pt-BR passa a `> Esta spec foi classificada como sensível (<linha sem o prefixo "Spec
    sensível: sim — ">). A norma recomenda um segundo humano com prazo de 24h, e quem decide se a
@@ -417,6 +430,7 @@ diretório temporário; sai 0 se tudo passa, 1 se algo falha.
 | CLI com `sensibilidade.json` corrompido → código 2, stdout vazio | registro |
 | CLI com `sensibilidade.json` corrompido, opt-in ligado e cliente espião em `<tmp>/hooks/jev.js` → código 2 e o espião não é carregado; sem o registro, o mesmo espião é carregado (emenda de 2026-11-11) | registro, CA10 |
 | CLI com `--autor` incompleto, valor `talvez`, categoria repetida, `--autor` repetido, argumento posicional, `--spec` inexistente, `--spec` vazio, `--spec` que não se chama `spec.md` → código 2, stdout vazio | CA5 (uso) |
+| As mensagens desses casos de argumento nomeiam `--spec` ou `--autor`; as de `--spec` inexistente, `--spec` vazio, registro ilegível e pasta só leitura (não consegui gravar) não nomeiam (emenda de 2026-11-11) | passo c |
 | CLI por link simbólico para o `sensivel.mjs` → roda o `main` (código 0, uma linha JSON) | ponto de entrada |
 | Estático: o fonte de `sensivel.mjs` não casa `/fetch\s*\(\|XMLHttpRequest\|WebSocket\|undici\|["'](node:)?(http\|https\|http2\|net\|tls\|dgram\|child_process)["']/`, e só tem `import(` dentro de `carregarJev` | CA6 |
 | `node scripts/skills-comum.mjs --check` → código 0 | CA6 |
