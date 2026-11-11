@@ -15,7 +15,8 @@ import { obterJulgarPar } from "./juizJev.js";
 import type { Lease } from "./lease.js";
 import { rotear, roteadorLigado, escolherFonteJev, type EscolherFonte } from "./roteador.js";
 
-const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"] as const;
+// Exportada para a suíte do roteador conferir a lista que o servidor manda ao Jev, sem cópia.
+export const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"] as const;
 
 /**
  * Toda resposta de tool sai por aqui. O segundo parâmetro é o canal de diagnóstico: quando vem,

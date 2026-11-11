@@ -39,8 +39,9 @@ globalThis.fetch = () => {
 const rot = await import(join(root, "dist", "roteador.js"));
 const { USO_ROTEADOR, LIMIAR_ROTEADOR, TETO_ROTEADOR_MS, QUALQUER, INSTRUCAO_ROTEADOR } = rot;
 
-// A ordem de `SOURCES` em `src/tools.ts` (P20); a suite nao a importa porque a lista nao e exportada.
-const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"];
+// A lista que o servidor manda ao Jev, lida do proprio `tools.ts` (P20): sem copia aqui, uma fonte
+// nova ou reordenada no servidor e o que a suite confere.
+const { SOURCES } = await import(join(root, "dist", "tools.js"));
 
 let falhas = 0;
 const rejeicoesSoltas = [];
