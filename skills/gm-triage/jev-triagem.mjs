@@ -4,8 +4,8 @@
 
 import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const USO = "triagem"; // o uso do #41 na tabela de usos do contrato
@@ -341,7 +341,24 @@ function lerArgv(argv) {
   return { claudeMd: mapa["--claude-md"], entrada: mapa["--entrada"] };
 }
 
-const apagar = (arquivo) => {
+// Só o arquivo que o Step 4b cria é apagado: gm-triage-jev-<8 hex>.json direto na pasta temporária
+// do sistema. Qualquer outro --entrada (argumentos trocados, caminho errado) fica onde está.
+const NOME_ENTRADA = /^gm-triage-jev-[0-9a-f]{8}\.json$/;
+const real = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+const apagavel = (arquivo) =>
+  NOME_ENTRADA.test(basename(arquivo)) && real(dirname(resolve(arquivo))) === real(tmpdir());
+
+const apagar = (arquivo, stderr) => {
+  if (!apagavel(arquivo)) {
+    stderr.write(`jev-triagem: não apaguei ${basename(arquivo)}: só apago gm-triage-jev-<8 hex>.json da pasta temporária\n`);
+    return;
+  }
   try {
     unlinkSync(arquivo);
   } catch {}
@@ -370,7 +387,7 @@ export async function principal(argv, { carregar = carregarCliente, stdout = pro
 
   if (!ligado) {
     stderr.write(diagnostico(cliente, motivo));
-    apagar(args.entrada); // sem ler
+    apagar(args.entrada, stderr); // sem ler
     return 0;
   }
 
@@ -383,7 +400,7 @@ export async function principal(argv, { carregar = carregarCliente, stdout = pro
       resultado = falhou(`não consegui ler ${basename(args.entrada)}`);
     }
   } finally {
-    apagar(args.entrada);
+    apagar(args.entrada, stderr);
   }
   let opcoes = null;
   if (!resultado) {

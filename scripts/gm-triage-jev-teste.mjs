@@ -6,9 +6,10 @@
 // pode falar com a TypeSafe AI nem herdar a chave. O estado "ligado" vem só do falso (BRAIN_JEV_FALSO).
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -38,6 +39,14 @@ function afirmar(ok, msg) {
 }
 const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const objeto = (mapa) => Object.fromEntries(mapa);
+// A --entrada só é apagada quando é a do Step 4b: gm-triage-jev-<8 hex>.json direto na pasta temporária.
+// Toda entrada criada aqui é anotada e sai no fim, mesmo que um caso falhe.
+const entradasCriadas = [];
+const entradaTemp = () => {
+  const e = join(tmpdir(), `gm-triage-jev-${randomBytes(4).toString("hex")}.json`);
+  entradasCriadas.push(e);
+  return e;
+};
 
 // --- constantes ---
 console.log("constantes");
@@ -350,7 +359,7 @@ console.log("principal");
       return c;
     };
     const arquivos = (entrada = JSON.stringify({ resumo: RESUMO, proposta: PROPOSTA })) => {
-      const e = join(tmp, "entrada.json");
+      const e = entradaTemp();
       const m = join(tmp, "CLAUDE.md");
       writeFileSync(e, entrada);
       writeFileSync(m, claudeMd);
@@ -396,11 +405,11 @@ console.log("principal");
     ({ e, m } = arquivos("{não é json"));
     let f = falsoPadrao();
     r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: f, motivo: null }));
-    afirmar(r.out === "Sem a sugestão do Jev: não consegui ler entrada.json. A classificação acima é só a da sessão.\n" && r.codigo === 0 && !existsSync(e) && f.chamadas.length === 0 && r.err === "", "entrada com JSON inválido: mensagem, entrada apagada, sem decidir, sem linha de ms");
+    afirmar(r.out === `Sem a sugestão do Jev: não consegui ler ${basename(e)}. A classificação acima é só a da sessão.\n` && r.codigo === 0 && !existsSync(e) && f.chamadas.length === 0 && r.err === "", "entrada com JSON inválido: mensagem, entrada apagada, sem decidir, sem linha de ms");
     // R2: entrada ausente
     rmSync(e, { force: true });
     r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: f, motivo: null }));
-    afirmar(r.out.startsWith("Sem a sugestão do Jev: não consegui ler entrada.json") && r.codigo === 0, "entrada inexistente: não consegui ler");
+    afirmar(r.out.startsWith(`Sem a sugestão do Jev: não consegui ler ${basename(e)}`) && r.codigo === 0, "entrada inexistente: não consegui ler");
 
     // R3: CLAUDE.md sem ## Board, e ilegível
     ({ e, m } = arquivos());
@@ -418,8 +427,30 @@ console.log("principal");
     const esperado = renderizar(await rodar(falsoPadrao()));
     afirmar(r.out === esperado + "\n" && r.out.endsWith("|\n") && r.codigo === 0, "modo completo ligado: markdown no stdout com \\n final");
     afirmar(/^jev-triagem: \d+ ms\n$/.test(r.err) && !existsSync(e) && f.chamadas.length === 1, "modo completo ligado: ms no stderr, entrada apagada, uma chamada");
+
+    // achado 1 do G4: só a entrada do Step 4b é apagada; qualquer outra fica, com aviso no stderr
+    const NAO_APAGUEI = (nome) => `jev-triagem: não apaguei ${nome}: só apago gm-triage-jev-<8 hex>.json da pasta temporária\n`;
+    // argumentos trocados: o CLAUDE.md vai na --entrada e não pode sumir, ligado ou desligado
+    ({ e, m } = arquivos());
+    r = await rodarP(["--claude-md", e, "--entrada", m], () => ({ cliente: criarFalso({ ligado: false, decidir: () => ({}) }), motivo: null }));
+    afirmar(existsSync(m) && readFileSync(m, "utf8") === claudeMd && existsSync(e) && r.codigo === 0 && r.err === "jev-triagem: cliente carregado, desligado\n" + NAO_APAGUEI("CLAUDE.md"), "desligado, argumentos trocados: o CLAUDE.md fica, e o stderr avisa");
+    f = falsoPadrao();
+    r = await rodarP(["--claude-md", e, "--entrada", m], () => ({ cliente: f, motivo: null }));
+    afirmar(existsSync(m) && readFileSync(m, "utf8") === claudeMd && existsSync(e) && f.chamadas.length === 0 && r.codigo === 0 && r.err === NAO_APAGUEI("CLAUDE.md"), "ligado, argumentos trocados: o CLAUDE.md fica, sem decidir, e o stderr avisa");
+    rmSync(e, { force: true });
+    // nome do Step 4b fora da pasta temporária, e nome fora do padrão dentro dela
+    for (const fora of [join(tmp, `gm-triage-jev-${randomBytes(4).toString("hex")}.json`), join(tmpdir(), `gm-triage-jev-${randomBytes(4).toString("hex")}.txt`), join(tmpdir(), "gm-triage-jev-ABCDEF12.json")]) {
+      entradasCriadas.push(fora);
+      writeFileSync(fora, JSON.stringify({ resumo: RESUMO, proposta: PROPOSTA }));
+      f = falsoPadrao();
+      r = await rodarP(["--claude-md", m, "--entrada", fora], () => ({ cliente: f, motivo: null }));
+      afirmar(existsSync(fora) && r.out === esperado + "\n" && r.err.startsWith(NAO_APAGUEI(basename(fora))) && /jev-triagem: \d+ ms\n$/.test(r.err), `ligado, entrada fora do padrão é lida e fica: ${basename(dirname(fora))}/${basename(fora)}`);
+      r = await rodarP(["--claude-md", m, "--entrada", fora], () => ({ cliente: null, motivo: "x" }));
+      afirmar(existsSync(fora) && r.err.endsWith(NAO_APAGUEI(basename(fora))), `desligado, entrada fora do padrão fica: ${basename(fora)}`);
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+    for (const x of entradasCriadas) rmSync(x, { force: true });
   }
 }
 
@@ -447,9 +478,11 @@ console.log("CLI");
     }
     return t;
   };
+  const entradaPorArvore = new Map(); // árvore → a última entrada criada para ela
   const entradaDe = (t) => {
-    const e = join(t, "entrada.json");
+    const e = entradaTemp();
     writeFileSync(e, JSON.stringify({ resumo: RESUMO, proposta: PROPOSTA }));
+    entradaPorArvore.set(t, e);
     return e;
   };
   const cli = (t, args, env = {}, nodeArgs = []) => {
@@ -474,7 +507,7 @@ console.log("CLI");
       const args = modo === "--estado" ? ["--estado"] : completo(t);
       const r = cli(t, args, LIGA);
       afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === "jev-triagem: cliente indisponível: jev.js não instalado\n", `sem hooks/ e casa vazia (${modo}): indisponível`);
-      if (modo !== "--estado") afirmar(!existsSync(join(t, "entrada.json")), "sem hooks/ (completo): entrada apagada");
+      if (modo !== "--estado") afirmar(!existsSync(entradaPorArvore.get(t)), "sem hooks/ (completo): entrada apagada");
     }
 
     // passo 2
@@ -493,7 +526,7 @@ console.log("CLI");
       const args = modo === "--estado" ? ["--estado"] : completo(t);
       r = cli(t, args, LIGA);
       afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === "jev-triagem: cliente indisponível: quebrado\n", `jev.js quebrado (${modo}): indisponível, sem PASSO2`);
-      if (modo !== "--estado") afirmar(!existsSync(join(t, "entrada.json")), "jev.js quebrado (completo): entrada apagada");
+      if (modo !== "--estado") afirmar(!existsSync(entradaPorArvore.get(t)), "jev.js quebrado (completo): entrada apagada");
     }
 
     // jev.js sem a função
@@ -515,7 +548,7 @@ console.log("CLI");
         const args = modo === "--estado" ? ["--estado"] : completo(t);
         r = cli(t, args, env, importa);
         afirmar(r.ok && r.out === "" && r.codigo === 0 && r.err === DESLIGADO && !r.err.includes("REDE!"), `sem rede, ${JSON.stringify(env)} (${modo})`);
-        if (modo !== "--estado") afirmar(!existsSync(join(t, "entrada.json")), "sem rede (completo): entrada apagada");
+        if (modo !== "--estado") afirmar(!existsSync(entradaPorArvore.get(t)), "sem rede (completo): entrada apagada");
       }
     }
 
@@ -570,7 +603,7 @@ console.log("CLI");
       ].join("\n") +
       "\n";
     afirmar(r.ok && r.out === esperadoCli && r.codigo === 0, "ponta a ponta com roteiro: stdout byte a byte");
-    afirmar(/^jev-triagem: \d+ ms\n$/.test(r.err) && !existsSync(join(rt.tt, "entrada.json")), "ponta a ponta: ms no stderr, entrada apagada");
+    afirmar(/^jev-triagem: \d+ ms\n$/.test(r.err) && !existsSync(entradaPorArvore.get(rt.tt)), "ponta a ponta: ms no stderr, entrada apagada");
 
     // --estado com a lista, espaço e maiúsculas
     t = arvore({ hooks: "real" });
@@ -599,6 +632,7 @@ console.log("CLI");
     afirmar(r.ok && r.codigo === 0 && r.ms < 3000 && r.out.startsWith("**Sugestão do Jev**"), `handle vivo do cliente: sai em ${r.ms} ms`);
   } finally {
     rmSync(base, { recursive: true, force: true });
+    for (const x of entradasCriadas) rmSync(x, { force: true });
   }
 }
 

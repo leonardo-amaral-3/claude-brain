@@ -210,7 +210,8 @@ the suggestion; a divergence stays visible in the table for whoever confirms.
 1. Run `node "<dir>/jev-triagem.mjs" --estado` (Bash `timeout` 30000). Empty stdout, a non-zero
    exit, or the call denied → the Jev is off: **say nothing about it**, skip to Step 5, which stays
    exactly as before. Stdout `ligado` → go on.
-2. With `Write`, create `gm-triage-jev-<8 random hex>.json` in the system temp dir:
+2. With `Write`, create `gm-triage-jev-<8 random lowercase hex>.json` directly in the system temp dir
+   (`$TMPDIR`, else `/tmp`):
    `{"resumo": "...", "proposta": {"Tipo": "...", "Severidade": "...", "Classe": "...", "Rota": null, "Módulo": "..."}}`.
    - `proposta`: your Step 3 values, written exactly as the option labels of the `## Board`
      (`"✨ Melhoria"`). `Rota` is `null` unless S1, then `"Hotfix"`.
@@ -223,7 +224,8 @@ the suggestion; a divergence stays visible in the table for whoever confirms.
      (Step 1b).
 3. Run `node "<dir>/jev-triagem.mjs" --claude-md "<the CLAUDE.md whose ## Board you will write the
    card on>" --entrada "<that file>"` (Bash `timeout` 30000). The script deletes the file after
-   reading it. Exit 0 → its stdout goes into Step 5 verbatim (it may be one line saying the
+   reading it — only a file named like that, directly in its temp dir; any other `--entrada` stays
+   where it is, and stderr says so. Exit 0 → its stdout goes into Step 5 verbatim (it may be one line saying the
    suggestion is missing, and why). Any other exit, or the call denied → Step 5 carries one line:
    `Sem a sugestão do Jev: o script auxiliar falhou.`
 
