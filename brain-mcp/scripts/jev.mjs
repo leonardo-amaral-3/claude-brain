@@ -574,23 +574,32 @@ if (enviados.length < 6) naoMedi(`troque o prompt de prova: so ${enviados.length
 
 // ---- T16: o Jev aprova so os candidatos de 6 em diante que escapam da colisao = so esses, na ordem do ranking --
 {
-  const n = enviados.length;
-  const aprovados = aprovadosDoT16(enviados);
-  if (!aprovados.length) {
-    naoMedi("troque o prompt de prova: nenhum candidato de 6 em diante escapa da colisao de caminho com os cinco primeiros");
+  // Os aprovados dependem do conjunto exato de caminhos, e o T12-T15 rodam o hook muitas vezes com o
+  // indice vivo mudando: sonda de novo logo antes da rodada e, se divergir, repete o par uma vez (T13).
+  let ok = false;
+  let detalhe = "";
+  for (let tentativa = 0; tentativa < 2 && !ok; tentativa++) {
+    const sonda = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { ...FALSO_SIM, BRAIN_HOOK_DEBUG: "1" });
+    const atuais = candidatosEnviados(sonda.stderr);
+    if (atuais.length < 6) naoMedi(`troque o prompt de prova: so ${atuais.length} candidatos chegam ao Jev (T16 precisa de 6 ou mais)`);
+    const n = atuais.length;
+    const aprovados = aprovadosDoT16(atuais);
+    if (!aprovados.length) {
+      naoMedi("troque o prompt de prova: nenhum candidato de 6 em diante escapa da colisao de caminho com os cinco primeiros");
+    }
+    const k = aprovados.length;
+    const roteiro = join(pastaTemporaria, "roteiro-t16.json");
+    writeFileSync(roteiro, JSON.stringify(roteiroDoT16(aprovados)));
+    const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
+    // O hook mostra so os LIMITE_FINAL primeiros que passaram (hooks/brain-contexto.js:484), como o cabecalho.
+    const esperados = aprovados.slice(0, 5).map((a) => a.caminho);
+    const caminhosOk = igual(caminhosDoBloco(r.stdout), esperados);
+    const cabecalhoOk = textoDoBloco(r.stdout).includes(`${k} de ${n} candidatos passaram; abaixo, os ${Math.min(k, 5)} primeiros`);
+    ok = caminhosOk && cabecalhoOk;
+    const posicoes = aprovados.map((a) => a.posicao).join(",");
+    detalhe = `candidatos ${posicoes} de ${n}: caminhos ${caminhosOk ? "ok" : "divergem"}, cabecalho ${k} de ${n} ${cabecalhoOk ? "ok" : "ausente"}`;
   }
-  const k = aprovados.length;
-  const roteiro = join(pastaTemporaria, "roteiro-t16.json");
-  writeFileSync(roteiro, JSON.stringify(roteiroDoT16(aprovados)));
-  const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
-  // O hook mostra so os LIMITE_FINAL primeiros que passaram (hooks/brain-contexto.js:484), como o cabecalho.
-  const esperados = aprovados.slice(0, 5).map((a) => a.caminho);
-  const posicoes = aprovados.map((a) => a.posicao).join(",");
-  confere(igual(caminhosDoBloco(r.stdout), esperados), `T16 so os candidatos ${posicoes} de ${n}, na ordem do ranking`);
-  confere(
-    textoDoBloco(r.stdout).includes(`${k} de ${n} candidatos passaram; abaixo, os ${Math.min(k, 5)} primeiros`),
-    `T16 cabecalho ${k} de ${n}`
-  );
+  confere(ok, `T16 so os aprovados, na ordem do ranking, e cabecalho k de n (${detalhe})`);
 }
 
 console.log("jev: T11-T16 OK (parte hook; cliente falso, sem rede)");
