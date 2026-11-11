@@ -375,6 +375,11 @@ const roteiroDoT16 = (aprovados) => ({
   padrao: { probabilidade: 0.05 },
 });
 
+// Pasta temporaria com a referencia (hook e config de origin/dev) e os roteiros (o
+// sintetico do T16 inclusive, por isso vem antes dele); apagada na saida.
+const pastaTemporaria = mkdtempSync(join(tmpdir(), "jev-hook-"));
+process.on("exit", () => rmSync(pastaTemporaria, { recursive: true, force: true }));
+
 // Caso sintetico da escolha (#51): roda antes do pre-voo, sem indice e sem rede.
 {
   const c = (posicao, caminho) => ({ posicao, probabilidade: 0.95, caminho });
@@ -396,10 +401,8 @@ const roteiroDoT16 = (aprovados) => ({
   confere(aprovadosDoT16(lista.slice(0, 6).concat([c(7, "/r/a.md"), c(8, "/r/b.md")])).length === 0, "T16 escolha sintetica: tudo colide = nenhum aprovado");
   const limpa = ["/r/a.md", "/r/b.md", "/r/c.md", "/r/d.md", "/r/e.md", "/r/f.md", "/r/g.md"].map((p, i) => c(i + 1, p));
   confere(igual(aprovadosDoT16(limpa), limpa.slice(5)), "T16 escolha sintetica: sem colisao aprova 6..n");
-  // O falso real confirma que o roteiro aprova exatamente esses. Sem try/finally: o confere sai com process.exit.
-  const pastaSintetica = mkdtempSync(join(tmpdir(), "jev-t16-"));
-  process.on("exit", () => rmSync(pastaSintetica, { recursive: true, force: true }));
-  const roteiroSintetico = join(pastaSintetica, "roteiro-t16-sintetico.json");
+  // O falso real confirma que o roteiro aprova exatamente esses.
+  const roteiroSintetico = join(pastaTemporaria, "roteiro-t16-sintetico.json");
   writeFileSync(roteiroSintetico, JSON.stringify(roteiroDoT16(aprovadosDoT16(lista))));
   const vs = await jev.julgar("p", lista.map((x) => ({ id: x.caminho, texto: "t" })), {
     uso: "contexto",
@@ -430,10 +433,6 @@ const distDoIndice = join(dirname(conf.db), "..", "dist");
 for (const modulo of ["db.js", "search.js"]) {
   if (!existsSync(join(distDoIndice, modulo))) naoMedi(`${join(distDoIndice, modulo)} nao existe: o hook importa o dist/ da instalacao`);
 }
-
-// Pasta temporaria com a referencia (hook e config de origin/dev) e os roteiros; apagada na saida.
-const pastaTemporaria = mkdtempSync(join(tmpdir(), "jev-hook-"));
-process.on("exit", () => rmSync(pastaTemporaria, { recursive: true, force: true }));
 
 // O hook faz require('./brain-config.js'): a referencia precisa dos dois lado a lado, da mesma ref.
 const doGit = (arquivo) => {
