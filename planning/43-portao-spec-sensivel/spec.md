@@ -398,6 +398,11 @@ Depois do `./sync.sh push` (Leonardo), sem rede, numa cópia (o script grava o r
    para mandar texto de spec à TypeSafe AI, rodar o comando 1 com uma cópia de uma spec sensível
    conhecida (`planning/1-escritor-unico-do-indice/spec.md`, muda o índice) e de uma não sensível
    conhecida (`planning/29-limpeza-skills/spec.md`), e colar as duas saídas no card. Não bloqueia a PR.
+4. **Pendência declarada para a mesma rodada com o Jev real (achado 2 do G4 da PR #53, 2026-11-11).**
+   A união só cresce para todos os motivos (CA9, cofre #1405): um `jev-indisponivel` ou
+   `confianca-baixa` de uma rodada (sem chave, sem opt-in, um 429, um timeout) fica para sempre na
+   categoria. Hoje isso falha para o lado fechado e é o que o CA9 pede. Com o Jev real, decidir se
+   esses dois motivos passam a valer só por rodada; mudar isso é emenda desta spec, não correção.
 
 ## Plano de testes
 
