@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { criarJulgarPar, prazoJulgamentoMs, type JulgarPar } from "./contradicao.js";
+import { criarJulgarPar, prazoJulgamentoMs, PERGUNTA_CONTRADICAO, type JulgarPar } from "./contradicao.js";
 
 // A única ponte com o cliente do Jev do #42 (`hooks/jev.js`, CommonJS). Nos testes este arquivo é
 // trocado por scripts/jev-falso.mjs pelo hook de resolução (embeddings-falso-hook.mjs).
@@ -24,9 +24,6 @@ interface ModuloJev {
     opcoes: { uso: string; timeoutMs: number },
   ): Promise<Record<string, RespostaJev | undefined>>;
 }
-
-// Última frase de `montarPergunta`, literal: é a pergunta `noul` que o Jev responde sobre o `estado`.
-const PERGUNTA_CONTRADICAO = "A decisão nova contradiz a decisão anterior, isto é, as duas não podem valer ao mesmo tempo?";
 
 // Ordem do contrato do #42: primeiro o layout do repo (e da worktree), depois o da instalação.
 // Nenhum dos dois existe → `null`: o cliente não está instalado, o que não é erro.

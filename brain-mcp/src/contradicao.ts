@@ -35,12 +35,19 @@ export function prazoJulgamentoMs(): number {
   return valor > 0 && valor <= PRAZO_MAXIMO_MS ? valor : PRAZO_PADRAO_MS;
 }
 
+/**
+ * A pergunta em si, última frase de `montarPergunta`. É também a `instrucao` da pergunta `noul` que
+ * `juizJev.ts` manda ao Jev: uma constante só, para as duas nunca divergirem.
+ */
+export const PERGUNTA_CONTRADICAO =
+  "A decisão nova contradiz a decisão anterior, isto é, as duas não podem valer ao mesmo tempo?";
+
 export function montarPergunta(par: ParDecisoes): string {
   return (
     `Duas decisões registradas no mesmo cofre de decisões de projeto.\n\n` +
     `Decisão anterior: ${par.anterior}\n\n` +
     `Decisão nova: ${par.nova}\n\n` +
-    `A decisão nova contradiz a decisão anterior, isto é, as duas não podem valer ao mesmo tempo?`
+    PERGUNTA_CONTRADICAO
   );
 }
 
