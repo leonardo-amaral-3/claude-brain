@@ -374,14 +374,13 @@ export async function principal(argv, { carregar = carregarCliente, stdout = pro
     return 0;
   }
 
-  const falha = (m) => falhou(m);
   let entrada = null;
   let resultado = null;
   try {
     try {
       entrada = JSON.parse(readFileSync(args.entrada, "utf8"));
     } catch {
-      resultado = falha(`não consegui ler ${basename(args.entrada)}`);
+      resultado = falhou(`não consegui ler ${basename(args.entrada)}`);
     }
   } finally {
     apagar(args.entrada);
@@ -391,10 +390,10 @@ export async function principal(argv, { carregar = carregarCliente, stdout = pro
     try {
       opcoes = lerBoard(readFileSync(args.claudeMd, "utf8"));
     } catch {
-      resultado = falha(`não consegui ler ${basename(args.claudeMd)}`);
+      resultado = falhou(`não consegui ler ${basename(args.claudeMd)}`);
     }
   }
-  if (!resultado && opcoes.size === 0) resultado = falha(`não achei o ## Board em ${basename(args.claudeMd)}`);
+  if (!resultado && opcoes.size === 0) resultado = falhou(`não achei o ## Board em ${basename(args.claudeMd)}`);
   if (!resultado) resultado = await sugerir({ opcoes, entrada, cliente });
 
   const texto = renderizar(resultado);
