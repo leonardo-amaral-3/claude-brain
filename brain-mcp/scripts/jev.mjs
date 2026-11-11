@@ -405,6 +405,8 @@ const roteiroDoT16 = (aprovados) => ({
     uso: "contexto",
     env: { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiroSintetico },
   });
+  // O hook descarta o filtro inteiro se algum veredito nao for 'ok' (hooks/brain-contexto.js:287).
+  confere(vs.length === lista.length && vs.every((v) => v.estado === "ok"), "T16 escolha sintetica: todo veredito do falso e 'ok'");
   // 0.5 = LIMIAR_JEV do hook (hooks/brain-contexto.js:238).
   confere(
     igual(lista.filter((_, i) => vs[i].estado === "ok" && vs[i].probabilidade >= 0.5).map((x) => x.posicao), [7, 8, 9, 11]),
