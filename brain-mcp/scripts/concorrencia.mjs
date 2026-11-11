@@ -2497,6 +2497,61 @@ caso("juiz-jev-adaptador", async () => {
   }
 });
 
+// G4 da PR #61, achado 4: a ponte de produção (`dist/juizJev.js` REAL + `hooks/jev.js`) num filho
+// SEM o hook de troca, com o cliente falso do próprio #42 (`BRAIN_JEV=lembrar` + `BRAIN_JEV_FALSO`)
+// e sem `TYPESAFE_API_KEY`. O `fetch` do filho lança e é contado: nenhuma chamada toca a rede.
+caso("juiz-jev-ponte-real", async () => {
+  const { montarPergunta } = await contradicao();
+  const par = { nova: "fato novo da ponte", anterior: "fato anterior da ponte" };
+  // O roteiro só responde à pergunta `contradiz` cujo `estado` é montarPergunta(par): P(sim) 0,37
+  // prova a resolução do caminho, o `createRequire`, a chave, o `estado` (R6) e a P(sim) de uma vez.
+  const roteiro = join(fixture, "ponte-jev-roteiro.json");
+  writeFileSync(
+    roteiro,
+    JSON.stringify({
+      regras: [{ quando: { pergunta: montarPergunta(par), id: "contradiz" }, responde: { probabilidade: 0.37 } }],
+      padrao: { indisponivel: "rede" },
+    })
+  );
+  const filho = [
+    `let chamadasFetch = 0;`,
+    `globalThis.fetch = () => { chamadasFetch++; throw new Error("rede proibida no teste"); };`,
+    `const { obterJulgarPar } = await import(${JSON.stringify(modulo("juizJev.js"))});`,
+    `const julgar = await obterJulgarPar();`,
+    `const saida = { ligado: julgar !== null };`,
+    `if (julgar) {`,
+    `  try { saida.p = await julgar(JSON.parse(process.env.PONTE_PAR), new AbortController().signal); }`,
+    `  catch (e) { saida.erro = e.message; }`,
+    `}`,
+    `saida.chamadasFetch = chamadasFetch;`,
+    `console.log(JSON.stringify(saida));`,
+  ].join("\n");
+  const rodar = (rotulo, envJev, parDoCaso = par) => {
+    const env = { ...envSemJev(process.env), ...envJev, PONTE_PAR: JSON.stringify(parDoCaso) };
+    delete env.NODE_OPTIONS; // nenhum --import pode trocar o juizJev.js por baixo
+    ok(!("TYPESAFE_API_KEY" in env), `${rotulo}: a chave chegou ao filho`);
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", filho], { cwd: root, env, encoding: "utf8" });
+    ok(r.status === 0, `${rotulo}: o filho saiu ${r.status}\n${r.stderr}`);
+    const saida = JSON.parse(r.stdout.trim().split("\n").pop());
+    ok(saida.chamadasFetch === 0, `${rotulo}: ${saida.chamadasFetch} chamada(s) de fetch`);
+    return saida;
+  };
+
+  const doRoteiro = rodar("roteiro", { BRAIN_JEV: "lembrar", BRAIN_JEV_FALSO: roteiro });
+  ok(doRoteiro.ligado && doRoteiro.p === 0.37, `com o roteiro devia dar P(sim) 0.37: ${JSON.stringify(doRoteiro)}`);
+
+  const sim = rodar("sim", { BRAIN_JEV: "lembrar", BRAIN_JEV_FALSO: "sim" });
+  ok(sim.ligado && sim.p === 0.95, `com o falso "sim" devia dar 0.95: ${JSON.stringify(sim)}`);
+
+  // Outro par cai no `padrao` indisponível: a ponte devolve null e o juiz rejeita (R3).
+  const outro = rodar("indisponivel", { BRAIN_JEV: "lembrar", BRAIN_JEV_FALSO: roteiro }, { nova: "outra", anterior: "coisa" });
+  ok(outro.ligado && outro.p === undefined && outro.erro === "jev sem resposta", `indisponível devia rejeitar: ${JSON.stringify(outro)}`);
+
+  // Cliente desligado: `lembrar` fora de BRAIN_JEV (ou BRAIN_JEV ausente) -> obterJulgarPar() null.
+  ok(rodar("outro-uso", { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim" }).ligado === false, "lembrar fora de BRAIN_JEV devia dar null");
+  ok(rodar("sem-flag", { BRAIN_JEV_FALSO: "sim" }).ligado === false, "sem BRAIN_JEV devia dar null");
+});
+
 caso("aviso-sem-marca-igual-ao-de-hoje", async () => {
   const { formatarAviso } = await contradicao();
   const vizinhas = [
