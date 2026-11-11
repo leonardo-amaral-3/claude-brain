@@ -73,13 +73,50 @@ if (search.result?.isError || !searchText || searchText.startsWith("Nenhum resul
   fail("search_context sem resultados para 'subfaturamento'");
 }
 
+// O slug sai do próprio índice (card #55): um slug fixo envelhece com o corpus e deixa a base
+// vermelha sem defeito no código. A chamada ao list_features é própria, e não a do bloco de
+// baixo, para que um índice sem feature nenhuma falhe AQUI, com a mensagem que diz isso, e não
+// como "poucas features".
+const catalogo = await request("tools/call", { name: "list_features", arguments: {} });
+const catalogoText = catalogo.result?.content?.[0]?.text ?? "";
+if (catalogo.error || catalogo.result?.isError) {
+  // isError com texto vazio ou ausente: o resultado inteiro é o único sinal da causa.
+  const motivo = catalogo.error
+    ? JSON.stringify(catalogo.error)
+    : catalogoText || JSON.stringify(catalogo.result);
+  fail("feature_timeline: o list_features que daria o slug falhou: " + motivo.slice(0, 300));
+}
+// Índice vazio se reconhece pelo sentinela do list_features (src/tools.ts), e não pela falta de
+// slug: um texto que não parseia é outra falha, de formato, e diz o que chegou.
+if (catalogoText.startsWith("Nenhuma feature encontrada")) {
+  fail(
+    "feature_timeline: o índice não tem nenhuma feature (o list_features não listou nenhuma), " +
+      "então não há slug para provar a tool"
+  );
+}
+const slug = catalogoText
+  .split("\n")
+  .map((l) => l.match(/^- (\S+) \[/)?.[1])
+  .find(Boolean);
+if (!slug) {
+  const recebido = catalogoText
+    ? JSON.stringify(catalogoText.slice(0, 300))
+    : "texto vazio; resultado " + JSON.stringify(catalogo.result ?? null).slice(0, 300);
+  fail(
+    "feature_timeline: o list_features respondeu num formato inesperado (nenhuma linha " +
+      "'- <slug> [' e não é o 'Nenhuma feature encontrada'): " + recebido
+  );
+}
+
 const tl = await request("tools/call", {
   name: "feature_timeline",
-  arguments: { feature: "motor-lancamentos-automaticos" },
+  arguments: { feature: slug },
 });
 const tlText = tl.result?.content?.[0]?.text ?? "";
-console.log("\n--- feature_timeline('motor-lancamentos-automaticos') ---\n" + tlText.slice(0, 900));
-if (!tlText.includes("Documentos:")) fail("feature_timeline sem documentos");
+console.log(`\n--- feature_timeline('${slug}') ---\n` + tlText.slice(0, 900));
+if (!tlText.includes("Documentos:")) {
+  fail(`feature_timeline sem documentos para '${slug}', que o list_features listou`);
+}
 
 const feats = await request("tools/call", { name: "list_features", arguments: {} });
 const featsText = feats.result?.content?.[0]?.text ?? "";
