@@ -560,10 +560,13 @@ export function registerTools(
       vigia.agendar("decisao");
       // O julgamento roda DEPOIS da gravação: a decisão nunca espera o Jev, e nada daqui pode virar
       // erro da tool — a linha já está no banco, e um erro faria quem chamou gravar de novo.
+      // A vizinha que esta chamada já substitui sai dos pares (não da lista do aviso): marcá-la
+      // mandaria quem chamou gravar de novo com o mesmo `supersede`, e o `fato` dela iria ao Jev à toa.
       let marcas: Map<number, number> | null = null;
       try {
-        const julgar = relacionadas.length ? await obterJulgarPar() : null;
-        marcas = await julgarContradicoes(args.fato, relacionadas, julgar);
+        const aJulgar = relacionadas.filter((v) => v.id !== args.supersede);
+        const julgar = aJulgar.length ? await obterJulgarPar() : null;
+        marcas = await julgarContradicoes(args.fato, aJulgar, julgar);
       } catch (err) {
         console.error("[brain] contradicao: aviso sem marca:", (err as Error).message);
       }

@@ -2684,6 +2684,52 @@ caso("lembrar-com-jev-falso-marca-a-contradicao", async () => {
   ok(md === literal, `o .md de B diverge do formato de hoje:\n${md}`);
 });
 
+// G4 da PR #61, achado 1: a vizinha que a própria chamada substitui não vai ao Jev. A1 e A2 trazem
+// marcador, então o falso marcaria as duas; com `supersede: A1`, só A2 pode sair marcada, e A1
+// continua na lista do aviso, sem marca.
+caso("lembrar-com-supersede-nao-julga-a-substituida", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-supersede", "ligado");
+  const fatoA1 = fatoFreio("Alfa", " [p=0.93]");
+  const fatoA2 = fatoFreio("Beta", " [p=0.95]");
+  const fatoB = fatoFreio("Gama");
+  ok(!(await gravarFreio(s, fatoA1)).falhou, "gravar A1 falhou");
+  ok(!(await gravarFreio(s, fatoA2)).falhou, "gravar A2 falhou");
+  const dA1 = lerDecisaoPorFato(fx, fatoA1);
+  ok(dA1, "A1 devia estar gravada");
+  const b = await s.chamarCru("lembrar", { fato: fatoB, tipo: "decisao", escopo: "freio", supersede: dA1.id });
+  ok(!b.falhou, `a tool recusou ou deu erro: ${b.resumo()}`);
+  const dA2 = lerDecisaoPorFato(fx, fatoA2);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA2 && dB, "A2 e B deviam estar gravadas");
+  ok(b.texto.startsWith(`Registrado como #${dB.id} em ${dB.doc_path} (substitui #${dA1.id})${CABECALHO_AVISO}`), `cabeçalho inesperado:\n${b.texto}`);
+
+  // Primeiro as duas vizinhas na lista, só depois as marcas.
+  const linhas = b.texto.split("\n");
+  const linhaA1 = linhas.find((l) => l.startsWith(`  #${dA1.id} (`));
+  const linhaA2 = linhas.find((l) => l.startsWith(`  #${dA2.id} (`));
+  ok(linhaA1 && linhaA2, `A1 e A2 deviam estar na lista:\n${b.texto}`);
+  const sA1 = await semelhancaEntre(fatoB, fatoA1);
+  const sA2 = await semelhancaEntre(fatoB, fatoA2);
+  ok(linhaA1 === `  #${dA1.id} (${hojeUtc()}, freio, semelhança ${sA1}): ${fatoA1}`, `a substituída não podia sair marcada: ${linhaA1}`);
+  ok(
+    linhaA2 === `  #${dA2.id} (${hojeUtc()}, freio, semelhança ${sA2}) [contradição provável, Jev 0.95]: ${fatoA2}`,
+    `A2 devia sair marcada (prova que o Jev rodou): ${linhaA2}`
+  );
+
+  // O `fato` da substituída não sai: o registro do falso só tem o par com A2.
+  const dessaNova = linhasDoRegistro(fx).filter(({ par }) => par.nova === fatoB);
+  ok(dessaNova.length === 1 && dessaNova[0].par.anterior === fatoA2, `pares da nova errados: ${JSON.stringify(dessaNova)}`);
+
+  // O `supersede` é o que quem chamou passou, e só ele.
+  const db = openDb(fx.db);
+  try {
+    ok(db.prepare("SELECT supersede FROM decisoes WHERE id = ?").get(dB.id).supersede === dA1.id, "supersede de B devia ser A1");
+    ok(db.prepare("SELECT supersedida_por FROM decisoes WHERE id = ?").get(dA2.id).supersedida_por === null, "A2 foi supersedida sozinha");
+  } finally {
+    db.close();
+  }
+});
+
 caso("lembrar-com-jev-em-erro-grava-e-avisa-como-hoje", async () => {
   const { fx, s } = await servidorComJevFalso("jev-erro", "erro");
   const fatoA = fatoFreio("Alfa");
