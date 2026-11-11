@@ -2536,7 +2536,7 @@ caso("montar-pergunta-e-prazo", async () => {
 
 // ---------------------------------------------------------------- #46: freio de contradição (servidor)
 // Sobem `dist/index.js` com o hook, que troca `dist/juizJev.js` pelo Jev falso: nenhum processo
-// daqui alcança o Jev real, qualquer que seja o ambiente de quem roda. `BRAIN_JEV_FALSO` vai
+// daqui alcança o Jev real, qualquer que seja o ambiente de quem roda. `BRAIN_CONTRADICAO_FALSO` vai
 // SEMPRE explícito no `envExtra` (o `subirServidor` herda o ambiente de quem roda o teste).
 const { cosseno } = await import(pathToFileURL(join(root, "scripts", "embeddings-falso.mjs")).href);
 
@@ -2558,8 +2558,8 @@ async function servidorComJevFalso(nome, modo, envExtra = {}) {
   const fx = criarFixture(nome, {}, { comDecisoes: true });
   fx.registroJev = join(fx.dir, "jev-falso.log");
   const s = subirServidor(fx, nome, {
-    BRAIN_JEV_FALSO: modo,
-    BRAIN_JEV_FALSO_REGISTRO: fx.registroJev,
+    BRAIN_CONTRADICAO_FALSO: modo,
+    BRAIN_CONTRADICAO_FALSO_REGISTRO: fx.registroJev,
     ...envExtra,
   });
   await ate(() => s.bootou(), 30000, () => `o servidor bootar -> ${s.diagnostico()}`);
@@ -2763,7 +2763,7 @@ caso("contradicao-mede-com-jev-falso", async () => {
     const antes = { linhas: contar(), snapshots: snapshots() };
     const r = spawnSync(process.execPath, ["--import", hookStub, join(root, "scripts", "contradicao.mjs"), ...args], {
       cwd: root,
-      env: { ...process.env, BRAIN_DB: fx.db, BRAIN_CONFIG: fx.config, BRAIN_JEV_FALSO: jev, BRAIN_JEV_FALSO_REGISTRO: registro },
+      env: { ...process.env, BRAIN_DB: fx.db, BRAIN_CONFIG: fx.config, BRAIN_CONTRADICAO_FALSO: jev, BRAIN_CONTRADICAO_FALSO_REGISTRO: registro },
       encoding: "utf8",
     });
     ok(contar() === antes.linhas, `rodada ${rotulo}: a contagem de decisoes mudou`);
