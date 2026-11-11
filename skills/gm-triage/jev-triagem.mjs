@@ -425,14 +425,20 @@ export async function principal(argv, { carregar = carregarCliente, stdout = pro
     apagar(args.entrada, stderr);
   }
   let opcoes = null;
+  let temSecao = false;
   if (!resultado) {
     try {
-      opcoes = lerBoard(readFileSync(args.claudeMd, "utf8"));
+      const texto = readFileSync(args.claudeMd, "utf8");
+      opcoes = lerBoard(texto);
+      temSecao = normalizar(texto).split("\n").includes("## Board");
     } catch {
       resultado = falhou(`não consegui ler ${basename(args.claudeMd)}`);
     }
   }
-  if (!resultado && opcoes.size === 0) resultado = falhou(`não achei o ## Board em ${basename(args.claudeMd)}`);
+  if (!resultado && opcoes.size === 0) {
+    const nome = basename(args.claudeMd);
+    resultado = falhou(temSecao ? `achei o ## Board em ${nome}, mas nenhuma linha de campo` : `não achei o ## Board em ${nome}`);
+  }
   if (!resultado) resultado = await sugerir({ opcoes, entrada, cliente });
 
   const texto = renderizar(resultado);

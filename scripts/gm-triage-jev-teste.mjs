@@ -456,6 +456,11 @@ console.log("principal");
     writeFileSync(m, "# nada aqui\n");
     r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: f, motivo: null }));
     afirmar(r.out === "Sem a sugestão do Jev: não achei o ## Board em CLAUDE.md. A classificação acima é só a da sessão.\n" && !existsSync(e) && f.chamadas.length === 0 && r.err === "", "CLAUDE.md sem ## Board");
+    // achado 9 do G4: ## Board presente sem nenhuma linha de campo legível tem mensagem própria
+    ({ e, m } = arquivos());
+    writeFileSync(m, "# x\n## Board\n- Project: number `3`\n- **Tipo**: sem o field\n");
+    r = await rodarP(["--claude-md", m, "--entrada", e], () => ({ cliente: f, motivo: null }));
+    afirmar(r.out === "Sem a sugestão do Jev: achei o ## Board em CLAUDE.md, mas nenhuma linha de campo. A classificação acima é só a da sessão.\n" && !existsSync(e) && f.chamadas.length === 0, "## Board sem linhas de campo: mensagem própria");
     ({ e, m } = arquivos());
     r = await rodarP(["--claude-md", join(tmp, "nao-existe.md"), "--entrada", e], () => ({ cliente: f, motivo: null }));
     afirmar(r.out.startsWith("Sem a sugestão do Jev: não consegui ler nao-existe.md") && !existsSync(e), "CLAUDE.md ilegível: entrada apagada mesmo assim");
