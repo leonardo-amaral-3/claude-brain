@@ -33,6 +33,12 @@ export function semJev(raiz) {
     return erro;
   }
   if (!cliente || typeof cliente.envSemJev !== "function") return erro;
-  process.env = cliente.envSemJev(process.env);
+  // Apaga no lugar, e nao `process.env = ...`: o `process.env` do Node e um objeto especial (no
+  // Windows a chave nao diferencia maiusculas, e toda escrita vira string), e uma copia comum perde
+  // isso. A lista do que sai continua sendo a do cliente: sai o que o `envSemJev` nao devolveu.
+  const limpo = cliente.envSemJev(process.env);
+  for (const nome of Object.keys(process.env)) {
+    if (!Object.hasOwn(limpo, nome)) delete process.env[nome];
+  }
   return { caminho, cliente };
 }

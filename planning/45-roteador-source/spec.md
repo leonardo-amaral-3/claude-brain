@@ -477,6 +477,9 @@ A linha é só informativa: a decisão é de cada chamada. Nada mais muda.
   `join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "hooks", "jev.js")` (C1, scripts);
 - carrega com `createRequire(import.meta.url)`;
 - faz `process.env = cliente.envSemJev(process.env)` (C6), o mesmo gesto do `jev.mjs` do #42;
+  - *nota 2026-11-11 (achado 6 do G4):* o efeito é o mesmo, mas o gesto muda. As chaves que o
+    `envSemJev` não devolve são apagadas **no lugar** (`delete process.env[nome]`), porque trocar o
+    `process.env` por um objeto comum perde a busca sem caixa do Windows e a conversão para string;
 - devolve `{ caminho, cliente }`.
 
 Se não achar o cliente, se a carga lançar, ou se `envSemJev` não for função, devolve
