@@ -12,7 +12,8 @@
 // determinístico de embeddings (ver embeddings-falso.mjs e a emenda 2026-09-09 da spec).
 
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -23,6 +24,17 @@ const modulo = (nome) => pathToFileURL(join(root, "dist", nome)).href;
 // file:// URL, e não o caminho cru: em Windows o `--import` recusa caminho absoluto
 // ("absolute paths must be valid file:// URLs") e o servidor morre antes de logar qualquer coisa.
 const hookStub = pathToFileURL(join(root, "scripts", "embeddings-falso-hook.mjs")).href;
+
+// O `envSemJev` do cliente do Jev (#42), resolvido na ordem do contrato: layout do repo, depois o
+// da instalação. O contrato exige que todo filho capaz de carregar o cliente nasça sem
+// `TYPESAFE_API_KEY` e sem nenhuma `BRAIN_JEV*` (G4 da PR #61, achado 5). Sem o cliente, nada há
+// para carregar, e tirar as mesmas chaves à mão dá o mesmo ambiente.
+const envSemJev = (() => {
+  const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const caminho = [join(root, "..", "hooks", "jev.js"), join(claudeHome, "hooks", "jev.js")].find((c) => existsSync(c));
+  if (caminho) return createRequire(import.meta.url)(caminho).envSemJev;
+  return (env) => Object.fromEntries(Object.entries(env).filter(([k]) => k !== "TYPESAFE_API_KEY" && !k.startsWith("BRAIN_JEV")));
+})();
 
 // TTL curto: o padrão de 60 s tornaria o caso do lease vencido inviável de rodar. Precisa ser
 // definido ANTES do import de dist/lease.js — TTL_MS é lido do ambiente no topo do módulo, uma
@@ -136,7 +148,7 @@ function subirServidor(fx, rotulo, envExtra = {}) {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
     env: {
-      ...process.env,
+      ...envSemJev(process.env),
       BRAIN_DB: fx.db,
       BRAIN_CONFIG: fx.config,
       BRAIN_LEASE_TTL_MS: String(TTL_SERVIDOR_MS),
@@ -2537,7 +2549,8 @@ caso("montar-pergunta-e-prazo", async () => {
 // ---------------------------------------------------------------- #46: freio de contradição (servidor)
 // Sobem `dist/index.js` com o hook, que troca `dist/juizJev.js` pelo Jev falso: nenhum processo
 // daqui alcança o Jev real, qualquer que seja o ambiente de quem roda. `BRAIN_CONTRADICAO_FALSO` vai
-// SEMPRE explícito no `envExtra` (o `subirServidor` herda o ambiente de quem roda o teste).
+// SEMPRE explícito no `envExtra` (o `subirServidor` herda o ambiente de quem roda o teste, menos a
+// chave e as `BRAIN_JEV*`, que o `envSemJev` tira).
 const { cosseno } = await import(pathToFileURL(join(root, "scripts", "embeddings-falso.mjs")).href);
 
 // Cada fato é uma frase só, de 22 palavras e 101 caracteres (o título do `.md` é a frase inteira,
@@ -2763,7 +2776,13 @@ caso("contradicao-mede-com-jev-falso", async () => {
     const antes = { linhas: contar(), snapshots: snapshots() };
     const r = spawnSync(process.execPath, ["--import", hookStub, join(root, "scripts", "contradicao.mjs"), ...args], {
       cwd: root,
-      env: { ...process.env, BRAIN_DB: fx.db, BRAIN_CONFIG: fx.config, BRAIN_CONTRADICAO_FALSO: jev, BRAIN_CONTRADICAO_FALSO_REGISTRO: registro },
+      env: {
+        ...envSemJev(process.env),
+        BRAIN_DB: fx.db,
+        BRAIN_CONFIG: fx.config,
+        BRAIN_CONTRADICAO_FALSO: jev,
+        BRAIN_CONTRADICAO_FALSO_REGISTRO: registro,
+      },
       encoding: "utf8",
     });
     ok(contar() === antes.linhas, `rodada ${rotulo}: a contagem de decisoes mudou`);
