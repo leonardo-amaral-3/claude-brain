@@ -206,6 +206,12 @@ export async function rotear(
   }
 
   // Uma cópia: `filtros` nunca é escrito.
+  //
+  // A volta abaixo é estreita, e é de propósito que o texto diga isso: a metade semântica devolve
+  // sempre os K mais próximos, sem corte de score, então a busca restrita só sai vazia quando a
+  // fonte escolhida não tem embeddings ou a semântica está fora do ar. Fora disso, o roteador é um
+  // filtro duro: uma rota confiante e errada traz K trechos da fonte errada e esconde o documento
+  // certo. Esse risco fica para a calibração com o Jev real (grupo B, emenda 2026-11-11).
   const r = await deps.buscar(query, { ...filtros, source: c.opcao }, limit);
   if (r.resultados.length > 0) return { ...r, roteado: c.opcao };
   return comoVeio();

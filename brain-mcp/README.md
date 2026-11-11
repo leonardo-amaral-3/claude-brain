@@ -246,6 +246,12 @@ fonte; a resposta traz a linha final
   `repo`, `feature` ou `doc_type` (o Jev não sabe desses filtros, e aí nem é consultado); não há
   cliente, chave ou resposta dentro do teto; a probabilidade fica abaixo do limiar; a escolha é
   `qualquer` ou uma fonte fora da lista; ou a busca restrita não acha nada.
+- **A volta por busca vazia é estreita.** A metade semântica devolve sempre os K trechos mais
+  próximos, sem corte de score, então a busca restrita só sai vazia quando a fonte escolhida não tem
+  embeddings ou a busca semântica está fora do ar. O roteador é um **filtro duro**: uma rota
+  confiante e errada (0,8 ou mais na fonte errada) traz K trechos da fonte errada e **esconde o
+  documento certo**, sem volta. Esse risco é pendência da calibração com o Jev real (grupo B do
+  card), junto do limiar e do teto.
 - **`uso`** grava os argumentos como chegaram: o filtro do roteador não entra na tabela nem no golden
   set que o `colher` tira dela.
 - **`eval`, `smoke` e `concorrencia`** limpam o Jev do ambiente dos filhos que sobem, para a medição não

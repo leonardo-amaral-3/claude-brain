@@ -29,6 +29,13 @@
 >   numa chamada com `repo` saía vazia por construção e pagava o teto e duas buscas. O
 >   `incluir_arquivadas` não restringe e não conta. Mudam o A4, o passo 1 do `rotear` e a definição
 >   de "chamada sem `source`", que vira "chamada sem filtro".
+> - **Achado 1 (só texto; o desenho não muda).** A volta do passo 4 do `rotear` ("busca restrita
+>   vazia") é estreita: a metade semântica devolve sempre os K mais próximos, sem corte de score
+>   (`vectors.ts`, `buscar`), então a busca restrita só sai vazia quando a fonte escolhida não tem
+>   embeddings ou a semântica está fora do ar. O roteador continua um **filtro duro**: uma rota
+>   confiante e errada esconde o documento certo, sem volta. Esse risco passa a ser **pendência
+>   declarada da calibração com o Jev real** (grupo B), junto do limiar e do teto. O último item
+>   do A2 continua valendo, mas cobre só esses dois casos.
 > - **Achado 7.** O `roteadorLigado` deixa de ter parser próprio do `BRAIN_JEV`: ele carrega o
 >   cliente pela mesma resolução do C1, dentro de `try`, e devolve `jev.ligado('roteador', env) === true`.
 >   A regra fica num lugar só, no cliente, e passa a exigir também chave ou `BRAIN_JEV_FALSO`
@@ -129,7 +136,8 @@ Definições usadas abaixo:
   - escolhedor que não responde dentro de `TETO_ROTEADOR_MS` (1000 ms);
   - opção fora da lista;
   - opção `qualquer`;
-  - fonte escolhida cuja busca filtrada volta vazia.
+  - fonte escolhida cuja busca filtrada volta vazia (*nota 2026-11-11:* na prática, só a fonte sem
+    embeddings ou a semântica fora do ar; ver o achado 1 na emenda do topo).
 
   No caso do timeout, a decisão do roteador custa no máximo o teto mais 300 ms. Isso foi medido com o
   buscador falso, que responde na hora; a busca real soma a latência dela (P3).
