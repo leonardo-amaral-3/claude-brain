@@ -213,7 +213,7 @@ for (const [nome, cliente] of [
 // --- R2: caso principal ---
 console.log("R2: caso principal");
 const CABECALHO_ESPERADO =
-  "**Sugestão do Jev** — só leitura, nada disto é gravado. `⚠ revisar` = o Jev dá menos de 70% ao valor proposto.\n\n" +
+  "**Sugestão do Jev** — só leitura, nada disto é gravado. `⚠ revisar` = o Jev dá menos de 70% ao valor proposto, ou à escolha dele quando não há proposta.\n\n" +
   "| Campo | Proposta da sessão | Jev nela | Escolha do Jev | |\n" +
   "|---|---|---|---|---|\n";
 const ESPERADO_PRINCIPAL =
@@ -689,6 +689,8 @@ const fonte = readFileSync(join(root, "skills", "gm-triage", "jev-triagem.mjs"),
 for (const proibido of ["child_process", "node:http", "node:https", "node:net", "node:tls", "fetch("]) {
   afirmar(!fonte.includes(proibido), `jev-triagem.mjs não contém ${proibido}`);
 }
+// achado 7 do G4: o limiar do cabeçalho sai de LIMIAR_PCT, não de um 70 escrito no texto
+afirmar(!/menos de \d+%/.test(fonte), "cabeçalho sem limiar escrito à mão: sai de LIMIAR_PCT");
 // invisível cru numa regex some no primeiro editor que o limpe; na fonte, só o escape
 afirmar(!/[\uFEFF\uFE0F]/.test(fonte), "jev-triagem.mjs sem U+FEFF nem U+FE0F crus (só os escapes)");
 

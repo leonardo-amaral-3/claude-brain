@@ -295,8 +295,11 @@ export async function sugerir({ opcoes, entrada, cliente, prazoMs = PRAZO_MS, fo
   return { estado: "ligado", ms, campos };
 }
 
+// O limiar do texto sai da constante; sem proposta (a Rota fora do S1), a marca é sobre a escolha do Jev.
 const CABECALHO =
-  "**Sugestão do Jev** — só leitura, nada disto é gravado. `⚠ revisar` = o Jev dá menos de 70% ao valor proposto.\n\n" +
+  "**Sugestão do Jev** — só leitura, nada disto é gravado. `⚠ revisar` = o Jev dá menos de " +
+  LIMIAR_PCT +
+  "% ao valor proposto, ou à escolha dele quando não há proposta.\n\n" +
   "| Campo | Proposta da sessão | Jev nela | Escolha do Jev | |\n" +
   "|---|---|---|---|---|";
 
