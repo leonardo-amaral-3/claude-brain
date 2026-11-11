@@ -193,6 +193,7 @@ Put on the critic hat (or spawn a fresh review pass) and attack the draft:
 - **Claims about the current code without verified evidence** — every "hoje o sistema faz X" needs `file:line` checked in this session.
 - Missing edge cases the card or the code imply; migrations/rollback/verificação declared N/A without a defensible reason.
 - **E2E and catalog premises.** In an e2e plan, a slow external system is simulated at the edge, never waited on. A premise inherited from a catalog (a list of endpoints, codes, fixtures) is checked against the actual environment in this session before the spec leans on it.
+- **Official reference rules.** When the workspace `CLAUDE.md` declares, under `## Convenções da esteira`, an item *Regra oficial* — where the authoritative version of the rules the product reimplements lives — a spec that creates or changes a rule covered by it cites the reference entry by path and checks the draft against it, branch by branch. Every case where the reference passes, dispenses or diverges from what the draft would flag becomes an acceptance criterion with its own test case. A covered rule whose reference was not consulted in this session is an open point, not a premise. No such item declared → nothing to check here.
 
 Fix what the critique finds; what can't be resolved alone goes to the user as an open point.
 

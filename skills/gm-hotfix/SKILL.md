@@ -49,7 +49,7 @@ and every `description` — is written in pt-BR.**
 
 ## Hard rules
 
-- **S1 or nothing.** No S1 → say so and route back to the normal path (`/gm-triage`, `/gm-card`). "É urgente" is not S1; the criterion below is.
+- **S1 or nothing — with one written exception.** No S1 → say so and route back to the normal path (`/gm-triage`, `/gm-card`), unless the defect qualifies as *isolation* (`## Phase 0`), which is asked, never assumed. "É urgente" is not S1; the criterion below is.
 - **Branch from `main`, PR to `main`.** `dev` is far ahead of production (dozens of unvalidated commits). Fixing an emergency through `dev` would ship all of it alongside the fix. `pr-branch-check` already allows `release/*` into `main`.
 - **Maximum 1 hotfix in the system.** Two simultaneous emergencies mean one of them is not S1, or production needs a rollback and not a fix.
 - **Merging into `main` deploys to production immediately** (`deploy.yml`, `yarn deploy -p`), and Prisma migrations run on container boot. A hotfix carrying a migration is a hotfix that can make the incident worse, so it is never a detail decided in passing: it goes to the human as a choice, and the question is written out in `## Phase 3 — Fix, minimally, with a test` — that is the only place this decision is taken.
@@ -78,6 +78,19 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
 Sem workaround praticável, ou o workaround **é** reparar dado à mão.
 
 Not S1: erro em dev, erro com workaround, lentidão sem prazo, bug feio numa tela. Say it plainly and offer the normal route.
+
+**Isolation — the only exception to S1, and it is asked, never assumed.** A defect that is not S1 qualifies when all three hold, each named with evidence: (1) it is live in production and costs something every day it stays, with no workaround the user can apply; (2) the normal route would carry the fix through `dev`, and `dev` carries work that cannot reach production now (an unvalidated payload, a held train); (3) waiting for that train costs more than running this rail. Then one `AskUserQuestion` call, header `Isolamento`, question and options in pt-BR:
+
+> O #<n> é <S2|S3>, não S1: <o efeito em produção>. A rota normal levaria a correção pela `dev`,
+> que hoje carrega <o que não pode subir>, e o próximo trem <quando sai, ou por que está parado>.
+> A linha vermelha pode ser usada por isolamento, não por gravidade.
+>
+> - **Hotfix por isolamento** — segue esta skill inteira, com revisão humana e verificação
+>   bloqueante. A exceção fica escrita no card (`## Rota`) e o post-mortem a registra.
+> - **Rota normal** — a correção vai pela `dev` e sobe com o próximo trem; o defeito segue em
+>   produção até lá.
+
+*Hotfix por isolamento* → the card keeps the Severidade it was triaged with (never raised to S1 to fit the rule), and `## Rota` on the card says, in one line, which of the three requisites made it isolation.
 
 **One at a time** — check the board before anything:
 
@@ -148,9 +161,34 @@ gh project item-edit --project-id <project-id> --id <item-id> \
   --field-id <field-id> --single-select-option-id <option-id>
 ```
 
+*Hotfix por isolamento* (`## Phase 0`) → do not write `Severidade=S1`: the card keeps the Severidade it was triaged with. The other fields are set as above.
+
 The hotfix goes straight to 🔨 Implementação — it skips 📋 Backlog and 🎯 Especificação by design.
 
 ## Phase 2 — Branch from `main`, in a worktree of its own
+
+**First: is there a hotfix for this card already?** The board check of `## Phase 0` sees cards, not sessions — a second session can rebuild a hotfix another one already merged. Before creating anything:
+
+```
+git fetch origin
+git ls-remote --heads origin 'release/hotfix-<n>-*'
+gh pr list --repo <owner>/<repo> --state all --limit 200 --json number,state,headRefName,mergedAt \
+  --jq '.[] | select(.headRefName | startswith("release/hotfix-<n>-"))'
+git worktree list | grep -- '-<n>-'
+```
+
+Any hit → stop. Put what exists in the message (branch, each PR with its state, worktree path, and the last commit with its time), then one `AskUserQuestion` call, header `Já existe`, question and options in pt-BR:
+
+> Já existe trabalho de hotfix para o #<n>: <o que foi achado>. Recriar a branch ou abrir outra PR
+> por cima é como nasce uma PR duplicata de um hotfix que talvez já esteja em produção.
+>
+> - **Retomar daqui** — esta sessão continua na branch e na worktree que existem, sem recriar nada.
+>   PR já mergeada → segue direto para a fase 5, passo 2 (deploy e verificação).
+> - **Deixar com quem começou** — outra sessão está com ele; esta para sem tocar em nada.
+> - **Recomeçar do zero** — só quando o que existe está errado. Nada é apagado nem sobrescrito sem
+>   a escolha *ação irreversível* de cada passo.
+
+Nothing found → continue below.
 
 Urgency buys priority, never a bypass: the hotfix branch lives in a worktree at
 `<workspace>/<repo>-<n>-<slug>` — sibling to the repo, inside the workspace prefix — exactly like a
@@ -341,6 +379,7 @@ Mandatory, in 📥 Triagem, asking the only question that improves the system:
 
 ## Qual gate deveria ter pego isso?
 [G1 critérios · G2 spec criticada · G3 teste no DoD · G4 revisão da PR · G5 validação/verificação — e por que não pegou]
+[hotfix por isolamento: por que a rota normal não podia levar a correção, e o que travava a `dev`]
 
 ## Ajuste proposto no gate
 [o que muda na skill, no checklist ou na política — o alvo é o gate, nunca a pessoa]
