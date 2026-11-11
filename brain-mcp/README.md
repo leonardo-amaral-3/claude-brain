@@ -104,9 +104,29 @@ reconstrói lendo o diff depois. `lembrar` grava na hora: um markdown em `<works
 (visível no Obsidian, indexado como qualquer doc) **e** uma linha na tabela `decisoes`.
 
 Ao gravar, a tool devolve decisões anteriores do mesmo escopo cujo texto é semanticamente próximo
-(cosseno ≥ 0,82). Ela **não afirma que há contradição** — julgar isso automaticamente seria chute
+(cosseno ≥ 0,82). A **busca** não afirma que há contradição — julgar isso automaticamente seria chute
 com cara de certeza. Ela traz os candidatos com a semelhança medida; quem escreve decide se
 substitui (`supersede: <id>`) ou se convivem.
+
+Com a flag do Jev ligada (#42), o `lembrar` vai um passo além: cada vizinha da lista é julgada
+("a decisão nova contradiz esta?") e a que sai com probabilidade ≥ 0,70 aparece marcada, na própria
+linha, como `[contradição provável, Jev 0.93]`. É anotação, não veredito: a tool nunca recusa a
+gravação nem preenche o `supersede` sozinha. O julgamento roda **depois** de a decisão estar gravada,
+com prazo (4 s por padrão); qualquer falha do Jev, valor inválido ou prazo vencido devolve a lista de
+hoje, sem marca nenhuma. Só o `fato` da decisão nova e o `fato` de cada vizinha julgada (até 5) saem
+para a TypeSafe AI. Quais vizinhas, porque o cofre de decisões é um só para todos os workspaces:
+- `lembrar` **com** `escopo`: as do mesmo escopo e as **sem escopo**, de qualquer workspace;
+- `lembrar` **sem** `escopo`: vizinhas de **qualquer escopo e de qualquer workspace** — a consulta
+  não filtra nada além da semelhança;
+- a vizinha que a própria chamada substitui (`supersede`) continua na lista, mas não vai ao Jev.
+
+Nada muda em disco: o `.md` do cofre, a tabela `decisoes` e o comentário `gm:decisao` ficam como eram.
+
+`npm run contradicao -- --enviar` mede essa marca sobre um snapshot do índice (quantas substituições
+já registradas ela acerta, quantas marcas não correspondem a substituição e a latência que soma ao
+`lembrar`). Só envia com a flag do Jev ligada **e** `--enviar`; sem um dos dois, diz o que mandaria e
+sai com código `2`. Uma rodada com o padrão manda o `fato` de até 80 decisões novas e de até 400
+vizinhas, então ela depende da chave do Jev e da autorização de Leonardo para mandar trechos do cofre.
 
 ## Frescor do índice
 
@@ -247,6 +267,7 @@ npm run embed              # gera embeddings dos chunks que ainda não têm (ret
 npm run grafo              # reconstrói o grafo de entidades
 npm run eval               # golden set: nDCG@5 sobre snapshot (--base <ref> é o portão)
 npm run colher             # recolhe o golden set da tabela uso, preservando os casos manuais
+npm run contradicao -- --enviar   # critério 4 do #46: mede a marca do Jev em substituições conhecidas (manda fatos à TypeSafe AI)
 npm run uso                # quantas vezes o Claude chamou cada tool
 npm run smoke              # sobe o servidor por stdio e testa as tools
 npm run jev                # cliente do Jev e filtro do hook (T1-T16), só com o cliente falso, sem rede
@@ -260,6 +281,7 @@ node dist/cli.js --force   # toma a liderança de um servidor vivo em vez de rec
 Variáveis de ambiente: `BRAIN_CONFIG` aponta para outro `brain.config.json` e `BRAIN_DB` para outro
 banco (úteis para testar sem mexer no seu índice); `BRAIN_LEASE_TTL_MS` ajusta o TTL do lease.
 `BRAIN_CLI_ESPERA_MS` muda os 10 s que a CLI espera antes de recusar (0 = recusa na hora).
+`BRAIN_CONTRADICAO_PRAZO_MS` é o prazo do julgamento de contradição no `lembrar` (padrão 4000; só inteiro de 1 a 2147483647 vale, o teto do `setTimeout`).
 `BRAIN_SOMENTE_CONSULTA=1` sobe um servidor que só consulta: não disputa o lease, não varre, não gera
 embeddings, e a tool `reindex` recusa até com `forcar: true`. Ele ainda aquece o modelo, porque a
 busca semântica continua valendo. É o modo que o `eval --base` usa contra o snapshot.

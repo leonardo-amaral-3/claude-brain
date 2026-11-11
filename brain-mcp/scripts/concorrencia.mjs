@@ -11,8 +11,9 @@
 // que sobem `dist/index.js` de verdade e falam JSON-RPC por stdio. Os de servidor recebem o stub
 // determinístico de embeddings (ver embeddings-falso.mjs e a emenda 2026-09-09 da spec).
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync } from "node:fs";
+import { createRequire } from "node:module";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -30,6 +31,17 @@ const modulo = (nome) => pathToFileURL(join(root, "dist", nome)).href;
 // file:// URL, e não o caminho cru: em Windows o `--import` recusa caminho absoluto
 // ("absolute paths must be valid file:// URLs") e o servidor morre antes de logar qualquer coisa.
 const hookStub = pathToFileURL(join(root, "scripts", "embeddings-falso-hook.mjs")).href;
+
+// O `envSemJev` do cliente do Jev (#42), resolvido na ordem do contrato: layout do repo, depois o
+// da instalação. O contrato exige que todo filho capaz de carregar o cliente nasça sem
+// `TYPESAFE_API_KEY` e sem nenhuma `BRAIN_JEV*` (G4 da PR #61, achado 5). Sem o cliente, nada há
+// para carregar, e tirar as mesmas chaves à mão dá o mesmo ambiente.
+const envSemJev = (() => {
+  const claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const caminho = [join(root, "..", "hooks", "jev.js"), join(claudeHome, "hooks", "jev.js")].find((c) => existsSync(c));
+  if (caminho) return createRequire(import.meta.url)(caminho).envSemJev;
+  return (env) => Object.fromEntries(Object.entries(env).filter(([k]) => k !== "TYPESAFE_API_KEY" && !k.startsWith("BRAIN_JEV")));
+})();
 
 // TTL curto: o padrão de 60 s tornaria o caso do lease vencido inviável de rodar. Precisa ser
 // definido ANTES do import de dist/lease.js — TTL_MS é lido do ambiente no topo do módulo, uma
@@ -143,7 +155,7 @@ function subirServidor(fx, rotulo, envExtra = {}) {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
     env: {
-      ...process.env,
+      ...envSemJev(process.env),
       BRAIN_DB: fx.db,
       BRAIN_CONFIG: fx.config,
       BRAIN_LEASE_TTL_MS: String(TTL_SERVIDOR_MS),
@@ -2362,6 +2374,558 @@ caso("eval-base-dentro-do-git-le-a-branch-do-git", async () => {
   ok(!/veio da branch/.test(r.erro), `o marcador foi lido para a branch de uma instalação que é git:\n${r.tudo()}`);
   ok(/npm run build/.test(r.erro), `quem parou devia ser a guarda de frescor, com a branch resolvida pelo git:\n${r.tudo()}`);
   semTrabalho(r, inst);
+});
+
+// ---------------------------------------------------------------- #46: freio de contradição (unidade)
+// Importa dist/contradicao.js neste processo. Nenhum caso daqui alcança o Jev real: o cliente é
+// sempre um falso escrito no próprio caso.
+const contradicao = () => import(modulo("contradicao.js"));
+const vizinhaFalsa = (id, fato, extra = {}) => ({ id, data: "2026-11-10", escopo: "freio", fato, semelhanca: 0.9, ...extra });
+
+// Cabeçalho copiado caractere a caractere de tools.ts:560-561 (origin/dev), travessão incluso.
+const CABECALHO_AVISO =
+  "\n\nJá havia registro sobre o mesmo assunto — confira se alguma contradiz esta e, se sim, " +
+  "chame lembrar de novo com supersede:<id>:\n";
+
+caso("contradicao-sem-juiz-nao-julga", async () => {
+  const { julgarContradicoes } = await contradicao();
+  ok((await julgarContradicoes("nova", [vizinhaFalsa(1, "a")], null)) === null, "sem juiz devia devolver null");
+  let chamadas = 0;
+  const juiz = async () => {
+    chamadas++;
+    return 0.99;
+  };
+  ok((await julgarContradicoes("nova", [], juiz)) === null, "sem vizinhas devia devolver null");
+  ok(chamadas === 0, `sem vizinhas o juiz não podia ser chamado, foi ${chamadas}x`);
+});
+
+caso("contradicao-marca-so-acima-do-limiar", async () => {
+  const { julgarContradicoes } = await contradicao();
+  const probabilidades = { fatoA: 0.91, fatoB: 0.7, fatoC: 0.69, fatoD: 0.2 };
+  const pares = [];
+  const juiz = async (par) => {
+    pares.push(par);
+    return probabilidades[par.anterior];
+  };
+  const vizinhas = [1, 2, 3, 4].map((id, i) => vizinhaFalsa(id, ["fatoA", "fatoB", "fatoC", "fatoD"][i]));
+  const marcas = await julgarContradicoes("fatoNovo", vizinhas, juiz);
+  ok(marcas instanceof Map, "devia devolver Map");
+  ok(marcas.size === 2 && marcas.get(1) === 0.91 && marcas.get(2) === 0.7, `marcas erradas: ${JSON.stringify([...(marcas ?? [])])}`);
+  ok(pares.length === 4, `4 vizinhas = 4 chamadas, foram ${pares.length}`);
+  for (const par of pares) {
+    ok(JSON.stringify(Object.keys(par).sort()) === '["anterior","nova"]', `chaves do par: ${Object.keys(par)}`);
+    ok(par.nova === "fatoNovo", "par.nova devia ser o fato da nova");
+  }
+  ok(pares.map((p) => p.anterior).sort().join() === "fatoA,fatoB,fatoC,fatoD", "par.anterior devia ser o fato de cada vizinha");
+
+  let chamadasTeto = 0;
+  const sete = Array.from({ length: 7 }, (_, i) => vizinhaFalsa(i + 1, `f${i}`));
+  await julgarContradicoes("n", sete, async () => (chamadasTeto++, 0.1));
+  ok(chamadasTeto === 5, `7 vizinhas = 5 chamadas, foram ${chamadasTeto}`);
+});
+
+caso("contradicao-falha-volta-ao-aviso-de-hoje", async () => {
+  const { julgarContradicoes } = await contradicao();
+  const vizinhas = [vizinhaFalsa(1, "a"), vizinhaFalsa(2, "b"), vizinhaFalsa(3, "c")];
+  const umRejeita = async (par) => {
+    if (par.anterior === "b") throw new Error("de propósito");
+    return 0.95;
+  };
+  ok((await julgarContradicoes("n", vizinhas, umRejeita)) === null, "um par rejeitando devia dar null");
+  const throwSincrono = () => {
+    throw new Error("sincrono");
+  };
+  ok((await julgarContradicoes("n", vizinhas, throwSincrono)) === null, "throw síncrono devia dar null");
+  for (const invalido of [1.7, -0.1, NaN, "0.9"]) {
+    const r = await julgarContradicoes("n", vizinhas, async () => invalido);
+    ok(r === null, `valor ${String(invalido)} devia dar null`);
+  }
+});
+
+caso("contradicao-prazo-estoura", async () => {
+  const { julgarContradicoes } = await contradicao();
+  let sinal;
+  const nuncaResolve = (_par, signal) => {
+    sinal = signal;
+    return new Promise(() => {});
+  };
+  const t0 = Date.now();
+  const r = await julgarContradicoes("n", [vizinhaFalsa(1, "a")], nuncaResolve, 100);
+  ok(r === null, "prazo estourado devia dar null");
+  ok(Date.now() - t0 < 1000, `devia voltar em < 1000 ms, levou ${Date.now() - t0}`);
+  ok(sinal?.aborted === true, "o signal devia estar abortado depois do prazo");
+
+  // Regressão: rejeição que chega depois do prazo não pode virar unhandledRejection.
+  let naoTratadas = 0;
+  const contar = () => naoTratadas++;
+  process.on("unhandledRejection", contar);
+  try {
+    const rejeitaTarde = () => new Promise((_, rejeitar) => setTimeout(() => rejeitar(new Error("tarde")), 200));
+    ok((await julgarContradicoes("n", [vizinhaFalsa(1, "a")], rejeitaTarde, 100)) === null, "devia dar null");
+    await dormir(300);
+    ok(naoTratadas === 0, `${naoTratadas} unhandledRejection(s) depois do prazo`);
+  } finally {
+    process.off("unhandledRejection", contar);
+  }
+});
+
+caso("juiz-jev-adaptador", async () => {
+  const { criarJulgarPar, montarPergunta } = await contradicao();
+  const par = { nova: "fato novo", anterior: "fato anterior" };
+  const sinal = new AbortController().signal;
+  const clienteCom = (ligado, perguntar) => ({ ligado, perguntar });
+
+  ok((await criarJulgarPar(clienteCom(() => false, async () => null))) === null, "ligado=false devia dar null");
+  const lancando = await criarJulgarPar(
+    clienteCom(() => {
+      throw new Error("predicado quebrou");
+    }, async () => null)
+  );
+  ok(lancando === null, "ligado que lança devia dar null sem rejeitar");
+
+  let recebido;
+  let resposta = { resposta: "sim", probabilidade: 0.8 };
+  const julgar = await criarJulgarPar(
+    clienteCom(async () => true, async (texto, signal) => {
+      recebido = { texto, signal };
+      return resposta;
+    })
+  );
+  ok(typeof julgar === "function", "ligado assíncrono true devia dar função");
+  ok((await julgar(par, sinal)) === 0.8, "sim 0.8 devia dar 0.8");
+  ok(recebido.texto === montarPergunta(par), "o texto entregue ao cliente devia ser montarPergunta(par)");
+  ok(recebido.signal === sinal, "o signal entregue devia ser o passado");
+
+  resposta = { resposta: "não", probabilidade: 0.8 };
+  ok(Math.abs((await julgar(par, sinal)) - 0.2) < 1e-9, "não 0.8 devia dar 0.2");
+
+  for (const ruim of [null, { resposta: "Sim", probabilidade: 0.9 }, { resposta: "nao", probabilidade: 0.9 }, { resposta: "sim", probabilidade: 1.5 }]) {
+    resposta = ruim;
+    let rejeitou = false;
+    await julgar(par, sinal).catch(() => (rejeitou = true));
+    ok(rejeitou, `devia rejeitar com ${JSON.stringify(ruim)}`);
+  }
+});
+
+// G4 da PR #61, achado 4: a ponte de produção (`dist/juizJev.js` REAL + `hooks/jev.js`) num filho
+// SEM o hook de troca, com o cliente falso do próprio #42 (`BRAIN_JEV=lembrar` + `BRAIN_JEV_FALSO`)
+// e sem `TYPESAFE_API_KEY`. O `fetch` do filho lança e é contado: nenhuma chamada toca a rede.
+caso("juiz-jev-ponte-real", async () => {
+  const { montarPergunta } = await contradicao();
+  const par = { nova: "fato novo da ponte", anterior: "fato anterior da ponte" };
+  // O roteiro só responde à pergunta `contradiz` cujo `estado` é montarPergunta(par): P(sim) 0,37
+  // prova a resolução do caminho, o `createRequire`, a chave, o `estado` (R6) e a P(sim) de uma vez.
+  const roteiro = join(fixture, "ponte-jev-roteiro.json");
+  writeFileSync(
+    roteiro,
+    JSON.stringify({
+      regras: [{ quando: { pergunta: montarPergunta(par), id: "contradiz" }, responde: { probabilidade: 0.37 } }],
+      padrao: { indisponivel: "rede" },
+    })
+  );
+  const filho = [
+    `let chamadasFetch = 0;`,
+    `globalThis.fetch = () => { chamadasFetch++; throw new Error("rede proibida no teste"); };`,
+    `const { obterJulgarPar } = await import(${JSON.stringify(modulo("juizJev.js"))});`,
+    `const julgar = await obterJulgarPar();`,
+    `const saida = { ligado: julgar !== null };`,
+    `if (julgar) {`,
+    `  try { saida.p = await julgar(JSON.parse(process.env.PONTE_PAR), new AbortController().signal); }`,
+    `  catch (e) { saida.erro = e.message; }`,
+    `}`,
+    `saida.chamadasFetch = chamadasFetch;`,
+    `console.log(JSON.stringify(saida));`,
+  ].join("\n");
+  const rodar = (rotulo, envJev, parDoCaso = par) => {
+    const env = { ...envSemJev(process.env), ...envJev, PONTE_PAR: JSON.stringify(parDoCaso) };
+    delete env.NODE_OPTIONS; // nenhum --import pode trocar o juizJev.js por baixo
+    ok(!("TYPESAFE_API_KEY" in env), `${rotulo}: a chave chegou ao filho`);
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", filho], { cwd: root, env, encoding: "utf8" });
+    ok(r.status === 0, `${rotulo}: o filho saiu ${r.status}\n${r.stderr}`);
+    const saida = JSON.parse(r.stdout.trim().split("\n").pop());
+    ok(saida.chamadasFetch === 0, `${rotulo}: ${saida.chamadasFetch} chamada(s) de fetch`);
+    return saida;
+  };
+
+  const doRoteiro = rodar("roteiro", { BRAIN_JEV: "lembrar", BRAIN_JEV_FALSO: roteiro });
+  ok(doRoteiro.ligado && doRoteiro.p === 0.37, `com o roteiro devia dar P(sim) 0.37: ${JSON.stringify(doRoteiro)}`);
+
+  const sim = rodar("sim", { BRAIN_JEV: "lembrar", BRAIN_JEV_FALSO: "sim" });
+  ok(sim.ligado && sim.p === 0.95, `com o falso "sim" devia dar 0.95: ${JSON.stringify(sim)}`);
+
+  // Outro par cai no `padrao` indisponível: a ponte devolve null e o juiz rejeita (R3).
+  const outro = rodar("indisponivel", { BRAIN_JEV: "lembrar", BRAIN_JEV_FALSO: roteiro }, { nova: "outra", anterior: "coisa" });
+  ok(outro.ligado && outro.p === undefined && outro.erro === "jev sem resposta", `indisponível devia rejeitar: ${JSON.stringify(outro)}`);
+
+  // Cliente desligado: `lembrar` fora de BRAIN_JEV (ou BRAIN_JEV ausente) -> obterJulgarPar() null.
+  ok(rodar("outro-uso", { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim" }).ligado === false, "lembrar fora de BRAIN_JEV devia dar null");
+  ok(rodar("sem-flag", { BRAIN_JEV_FALSO: "sim" }).ligado === false, "sem BRAIN_JEV devia dar null");
+});
+
+caso("aviso-sem-marca-igual-ao-de-hoje", async () => {
+  const { formatarAviso } = await contradicao();
+  const vizinhas = [
+    { id: 12, data: "2026-11-09", escopo: "freio", fato: "primeiro fato", semelhanca: 0.9123 },
+    { id: 7, data: "2026-11-01", escopo: null, fato: "segundo fato", semelhanca: 0.85 },
+  ];
+  const esperado = CABECALHO_AVISO + "  #12 (2026-11-09, freio, semelhança 0.91): primeiro fato\n" + "  #7 (2026-11-01, semelhança 0.85): segundo fato";
+  ok(formatarAviso(vizinhas, null) === esperado, `sem marcas (null) mudou:\n${formatarAviso(vizinhas, null)}`);
+  ok(formatarAviso(vizinhas, new Map()) === esperado, "com Map vazio devia ser igual");
+  ok(formatarAviso([], null) === "", "sem vizinhas devia ser vazio");
+});
+
+caso("aviso-com-marca-muda-so-a-linha-marcada", async () => {
+  const { formatarAviso } = await contradicao();
+  const vizinhas = [
+    { id: 12, data: "2026-11-09", escopo: "freio", fato: "primeiro fato", semelhanca: 0.9123 },
+    { id: 7, data: "2026-11-01", escopo: null, fato: "segundo fato", semelhanca: 0.85 },
+  ];
+  const esperado =
+    CABECALHO_AVISO +
+    "  #12 (2026-11-09, freio, semelhança 0.91) [contradição provável, Jev 0.93]: primeiro fato\n" +
+    "  #7 (2026-11-01, semelhança 0.85): segundo fato";
+  const obtido = formatarAviso(vizinhas, new Map([[12, 0.934]]));
+  ok(obtido === esperado, `aviso marcado errado:\n${obtido}`);
+});
+
+caso("montar-pergunta-e-prazo", async () => {
+  const { montarPergunta, prazoJulgamentoMs } = await contradicao();
+  const esperado =
+    "Duas decisões registradas no mesmo cofre de decisões de projeto.\n\n" +
+    "Decisão anterior: ANT\n\n" +
+    "Decisão nova: NOV\n\n" +
+    "A decisão nova contradiz a decisão anterior, isto é, as duas não podem valer ao mesmo tempo?";
+  ok(montarPergunta({ nova: "NOV", anterior: "ANT" }) === esperado, "texto da pergunta diverge da spec");
+
+  const original = process.env.BRAIN_CONTRADICAO_PRAZO_MS;
+  try {
+    const casosPrazo = [[undefined, 4000], ["250", 250], ["0", 4000], ["-5", 4000], ["abc", 4000], ["2.5", 4000]];
+    // Teto do setTimeout (G4 da PR #61, achado 3): acima de 2^31 - 1 o timer dispararia em ~1 ms.
+    casosPrazo.push(["2147483647", 2147483647], ["2147483648", 4000], ["99999999999999999999", 4000]);
+    for (const [env, esperadoMs] of casosPrazo) {
+      if (env === undefined) delete process.env.BRAIN_CONTRADICAO_PRAZO_MS;
+      else process.env.BRAIN_CONTRADICAO_PRAZO_MS = env;
+      ok(prazoJulgamentoMs() === esperadoMs, `env ${JSON.stringify(env)} devia dar ${esperadoMs}, deu ${prazoJulgamentoMs()}`);
+    }
+  } finally {
+    if (original === undefined) delete process.env.BRAIN_CONTRADICAO_PRAZO_MS;
+    else process.env.BRAIN_CONTRADICAO_PRAZO_MS = original;
+  }
+});
+
+// ---------------------------------------------------------------- #46: freio de contradição (servidor)
+// Sobem `dist/index.js` com o hook, que troca `dist/juizJev.js` pelo Jev falso: nenhum processo
+// daqui alcança o Jev real, qualquer que seja o ambiente de quem roda. `BRAIN_CONTRADICAO_FALSO` vai
+// SEMPRE explícito no `envExtra` (o `subirServidor` herda o ambiente de quem roda o teste, menos a
+// chave e as `BRAIN_JEV*`, que o `envSemJev` tira).
+const { cosseno } = await import(pathToFileURL(join(root, "scripts", "embeddings-falso.mjs")).href);
+
+// Cada fato é uma frase só, de 22 palavras e 101 caracteres (o título do `.md` é a frase inteira,
+// até 110), e os três diferem em UMA palavra entre as cinco primeiras: o nome do `.md` sai dos 60
+// primeiros caracteres do slug, e palavra diferente depois deles faria um sobrescrever o outro.
+const COLA_FATO_FREIO = "da nossa regra para gravar fato no cofre e avisar quem le se algo ja dito for do mesmo tema hoje";
+const fatoFreio = (palavra, marcador = "") => `${palavra} ${COLA_FATO_FREIO}${marcador}`;
+const hojeUtc = () => new Date().toISOString().slice(0, 10);
+
+async function semelhancaEntre(a, b) {
+  const [va] = await embutirFalso([a]);
+  const [vb] = await embutirFalso([b]);
+  return cosseno(vb, va).toFixed(2);
+}
+
+/** Sobe um servidor com o Jev falso no modo pedido e uma fixture com cofre de decisões. */
+async function servidorComJevFalso(nome, modo, envExtra = {}) {
+  const fx = criarFixture(nome, {}, { comDecisoes: true });
+  fx.registroJev = join(fx.dir, "jev-falso.log");
+  const s = subirServidor(fx, nome, {
+    BRAIN_CONTRADICAO_FALSO: modo,
+    BRAIN_CONTRADICAO_FALSO_REGISTRO: fx.registroJev,
+    ...envExtra,
+  });
+  await ate(() => s.bootou(), 30000, () => `o servidor bootar -> ${s.diagnostico()}`);
+  await s.handshake();
+  return { fx, s };
+}
+
+const gravarFreio = (s, fato) => s.chamarCru("lembrar", { fato, tipo: "decisao", escopo: "freio" });
+
+const linhasDoRegistro = (fx) =>
+  existsSync(fx.registroJev)
+    ? readFileSync(fx.registroJev, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    : [];
+
+/** R4 em cada caso de servidor: nada recusado, `supersede` vazio e nenhuma vizinha supersedida. */
+function afirmarR4(fx, resposta, idNova, idsVizinhas) {
+  ok(!resposta.falhou, `a tool recusou ou deu erro: ${resposta.resumo()}`);
+  const db = openDb(fx.db);
+  try {
+    const nova = db.prepare("SELECT supersede FROM decisoes WHERE id = ?").get(idNova);
+    ok(nova && nova.supersede === null, `supersede da nova devia ser NULL, veio ${JSON.stringify(nova)}`);
+    for (const id of idsVizinhas) {
+      const v = db.prepare("SELECT supersedida_por FROM decisoes WHERE id = ?").get(id);
+      ok(v && v.supersedida_por === null, `a vizinha #${id} foi supersedida sozinha: ${JSON.stringify(v)}`);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+function lerDecisaoPorFato(fx, fato) {
+  const db = openDb(fx.db);
+  try {
+    return db.prepare("SELECT id, doc_path FROM decisoes WHERE fato = ?").get(fato) ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+/** O texto que o `lembrar` devolve hoje para B com uma única vizinha (A), sem marca. */
+async function textoDeHoje(idB, pathB, idA, fatoA, fatoB) {
+  const s = await semelhancaEntre(fatoB, fatoA);
+  return `Registrado como #${idB} em ${pathB}` + CABECALHO_AVISO + `  #${idA} (${hojeUtc()}, freio, semelhança ${s}): ${fatoA}`;
+}
+
+caso("lembrar-com-jev-desligado-fica-como-hoje", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-desligado", "desligado");
+  const fatoA = fatoFreio("Alfa");
+  const fatoB = fatoFreio("Beta");
+  const a = await gravarFreio(s, fatoA);
+  ok(!a.falhou, `gravar A falhou: ${a.resumo()}`);
+  const b = await gravarFreio(s, fatoB);
+  const dA = lerDecisaoPorFato(fx, fatoA);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA && dB, "A e B deviam estar gravadas");
+  ok(b.texto.includes(`#${dA.id} (`), `A devia estar na lista de vizinhas: ${b.texto}`);
+  const esperado = await textoDeHoje(dB.id, dB.doc_path, dA.id, fatoA, fatoB);
+  ok(b.texto === esperado, `texto diverge do de hoje:\n${b.texto}\n--- esperado:\n${esperado}`);
+  afirmarR4(fx, b, dB.id, [dA.id]);
+  ok(linhasDoRegistro(fx).length === 0, "com o Jev desligado o juiz nem devia existir, mas o registro tem linhas");
+});
+
+caso("lembrar-com-jev-falso-marca-a-contradicao", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-ligado", "ligado");
+  const fatoA1 = fatoFreio("Alfa", " [p=0.93]");
+  const fatoA2 = fatoFreio("Beta");
+  const fatoB = fatoFreio("Gama");
+  ok(!(await gravarFreio(s, fatoA1)).falhou, "gravar A1 falhou");
+  ok(!(await gravarFreio(s, fatoA2)).falhou, "gravar A2 falhou");
+  const b = await gravarFreio(s, fatoB);
+  const dA1 = lerDecisaoPorFato(fx, fatoA1);
+  const dA2 = lerDecisaoPorFato(fx, fatoA2);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA1 && dA2 && dB, "A1, A2 e B deviam estar gravadas");
+
+  // Primeiro as vizinhas esperadas na lista, só depois a marca.
+  const linhas = b.texto.split("\n");
+  const linhaA1 = linhas.find((l) => l.startsWith(`  #${dA1.id} (`));
+  const linhaA2 = linhas.find((l) => l.startsWith(`  #${dA2.id} (`));
+  ok(linhaA1 && linhaA2, `A1 e A2 deviam estar na lista:\n${b.texto}`);
+  const sA1 = await semelhancaEntre(fatoB, fatoA1);
+  const sA2 = await semelhancaEntre(fatoB, fatoA2);
+  ok(
+    linhaA1 === `  #${dA1.id} (${hojeUtc()}, freio, semelhança ${sA1}) [contradição provável, Jev 0.93]: ${fatoA1}`,
+    `linha de A1 sem a marca esperada: ${linhaA1}`
+  );
+  ok(
+    linhaA2 === `  #${dA2.id} (${hojeUtc()}, freio, semelhança ${sA2}): ${fatoA2}`,
+    `linha de A2 devia ser a de hoje: ${linhaA2}`
+  );
+  afirmarR4(fx, b, dB.id, [dA1.id, dA2.id]);
+
+  // R6: só `nova` e `anterior` saem, e um par por vizinha.
+  const registro = linhasDoRegistro(fx);
+  for (const { par } of registro) {
+    ok(
+      JSON.stringify(Object.keys(par).sort()) === JSON.stringify(["anterior", "nova"]),
+      `o par levou chaves a mais: ${JSON.stringify(par)}`
+    );
+  }
+  const dessaNova = registro.filter(({ par }) => par.nova === fatoB);
+  ok(dessaNova.length === 2, `esperava 2 pares com a nova, vieram ${dessaNova.length}`);
+  const anteriores = dessaNova.map(({ par }) => par.anterior).sort();
+  ok(JSON.stringify(anteriores) === JSON.stringify([fatoA1, fatoA2].sort()), `anteriores errados: ${anteriores}`);
+
+  // R5: o `.md` é o de hoje, sem rastro do julgamento.
+  const md = readFileSync(dB.doc_path, "utf8");
+  const literal = `---\ndata: ${hojeUtc()}\ntipo: decisao\nescopo: freio\n---\n\n# ${fatoB}\n\n${fatoB}\n`;
+  ok(md === literal, `o .md de B diverge do formato de hoje:\n${md}`);
+});
+
+// G4 da PR #61, achado 1: a vizinha que a própria chamada substitui não vai ao Jev. A1 e A2 trazem
+// marcador, então o falso marcaria as duas; com `supersede: A1`, só A2 pode sair marcada, e A1
+// continua na lista do aviso, sem marca.
+caso("lembrar-com-supersede-nao-julga-a-substituida", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-supersede", "ligado");
+  const fatoA1 = fatoFreio("Alfa", " [p=0.93]");
+  const fatoA2 = fatoFreio("Beta", " [p=0.95]");
+  const fatoB = fatoFreio("Gama");
+  ok(!(await gravarFreio(s, fatoA1)).falhou, "gravar A1 falhou");
+  ok(!(await gravarFreio(s, fatoA2)).falhou, "gravar A2 falhou");
+  const dA1 = lerDecisaoPorFato(fx, fatoA1);
+  ok(dA1, "A1 devia estar gravada");
+  const b = await s.chamarCru("lembrar", { fato: fatoB, tipo: "decisao", escopo: "freio", supersede: dA1.id });
+  ok(!b.falhou, `a tool recusou ou deu erro: ${b.resumo()}`);
+  const dA2 = lerDecisaoPorFato(fx, fatoA2);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA2 && dB, "A2 e B deviam estar gravadas");
+  ok(b.texto.startsWith(`Registrado como #${dB.id} em ${dB.doc_path} (substitui #${dA1.id})${CABECALHO_AVISO}`), `cabeçalho inesperado:\n${b.texto}`);
+
+  // Primeiro as duas vizinhas na lista, só depois as marcas.
+  const linhas = b.texto.split("\n");
+  const linhaA1 = linhas.find((l) => l.startsWith(`  #${dA1.id} (`));
+  const linhaA2 = linhas.find((l) => l.startsWith(`  #${dA2.id} (`));
+  ok(linhaA1 && linhaA2, `A1 e A2 deviam estar na lista:\n${b.texto}`);
+  const sA1 = await semelhancaEntre(fatoB, fatoA1);
+  const sA2 = await semelhancaEntre(fatoB, fatoA2);
+  ok(linhaA1 === `  #${dA1.id} (${hojeUtc()}, freio, semelhança ${sA1}): ${fatoA1}`, `a substituída não podia sair marcada: ${linhaA1}`);
+  ok(
+    linhaA2 === `  #${dA2.id} (${hojeUtc()}, freio, semelhança ${sA2}) [contradição provável, Jev 0.95]: ${fatoA2}`,
+    `A2 devia sair marcada (prova que o Jev rodou): ${linhaA2}`
+  );
+
+  // O `fato` da substituída não sai: o registro do falso só tem o par com A2.
+  const dessaNova = linhasDoRegistro(fx).filter(({ par }) => par.nova === fatoB);
+  ok(dessaNova.length === 1 && dessaNova[0].par.anterior === fatoA2, `pares da nova errados: ${JSON.stringify(dessaNova)}`);
+
+  // O `supersede` é o que quem chamou passou, e só ele.
+  const db = openDb(fx.db);
+  try {
+    ok(db.prepare("SELECT supersede FROM decisoes WHERE id = ?").get(dB.id).supersede === dA1.id, "supersede de B devia ser A1");
+    ok(db.prepare("SELECT supersedida_por FROM decisoes WHERE id = ?").get(dA2.id).supersedida_por === null, "A2 foi supersedida sozinha");
+  } finally {
+    db.close();
+  }
+});
+
+caso("lembrar-com-jev-em-erro-grava-e-avisa-como-hoje", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-erro", "erro");
+  const fatoA = fatoFreio("Alfa");
+  const fatoB = fatoFreio("Beta");
+  ok(!(await gravarFreio(s, fatoA)).falhou, "gravar A falhou");
+  const b = await gravarFreio(s, fatoB);
+  const dA = lerDecisaoPorFato(fx, fatoA);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA && dB, "A e B deviam estar gravadas apesar do erro do Jev");
+  ok(existsSync(dB.doc_path), "o .md de B devia existir");
+  const esperado = await textoDeHoje(dB.id, dB.doc_path, dA.id, fatoA, fatoB);
+  ok(b.texto === esperado, `com o Jev em erro o texto devia ser o de hoje:\n${b.texto}`);
+  afirmarR4(fx, b, dB.id, [dA.id]);
+  const dessaNova = linhasDoRegistro(fx).filter(({ par }) => par.nova === fatoB);
+  ok(dessaNova.length === 1, `esperava 1 chamada do juiz para B, vieram ${dessaNova.length}`);
+});
+
+caso("lembrar-com-jev-lento-respeita-o-prazo", async () => {
+  const { fx, s } = await servidorComJevFalso("jev-lento", "lento", { BRAIN_CONTRADICAO_PRAZO_MS: "300" });
+  const fatoA = fatoFreio("Alfa");
+  const fatoB = fatoFreio("Beta");
+  ok(!(await gravarFreio(s, fatoA)).falhou, "gravar A falhou");
+  const inicio = Date.now();
+  const b = await gravarFreio(s, fatoB);
+  const levou = Date.now() - inicio;
+  ok(levou < 5000, `o lembrar devia respeitar o prazo de 300 ms, levou ${levou} ms`);
+  const dA = lerDecisaoPorFato(fx, fatoA);
+  const dB = lerDecisaoPorFato(fx, fatoB);
+  ok(dA && dB, "B devia estar gravada");
+  ok(!b.texto.includes("contradição provável"), `não devia haver marca:\n${b.texto}`);
+  const esperado = await textoDeHoje(dB.id, dB.doc_path, dA.id, fatoA, fatoB);
+  ok(b.texto === esperado, `sem marca o texto devia ser o de hoje:\n${b.texto}`);
+  afirmarR4(fx, b, dB.id, [dA.id]);
+  await dormir(1000);
+  ok(s.vivo, `o servidor morreu depois do prazo: ${s.diagnostico()}`);
+  const busca = await s.chamarCru("search_context", { query: "regra para gravar fato", limit: 3 });
+  ok(!busca.falhou, `search_context depois do prazo falhou: ${busca.resumo()}`);
+});
+
+caso("contradicao-mede-com-jev-falso", async () => {
+  // Dois temas sem palavra em comum, para que só os do mesmo tema fiquem acima de 0,82. Os
+  // marcadores `[p=...]` só entram em A e D (os "antigos"): N1 e N2 não têm, e é por isso que os
+  // temas continuam sem palavra comum entre si.
+  const COLA_Y = "o relogio do servidor precisa marcar horario de verao sem pular nenhuma execucao agendada durante a madrugada de domingo nesta regiao";
+  const fatos = {
+    A: `Alfa ${COLA_FATO_FREIO} [p=0.9]`,
+    C: `Beta ${COLA_FATO_FREIO}`,
+    D: `Delta ${COLA_Y} [p=0.8]`,
+    N1: `Gama ${COLA_FATO_FREIO}`,
+    N2: `Sigma ${COLA_Y}`,
+  };
+  const vetores = {};
+  for (const [nome, fato] of Object.entries(fatos)) vetores[nome] = (await embutirFalso([fato]))[0];
+  // Confere pelo próprio stub, antes de rodar o script, quem é vizinho de quem.
+  for (const [a, b] of [["N1", "A"], ["N1", "C"], ["N2", "D"]]) {
+    ok(cosseno(vetores[a], vetores[b]) >= 0.82, `${a}×${b} devia ficar >= 0,82: ${cosseno(vetores[a], vetores[b])}`);
+  }
+  for (const [a, b] of [["N1", "D"], ["N2", "A"], ["N2", "C"], ["N2", "N1"]]) {
+    ok(cosseno(vetores[a], vetores[b]) < 0.82, `${a}×${b} devia ficar < 0,82: ${cosseno(vetores[a], vetores[b])}`);
+  }
+
+  const fx = criarFixture("contradicao-mede", {}, { comDecisoes: true });
+  const db = openDb(fx.db);
+  const ids = {};
+  try {
+    const inserir = db.prepare(
+      "INSERT INTO decisoes (ts, data, tipo, escopo, fato, supersede, embedding) VALUES (?, ?, 'decisao', 'freio', ?, ?, ?)"
+    );
+    let ts = 1000;
+    for (const nome of ["A", "C", "D", "N1", "N2"]) {
+      const supersede = nome === "N1" ? ids.A : null;
+      const r = inserir.run(ts++, hojeUtc(), fatos[nome], supersede, paraBlob(vetores[nome]));
+      ids[nome] = Number(r.lastInsertRowid);
+    }
+  } finally {
+    db.close();
+  }
+  const contar = () => {
+    const d = openDb(fx.db);
+    try {
+      return d.prepare("SELECT COUNT(*) AS n FROM decisoes").get().n;
+    } finally {
+      d.close();
+    }
+  };
+  const snapshots = () => readdirSync(tmpdir()).filter((n) => n.startsWith("brain-eval-")).sort();
+
+  const rodar = (rotulo, jev, args) => {
+    const registro = join(fx.dir, `jev-contradicao-${rotulo}.log`);
+    const antes = { linhas: contar(), snapshots: snapshots() };
+    const r = spawnSync(process.execPath, ["--import", hookStub, join(root, "scripts", "contradicao.mjs"), ...args], {
+      cwd: root,
+      env: {
+        ...envSemJev(process.env),
+        BRAIN_DB: fx.db,
+        BRAIN_CONFIG: fx.config,
+        BRAIN_CONTRADICAO_FALSO: jev,
+        BRAIN_CONTRADICAO_FALSO_REGISTRO: registro,
+      },
+      encoding: "utf8",
+    });
+    ok(contar() === antes.linhas, `rodada ${rotulo}: a contagem de decisoes mudou`);
+    ok(JSON.stringify(snapshots()) === JSON.stringify(antes.snapshots), `rodada ${rotulo}: sobrou diretório brain-eval-*`);
+    const chamadas = existsSync(registro) ? readFileSync(registro, "utf8").split("\n").filter(Boolean).length : 0;
+    return { ...r, chamadas };
+  };
+
+  // (1) Jev ligado, sem --enviar: o primeiro portão fechado.
+  const semEnviar = rodar("sem-enviar", "ligado", []);
+  ok(semEnviar.status === 2, `sem --enviar devia sair 2, saiu ${semEnviar.status}\n${semEnviar.stderr}`);
+  ok(semEnviar.stdout.includes("não enviei nada"), `faltou "não enviei nada":\n${semEnviar.stdout}`);
+  ok(semEnviar.chamadas === 0, "sem --enviar o juiz não podia ser chamado");
+
+  // (2) --enviar com o Jev desligado: o segundo portão fechado.
+  const desligado = rodar("desligado", "desligado", ["--enviar"]);
+  ok(desligado.status === 2, `com o Jev desligado devia sair 2, saiu ${desligado.status}\n${desligado.stderr}`);
+  ok(desligado.stdout.includes("não enviei nada"), `faltou "não enviei nada":\n${desligado.stdout}`);
+  ok(desligado.chamadas === 0, "com o Jev desligado o juiz não podia ser chamado");
+
+  // (3) Os dois portões abertos: mede.
+  const medido = rodar("medido", "ligado", ["--enviar", "--max-novas", "1"]);
+  ok(medido.status === 0, `a medição devia sair 0, saiu ${medido.status}\n${medido.stderr}`);
+  const linhas = [
+    "decisões novas: 2 (1 com substituição, 1 sem) · pares julgados: 3 · sem julgamento (erro ou prazo): 0",
+    "substituições na lista: 1 · marcadas (acertos): 1 · não marcadas (perdidas): 0 · fora da lista: 0",
+    "marcas sem substituição (teto das inventadas): 1 de 2 pares",
+  ];
+  for (const linha of linhas) ok(medido.stdout.includes(linha), `faltou a linha "${linha}":\n${medido.stdout}`);
+  ok(medido.chamadas === 3, `esperava 3 pares no registro do juiz, vieram ${medido.chamadas}`);
 });
 
 // ---------------------------------------------------------------- execução
