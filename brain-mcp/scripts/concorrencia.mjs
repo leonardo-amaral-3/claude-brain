@@ -18,8 +18,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import { semJev } from "./sem-jev.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+// Antes de qualquer escrita em process.env: os servidores filhos herdam o ambiente já sem o Jev.
+const limpeza = semJev(root);
+if (limpeza.erro) {
+  console.error("FALHOU: " + limpeza.erro);
+  process.exit(1);
+}
 const modulo = (nome) => pathToFileURL(join(root, "dist", nome)).href;
 // file:// URL, e não o caminho cru: em Windows o `--import` recusa caminho absoluto
 // ("absolute paths must be valid file:// URLs") e o servidor morre antes de logar qualquer coisa.
@@ -2235,6 +2242,7 @@ caso("eval-argumentos-do-portao", async () => {
 function criarInstalacao(dir, { distVelho = false } = {}) {
   for (const sub of ["scripts", "dist", "src"]) mkdirSync(join(dir, sub), { recursive: true });
   writeFileSync(join(dir, "scripts", "eval.mjs"), readFileSync(join(root, "scripts", "eval.mjs")));
+  writeFileSync(join(dir, "scripts", "sem-jev.mjs"), readFileSync(join(root, "scripts", "sem-jev.mjs")));
   writeFileSync(join(dir, "dist", "index.js"), "// nunca roda: as guardas param antes\n");
   writeFileSync(join(dir, "src", "index.ts"), "export {};\n");
   const t = Date.now() / 1000 - 3600;
@@ -2263,7 +2271,11 @@ function criarRepo(dir, branch) {
 function montarGuardas(nome) {
   const dir = join(fixture, nome);
   const claudeHome = join(dir, "claude-home");
-  mkdirSync(claudeHome, { recursive: true });
+  mkdirSync(join(claudeHome, "hooks"), { recursive: true });
+  // Layout da instalação real: a cópia do eval acha o cliente pelo CLAUDE_CONFIG_DIR (passo 2 da resolução).
+  // A origem é o cliente que o `semJev` do topo achou, e não um caminho fixo: rodado na instalação,
+  // não há `../hooks/jev.js` ao lado do pacote.
+  writeFileSync(join(claudeHome, "hooks", "jev.js"), readFileSync(limpeza.caminho));
   const db = join(dir, "vazio.db");
   const conexao = new DatabaseSync(db);
   conexao.exec("CREATE TABLE t (x)");
