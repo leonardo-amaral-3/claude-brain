@@ -572,7 +572,7 @@ if (enviados.length < 6) naoMedi(`troque o prompt de prova: so ${enviados.length
   confere(com.igual, "T15 entidade com falso nao: igual ao da flag desligada");
 }
 
-// ---- T16: o Jev aprova so os candidatos de 6 em diante que escapam da colisao = so esses, na ordem do ranking --
+// ---- T16: o Jev aprova so os candidatos de 6 em diante que escapam da colisao = so esses (e na ordem, com 2+ caminhos) --
 {
   // Os aprovados dependem do conjunto exato de caminhos, e o T12-T15 rodam o hook muitas vezes com o
   // indice vivo mudando: sonda de novo logo antes da rodada e, se divergir, repete o par uma vez (T13).
@@ -597,9 +597,12 @@ if (enviados.length < 6) naoMedi(`troque o prompt de prova: so ${enviados.length
     const cabecalhoOk = textoDoBloco(r.stdout).includes(`${k} de ${n} candidatos passaram; abaixo, os ${Math.min(k, 5)} primeiros`);
     ok = caminhosOk && cabecalhoOk;
     const posicoes = aprovados.map((a) => a.posicao).join(",");
-    detalhe = `candidatos ${posicoes} de ${n}: caminhos ${caminhosOk ? "ok" : "divergem"}, cabecalho ${k} de ${n} ${cabecalhoOk ? "ok" : "ausente"}`;
+    // Com 1 caminho distinto o T16 prova "so esses"; "na ordem do ranking" so com 2 ou mais.
+    const distintos = new Set(esperados).size;
+    const ordem = distintos >= 2 ? `na ordem do ranking (${distintos} caminhos distintos)` : "ordem nao se aplica (1 caminho distinto)";
+    detalhe = `candidatos ${posicoes} de ${n}, ${ordem}: caminhos ${caminhosOk ? "ok" : "divergem"}, cabecalho ${k} de ${n} ${cabecalhoOk ? "ok" : "ausente"}`;
   }
-  confere(ok, `T16 so os aprovados, na ordem do ranking, e cabecalho k de n (${detalhe})`);
+  confere(ok, `T16 so os aprovados e cabecalho k de n (${detalhe})`);
 }
 
 console.log("jev: T11-T16 OK (parte hook; cliente falso, sem rede)");
