@@ -81,6 +81,12 @@ A mesma rota completa e os mesmos 5 gates da norma
    `node scripts/skills-comum.mjs --check`. Código `1` é **vermelho**: a PR não abre. Mudou um bloco?
    Edite a fonte e rode o script sem `--check`; nunca a cópia.
 
+   Mudou a tabela do `## Modo despachado` em `skills/_comum/convencoes.md`, o `hooks/jev.js`, ou um
+   dos `scripts/classificar-parada.mjs`, `scripts/classificar-parada-teste.mjs` e
+   `scripts/jev-falso.mjs`? A suíte inclui também `node scripts/classificar-parada-teste.mjs`, com o
+   mesmo código `1` vermelho: a lista de categorias do classificador da `PARADA` é tirada dessa
+   tabela, e o cliente que ele usa é o do `hooks/jev.js`, que o teste roda pelo falso do #42.
+
 Regras duras que **não** mudam: skills `gm-*` têm `disable-model-invocation: true` (peça o comando ao
 usuário, nunca reimplemente a skill na mão) · sem card não há implementação · nada de commit sem
 aprovação explícita · o PR nasce com `Card: #n` na primeira linha e **nunca** com `Closes`.

@@ -324,6 +324,36 @@ empilhada), as decisões registradas que o obrigam, paradas além da tabela e fa
 `CLAUDE.md` não declara. Medido: o texto-base do despacho da #29 caiu de 2.871 para 1.718 bytes sem
 perder nada que a tabela não diga.
 
+**A parada classificada (opcional, atrás da flag do Jev).** Quem despacha pode passar a saída da
+sessão por `node "$REPO/scripts/classificar-parada.mjs"`, com `$REPO` igual ao caminho absoluto do
+checkout do `claude-brain` (nesta máquina, `~/pessoal/claude-brain`), definido pelo próprio script
+de despacho. O caminho é absoluto porque o script não é instalado pelo `sync.sh`: roda do checkout,
+e a orquestradora roda da raiz do workspace, onde `node scripts/…` dá `MODULE_NOT_FOUND`, código `1`,
+e cai calado na leitura de sempre. O script lê do stdin, pega a última linha e escreve uma linha
+JSON com cinco campos:
+- `estado`: `classificada`, `sem-classificacao` ou `desligado`;
+- `categoria`: o id de uma das linhas **para** da tabela do `## Modo despachado` de
+  `skills/_comum/convencoes.md`, ou `gate-aberto`, ou `outro`;
+- `probabilidade`;
+- `escala`;
+- `porque`.
+
+`escala: true` é escalada obrigatória. Acontece em parada reservada ao humano (`producao`,
+`escolha-de-produto`), em `outro`, em confiança abaixo do limiar, em erro ou tempo esgotado do
+Jev, em resposta inválida, quando aquela tabela diverge da lista do script e quando quem respondeu
+foi o cliente falso do #42 (`BRAIN_JEV_FALSO` definida, mesmo vazia: `porque: "falso"`). `escala: false`
+deixa a categoria para a política da orquestradora, que não mora neste repo. `desligado` (sem a
+flag ou sem a chave do cliente do Jev, do #42) e código de saída diferente de `0` querem dizer a
+mesma coisa: ler a frase como sempre. A stdin é o texto já terminado (um arquivo, um `printf`), e
+não a sessão ao vivo: se ela não fechar em 5 s, o script sai com código `2`. A linha `PARADA:` não
+muda. A categoria é inferida, e a sessão nunca a declara.
+
+**Não ligue o uso `parada` em `BRAIN_JEV` antes do CA4 do #44.** A categoria `gate-aberto` descreve,
+ao pé da letra, toda `PARADA` (a convenção manda fechar com o gate deixado aberto), e pode absorver
+uma parada reservada (`producao`, `escolha-de-produto`) com confiança alta, que então sai
+`escala: false`. O CA4 mede essa confusão com as `PARADA` reais; até ele rodar, com o aval do
+Leonardo para mandar os motivos ao Jev, o classificador fica desligado.
+
 ## Uma worktree por card
 
 Todo card em voo trabalha numa pasta só dele: `<workspace>/<repo>-<n>-<slug>` — irmã do repo,
