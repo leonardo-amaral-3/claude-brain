@@ -66,7 +66,7 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
 
 ## Preconditions
 
-1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
+1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase, not the parent. The phase has its own spec (its folder, its `gm:spec`), whose criteria are the ones this PR must close; also read the parent's `gm:escopo` for the shared pieces. *Old-rule epics:* the phase carries `gm:spec-ref` instead — treat the criteria it names as the ones this PR must close.
 2. Every file in `tasks/` (epic: `tasks/<fase>/`, only the phase in flight) starts with `✅ Status: Complete`; otherwise stop and point to `/gm-implement $ARGUMENTS`.
 3. Inside the module repo (nested git repository): on the feature branch, `git status` clean.
 4. **Run the test gate the workspace declares** — the item *Portão de teste* of the workspace
@@ -124,7 +124,9 @@ volta para cá pela precondição 3 quando a task estiver `✅`.
 
    ## Contexto para revisão
    A especificação está no card #<n> (comentário `gm:spec`; cards antigos: `gm:prd` + `gm:tech-spec`).
-   <!-- card de fase de um épico: o gm:spec está no PAI, e o card em voo tem um comentário
+   <!-- card de fase de um épico: a fase tem gm:spec PRÓPRIO; acrescente uma linha com o link do
+        `gm:escopo` do pai (as peças compartilhadas que a fase não muda sozinha).
+        Épico da regra antiga: o gm:spec está no PAI, e o card em voo tem um comentário
         `gm:spec-ref` que dá o link + o recorte. Copie AQUI as duas linhas dele — a seção
         "esta fase cobre" e a tabela "deliberadamente fora" — porque um revisor que só recebe
         "a spec está no card" encontra card vazio e revisa o diff no escuro. O que está fora de
