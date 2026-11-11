@@ -2535,6 +2535,8 @@ caso("montar-pergunta-e-prazo", async () => {
   const original = process.env.BRAIN_CONTRADICAO_PRAZO_MS;
   try {
     const casosPrazo = [[undefined, 4000], ["250", 250], ["0", 4000], ["-5", 4000], ["abc", 4000], ["2.5", 4000]];
+    // Teto do setTimeout (G4 da PR #61, achado 3): acima de 2^31 - 1 o timer dispararia em ~1 ms.
+    casosPrazo.push(["2147483647", 2147483647], ["2147483648", 4000], ["99999999999999999999", 4000]);
     for (const [env, esperadoMs] of casosPrazo) {
       if (env === undefined) delete process.env.BRAIN_CONTRADICAO_PRAZO_MS;
       else process.env.BRAIN_CONTRADICAO_PRAZO_MS = env;

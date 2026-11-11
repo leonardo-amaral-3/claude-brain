@@ -244,7 +244,7 @@ node dist/cli.js --force   # toma a liderança de um servidor vivo em vez de rec
 Variáveis de ambiente: `BRAIN_CONFIG` aponta para outro `brain.config.json` e `BRAIN_DB` para outro
 banco (úteis para testar sem mexer no seu índice); `BRAIN_LEASE_TTL_MS` ajusta o TTL do lease.
 `BRAIN_CLI_ESPERA_MS` muda os 10 s que a CLI espera antes de recusar (0 = recusa na hora).
-`BRAIN_CONTRADICAO_PRAZO_MS` é o prazo do julgamento de contradição no `lembrar` (padrão 4000; só inteiro positivo vale).
+`BRAIN_CONTRADICAO_PRAZO_MS` é o prazo do julgamento de contradição no `lembrar` (padrão 4000; só inteiro de 1 a 2147483647 vale, o teto do `setTimeout`).
 `BRAIN_SOMENTE_CONSULTA=1` sobe um servidor que só consulta: não disputa o lease, não varre, não gera
 embeddings, e a tool `reindex` recusa até com `forcar: true`. Ele ainda aquece o modelo, porque a
 busca semântica continua valendo. É o modo que o `eval --base` usa contra o snapshot.

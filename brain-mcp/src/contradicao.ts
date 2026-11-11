@@ -20,16 +20,19 @@ export interface ClienteJev {
 // Provisório até a medição do critério 4.
 export const LIMIAR_CONTRADICAO = 0.7;
 export const PRAZO_PADRAO_MS = 4000;
+// O maior atraso que o `setTimeout` aceita (2^31 - 1). Acima disso o Node dispara em ~1 ms
+// (TimeoutOverflowWarning), o julgamento sempre "estoura" e marca nenhuma aparece.
+export const PRAZO_MAXIMO_MS = 2147483647;
 // Igual ao tamanho da lista de vizinhas de hoje, reafirmado aqui para que ampliar a lista não
 // aumente sozinho o que sai do cofre rumo ao Jev.
 export const TETO_PARES = 5;
 
-/** Lê o ambiente a cada chamada: só inteiro positivo vale, o resto volta ao padrão. */
+/** Lê o ambiente a cada chamada: só inteiro de 1 a `PRAZO_MAXIMO_MS` vale, o resto volta ao padrão. */
 export function prazoJulgamentoMs(): number {
   const bruto = process.env.BRAIN_CONTRADICAO_PRAZO_MS;
   if (bruto === undefined || !/^\d+$/.test(bruto)) return PRAZO_PADRAO_MS;
   const valor = Number(bruto);
-  return valor > 0 ? valor : PRAZO_PADRAO_MS;
+  return valor > 0 && valor <= PRAZO_MAXIMO_MS ? valor : PRAZO_PADRAO_MS;
 }
 
 export function montarPergunta(par: ParDecisoes): string {
