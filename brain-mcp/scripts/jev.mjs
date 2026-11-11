@@ -1,5 +1,5 @@
 // Teste do cliente do Jev (hooks/jev.js) e do filtro do hook de contexto, sem rede.
-// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev).
+// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev); a escolha do T16 tem caso sintetico sem indice.
 //
 // Uso: npm run jev        sai 0 se tudo passou, 1 na primeira falha ("FALHOU: <caso>"),
 //                         2 se nao deu para medir ("NAO MEDI: <motivo>"): ambiente sem indice/dist,
@@ -357,6 +357,67 @@ function naoMedi(motivo) {
   process.exit(2);
 }
 
+// Escolha dos aprovados do T16 (#51). O roteiro do falso casa por substring do caminho normalizado
+// (regraCasa do hooks/jev.js): a regra de A aprova todo trecho cujo caminho CONTEM o de A, e o hook
+// usa o caminho como id. Fica de fora todo candidato de 6 em diante cujo caminho esta contido no de
+// um dos cinco primeiros (igual incluso), porque a regra dele aprovaria aquele. O sentido inverso
+// (o candidato contem o caminho de um dos cinco) nao aprova ninguem dos cinco e fica (emenda
+// 2026-11-11). O conjunto fecha: um de fora nao contem nenhum aprovado, senao o dos cinco que o
+// contem tambem conteria. Devolve na ordem do ranking; vazio = nao ha como provar.
+function aprovadosDoT16(enviados) {
+  const cinco = enviados.slice(0, 5);
+  return enviados.slice(5).filter((c) => !cinco.some((b) => b.caminho.includes(c.caminho)));
+}
+
+// Roteiro do falso que aprova (0.95) so os caminhos dados; o resto cai no padrao (0.05).
+const roteiroDoT16 = (aprovados) => ({
+  regras: aprovados.map((a) => ({ quando: { trechoId: a.caminho }, responde: { probabilidade: 0.95 } })),
+  padrao: { probabilidade: 0.05 },
+});
+
+// Pasta temporaria com a referencia (hook e config de origin/dev) e os roteiros (o
+// sintetico do T16 inclusive, por isso vem antes dele); apagada na saida.
+const pastaTemporaria = mkdtempSync(join(tmpdir(), "jev-hook-"));
+process.on("exit", () => rmSync(pastaTemporaria, { recursive: true, force: true }));
+
+// Caso sintetico da escolha (#51): roda antes do pre-voo, sem indice e sem rede.
+{
+  const c = (posicao, caminho) => ({ posicao, caminho });
+  const lista = [
+    c(1, "/r/a.md"),
+    c(2, "/r/b.md"),
+    c(3, "/r/c.md"),
+    c(4, "/r/d.md"),
+    c(5, "/r/e.md"),
+    c(6, "/r/e.md"),
+    c(7, "/r/f.md"),
+    c(8, "/r/b.md/g.md"),
+    c(9, "g.md"),
+    c(10, "/r/c"),
+    c(11, "/r/f.md"),
+  ];
+  // 6 repete o 5 e 10 esta contido no 3: fora. 8 contem o 2 e 9 esta contido no 8 (aprovado): ficam.
+  confere(igual(aprovadosDoT16(lista).map((x) => x.posicao), [7, 8, 9, 11]), "T16 escolha sintetica: so 7, 8, 9 e 11 escapam da colisao");
+  confere(aprovadosDoT16(lista.slice(0, 6).concat([c(7, "/r/a.md"), c(8, "/r/b.md")])).length === 0, "T16 escolha sintetica: tudo colide = nenhum aprovado");
+  const limpa = ["/r/a.md", "/r/b.md", "/r/c.md", "/r/d.md", "/r/e.md", "/r/f.md", "/r/g.md"].map((p, i) => c(i + 1, p));
+  confere(igual(aprovadosDoT16(limpa), limpa.slice(5)), "T16 escolha sintetica: sem colisao aprova 6..n");
+  // O falso real confirma que o roteiro aprova exatamente esses.
+  const roteiroSintetico = join(pastaTemporaria, "roteiro-t16-sintetico.json");
+  writeFileSync(roteiroSintetico, JSON.stringify(roteiroDoT16(aprovadosDoT16(lista))));
+  const vs = await jev.julgar("p", lista.map((x) => ({ id: x.caminho, texto: "t" })), {
+    uso: "contexto",
+    env: { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiroSintetico },
+  });
+  // O hook descarta o filtro inteiro se algum veredito nao for 'ok' (hooks/brain-contexto.js:287).
+  confere(vs.length === lista.length && vs.every((v) => v.estado === "ok"), "T16 escolha sintetica: todo veredito do falso e 'ok'");
+  // 0.5 = LIMIAR_JEV do hook (hooks/brain-contexto.js:238).
+  confere(
+    igual(lista.filter((_, i) => vs[i].estado === "ok" && vs[i].probabilidade >= 0.5).map((x) => x.posicao), [7, 8, 9, 11]),
+    "T16 escolha sintetica: o falso aprova so 7, 8, 9 e 11"
+  );
+  console.log("jev: T16 escolha sintetica OK (sem indice)");
+}
+
 const repo = join(root, "..");
 const hookDaWorktree = join(repo, "hooks", "brain-contexto.js");
 const norm = (s) => String(s).toLowerCase().replace(/\\/g, "/");
@@ -372,10 +433,6 @@ const distDoIndice = join(dirname(conf.db), "..", "dist");
 for (const modulo of ["db.js", "search.js"]) {
   if (!existsSync(join(distDoIndice, modulo))) naoMedi(`${join(distDoIndice, modulo)} nao existe: o hook importa o dist/ da instalacao`);
 }
-
-// Pasta temporaria com a referencia (hook e config de origin/dev) e os roteiros; apagada na saida.
-const pastaTemporaria = mkdtempSync(join(tmpdir(), "jev-hook-"));
-process.on("exit", () => rmSync(pastaTemporaria, { recursive: true, force: true }));
 
 // O hook faz require('./brain-config.js'): a referencia precisa dos dois lado a lado, da mesma ref.
 const doGit = (arquivo) => {
@@ -514,25 +571,37 @@ if (enviados.length < 6) naoMedi(`troque o prompt de prova: so ${enviados.length
   confere(com.igual, "T15 entidade com falso nao: igual ao da flag desligada");
 }
 
-// ---- T16: o Jev aprova so os candidatos de 6 em diante = so esses, na ordem do ranking -----
+// ---- T16: o Jev aprova so os candidatos de 6 em diante que escapam da colisao = so esses (e na ordem, com 2+ caminhos) --
 {
-  const n = enviados.length;
-  const aprovados = enviados.slice(5);
-  const anteriores = enviados.slice(0, 5).map((c) => c.caminho);
-  // A regra casa por substring de caminho: um caminho aprovado que tambem aparece entre os cinco
-  // primeiros aprovaria o candidato errado, e a prova nao provaria a ordem.
-  if (aprovados.some((a) => anteriores.some((b) => b.includes(a.caminho) || a.caminho.includes(b)))) {
-    naoMedi("troque o prompt de prova: um candidato de 6 em diante repete o caminho de um dos cinco primeiros");
+  // Os aprovados dependem do conjunto exato de caminhos, e o T12-T15 rodam o hook muitas vezes com o
+  // indice vivo mudando: sonda de novo logo antes da rodada e, se divergir, repete o par uma vez (T13).
+  let ok = false;
+  let detalhe = "";
+  for (let tentativa = 0; tentativa < 2 && !ok; tentativa++) {
+    const sonda = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { ...FALSO_SIM, BRAIN_HOOK_DEBUG: "1" });
+    const atuais = candidatosEnviados(sonda.stderr);
+    if (atuais.length < 6) naoMedi(`troque o prompt de prova: so ${atuais.length} candidatos chegam ao Jev (T16 precisa de 6 ou mais)`);
+    const n = atuais.length;
+    const aprovados = aprovadosDoT16(atuais);
+    if (!aprovados.length) {
+      naoMedi("troque o prompt de prova: nenhum candidato de 6 em diante escapa da colisao de caminho com os cinco primeiros");
+    }
+    const k = aprovados.length;
+    const roteiro = join(pastaTemporaria, "roteiro-t16.json");
+    writeFileSync(roteiro, JSON.stringify(roteiroDoT16(aprovados)));
+    const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
+    // O hook mostra so os LIMITE_FINAL primeiros que passaram (hooks/brain-contexto.js:484), como o cabecalho.
+    const esperados = aprovados.slice(0, 5).map((a) => a.caminho);
+    const caminhosOk = igual(caminhosDoBloco(r.stdout), esperados);
+    const cabecalhoOk = textoDoBloco(r.stdout).includes(`${k} de ${n} candidatos passaram; abaixo, os ${Math.min(k, 5)} primeiros`);
+    ok = caminhosOk && cabecalhoOk;
+    const posicoes = aprovados.map((a) => a.posicao).join(",");
+    // Com 1 caminho distinto o T16 prova "so esses"; "na ordem do ranking" so com 2 ou mais.
+    const distintos = new Set(esperados).size;
+    const ordem = distintos >= 2 ? `na ordem do ranking (${distintos} caminhos distintos)` : "ordem nao se aplica (1 caminho distinto)";
+    detalhe = `candidatos ${posicoes} de ${n}, ${ordem}: caminhos ${caminhosOk ? "ok" : "divergem"}, cabecalho ${k} de ${n} ${cabecalhoOk ? "ok" : "ausente"}`;
   }
-  const roteiro = join(pastaTemporaria, "roteiro-t16.json");
-  writeFileSync(
-    roteiro,
-    JSON.stringify({ regras: aprovados.map((a) => ({ quando: { trechoId: a.caminho }, responde: { probabilidade: 0.95 } })), padrao: { probabilidade: 0.05 } })
-  );
-  const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
-  const esperados = aprovados.map((a) => a.caminho);
-  confere(igual(caminhosDoBloco(r.stdout), esperados), `T16 so os candidatos 6..${n}, na ordem do ranking`);
-  confere(textoDoBloco(r.stdout).includes(`${n - 5} de ${n} candidatos passaram; abaixo, os ${n - 5} primeiros`), `T16 cabecalho ${n - 5} de ${n}`);
+  confere(ok, `T16 so os aprovados e cabecalho k de n (${detalhe})`);
 }
 
 console.log("jev: T11-T16 OK (parte hook; cliente falso, sem rede)");
