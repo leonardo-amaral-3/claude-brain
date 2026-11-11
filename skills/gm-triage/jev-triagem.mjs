@@ -59,7 +59,7 @@ const descricao = (campo, rotulo) => DESCRICOES[campo]?.[semPrefixo(rotulo)] ?? 
 
 // Tira o BOM inicial, unifica quebras de linha e aplica NFC.
 export function normalizar(texto) {
-  return String(texto).replace(/^﻿/, "").replace(/\r\n?/g, "\n").normalize("NFC");
+  return String(texto).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").normalize("NFC");
 }
 
 // Lê os rótulos dos cinco campos na seção `## Board` do CLAUDE.md.
@@ -112,7 +112,7 @@ export function sensivel(resumo) {
 
 // Chave de comparação entre a proposta da sessão e os rótulos do ## Board: sem U+FE0F, sem o
 // prefixo não alfanumérico (o emoji), sem diferença de caixa.
-const chave = (x) => semPrefixo(String(x).normalize("NFC").replace(/️/g, "").trim()).toLowerCase();
+const chave = (x) => semPrefixo(String(x).normalize("NFC").replace(/\uFE0F/g, "").trim()).toLowerCase();
 
 const pct = (p) => Math.floor(p * 100 + 1e-9);
 
