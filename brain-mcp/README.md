@@ -113,8 +113,13 @@ Com a flag do Jev ligada (#42), o `lembrar` vai um passo além: cada vizinha da 
 linha, como `[contradição provável, Jev 0.93]`. É anotação, não veredito: a tool nunca recusa a
 gravação nem preenche o `supersede` sozinha. O julgamento roda **depois** de a decisão estar gravada,
 com prazo (4 s por padrão); qualquer falha do Jev, valor inválido ou prazo vencido devolve a lista de
-hoje, sem marca nenhuma. Só o `fato` da decisão nova e o `fato` de cada vizinha saem para a TypeSafe AI
-— **inclusive o de decisões sem escopo, de outro workspace**, porque a lista de vizinhas as inclui.
+hoje, sem marca nenhuma. Só o `fato` da decisão nova e o `fato` de cada vizinha julgada (até 5) saem
+para a TypeSafe AI. Quais vizinhas, porque o cofre de decisões é um só para todos os workspaces:
+- `lembrar` **com** `escopo`: as do mesmo escopo e as **sem escopo**, de qualquer workspace;
+- `lembrar` **sem** `escopo`: vizinhas de **qualquer escopo e de qualquer workspace** — a consulta
+  não filtra nada além da semelhança;
+- a vizinha que a própria chamada substitui (`supersede`) continua na lista, mas não vai ao Jev.
+
 Nada muda em disco: o `.md` do cofre, a tabela `decisoes` e o comentário `gm:decisao` ficam como eram.
 
 `npm run contradicao -- --enviar` mede essa marca sobre um snapshot do índice (quantas substituições
