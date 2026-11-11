@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: A ponte com o cliente do Jev do #42 (`juizJev.ts`) e o portão do `/gm-ship`
 
