@@ -352,7 +352,13 @@ console.log("CLI: o script como processo, em diretório temporário e ambiente i
       mkdirSync(pastaD);
       const specD = join(pastaD, "spec.md");
       writeFileSync(specD, specFixture);
-      for (const [rotulo, conteudo] of [["texto que não é JSON", "{quebrado"], ["JSON sem rodadas e uniao", "{}"], ["rodadas que não é array", '{"rodadas":{},"uniao":{}}']]) {
+      for (const [rotulo, conteudo] of [["texto que não é JSON", "{quebrado"], ["JSON sem rodadas e uniao", "{}"], ["rodadas que não é array", '{"rodadas":{},"uniao":{}}'],
+        // Achado 5 do G4: a forma de cada entrada da união também é conferida, nas quatro.
+        ["uniao.dado string", JSON.stringify({ rodadas: [], uniao: { dado: "autor", faturamento: [], deploy: [], migration: [] } })],
+        ["motivo desconhecido na união", JSON.stringify({ rodadas: [], uniao: { dado: ["autor", "outro"], faturamento: [], deploy: [], migration: [] } })],
+        ["união sem a categoria deploy", JSON.stringify({ rodadas: [], uniao: { dado: ["autor"], faturamento: [], migration: [] } })],
+        ["união vazia", JSON.stringify({ rodadas: [], uniao: {} })],
+        ["uniao.migration objeto", JSON.stringify({ rodadas: [], uniao: { dado: [], faturamento: [], deploy: [], migration: { motivos: ["autor"] } } })]]) {
         writeFileSync(registroDe(pastaD), conteudo);
         const r = rodar(["--spec", specD, "--autor", AUTOR_NAO]);
         afirmar(r.status === 2 && r.stdout === "" && r.stderr.includes("sensibilidade.json ilegível"), `registro com ${rotulo} → código 2, stdout vazio`);

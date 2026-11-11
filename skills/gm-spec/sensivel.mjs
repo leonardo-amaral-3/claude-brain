@@ -318,6 +318,15 @@ function lerRegistro(caminho) {
   if (!Array.isArray(registro?.rodadas) || uniao === null || typeof uniao !== "object" || Array.isArray(uniao)) {
     throw new ErroDeUso(MENSAGEM_REGISTRO_ILEGIVEL);
   }
+  // Cada uma das quatro tem de ser um array só de motivos conhecidos: uma entrada que `motivosDe`
+  // descartaria em silêncio (uma string, um motivo desconhecido) apagaria o que ela guardava e
+  // deixaria a spec voltar a "não sensível" (achado 5 do G4 da PR #53).
+  for (const categoria of CATEGORIAS) {
+    const lista = uniao[categoria];
+    if (!Array.isArray(lista) || !lista.every((m) => MOTIVOS.includes(m))) {
+      throw new ErroDeUso(MENSAGEM_REGISTRO_ILEGIVEL);
+    }
+  }
   return registro;
 }
 

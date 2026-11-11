@@ -208,9 +208,13 @@ export const REGISTRO = "sensibilidade.json";  // ao lado do spec.md
 }
 ```
 
-- Ausente → anterior vazio. Existe mas não é JSON, ou não tem `rodadas` array e `uniao` objeto →
+- Ausente → anterior vazio. Existe mas não é JSON, ou não tem `rodadas` array e `uniao` objeto, ou
+  alguma das quatro categorias da `uniao` não é um array só de motivos de `MOTIVOS` →
   código **2**, mensagem `sensibilidade.json ilegível — não apague nem edite à mão; mostre ao humano`
   (a skill trata como ambiente quebrado: em modo despachado, PARADA).
+  > **Correção (2026-11-11), achado 5 do G4 da PR #53.** A conferência de cada entrada da `uniao`
+  > entrou agora: antes, `uniao.dado = "autor"` (uma string) ou um motivo desconhecido era descartado
+  > em silêncio na união, e a spec podia voltar a `Spec sensível: não` sem sair com código 2.
 - Escrito depois da decisão e **antes** de imprimir; falha ao escrever → código 2 com a mensagem do
   sistema. Nada de texto da spec vai para ele (só sha, autor, motivos e os motivos fixos do Jev).
 
