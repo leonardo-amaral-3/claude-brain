@@ -2273,7 +2273,9 @@ function montarGuardas(nome) {
   const claudeHome = join(dir, "claude-home");
   mkdirSync(join(claudeHome, "hooks"), { recursive: true });
   // Layout da instalação real: a cópia do eval acha o cliente pelo CLAUDE_CONFIG_DIR (passo 2 da resolução).
-  writeFileSync(join(claudeHome, "hooks", "jev.js"), readFileSync(join(root, "..", "hooks", "jev.js")));
+  // A origem é o cliente que o `semJev` do topo achou, e não um caminho fixo: rodado na instalação,
+  // não há `../hooks/jev.js` ao lado do pacote.
+  writeFileSync(join(claudeHome, "hooks", "jev.js"), readFileSync(limpeza.caminho));
   const db = join(dir, "vazio.db");
   const conexao = new DatabaseSync(db);
   conexao.exec("CREATE TABLE t (x)");
