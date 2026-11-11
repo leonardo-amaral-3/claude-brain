@@ -291,6 +291,14 @@ console.log("R2: casos de campo");
     renderizar(r).split("\n").includes("| Módulo | Processos | — | skills (64%) | ⚠ revisar (proposta fora do `## Board`) |"),
     "proposta fora do Board: linha",
   );
+  // achado 6 do G4: | e quebra de linha na proposta não abrem coluna nem partem a tabela
+  const f6 = falsoPadrao();
+  const r6 = await rodar(f6, { entrada: { resumo: RESUMO, proposta: { ...PROPOSTA, "Módulo": "Bug | urgente\nsegunda linha" } } });
+  const linhas6 = renderizar(r6).split("\n");
+  afirmar(
+    linhas6.includes("| Módulo | Bug \\| urgente segunda linha | — | skills (64%) | ⚠ revisar (proposta fora do `## Board`) |") && linhas6.length === ESPERADO_PRINCIPAL.split("\n").length,
+    "proposta com | e quebra de linha: escapada, uma linha só",
+  );
   const f2 = falsoPadrao();
   const r2 = await rodar(f2, { entrada: { resumo: RESUMO, proposta: { ...PROPOSTA, Tipo: "Melhoria", Classe: "⚪️ Padrão" } } });
   const t = r2.campos.find((c) => c.campo === "Tipo");

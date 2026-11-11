@@ -300,6 +300,10 @@ const CABECALHO =
   "| Campo | Proposta da sessão | Jev nela | Escolha do Jev | |\n" +
   "|---|---|---|---|---|";
 
+// A proposta é texto livre da sessão: | vira \| e quebra de linha vira espaço, para não abrir
+// coluna nem partir a tabela que o Step 5 mostra ao pé da letra.
+const celula = (x) => String(x).replace(/\r\n?|\n/g, " ").replace(/\|/g, "\\|");
+
 function linha(c) {
   const dash = "—";
   const celulas = [c.campo, c.proposta ?? dash];
@@ -313,7 +317,7 @@ function linha(c) {
     celulas.push(c.pProposta === null ? dash : `${c.pProposta}%`, c.escolha === c.proposta ? "=" : `${c.escolha} (${c.pEscolha}%)`);
     if (c.nota === "proposta fora do ## Board") marca = "⚠ revisar (proposta fora do `## Board`)";
   }
-  return `| ${celulas.join(" | ")} |${marca ? ` ${marca} |` : " |"}`;
+  return `| ${celulas.map(celula).join(" | ")} |${marca ? ` ${marca} |` : " |"}`;
 }
 
 export function renderizar(resultado) {
