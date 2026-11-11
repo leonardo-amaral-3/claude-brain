@@ -184,10 +184,10 @@ console.log("classificar: sempre com Jev falso, sem rede (CA1, CA4, CA5, CA10)")
     afirmar(Date.now() - inicio < 2000, "o orçamento de 50 ms corta a espera");
   }
 
-  // carregar que rejeita (carregarJev nunca lança, mas um falso pode): continua fail-closed.
+  // carregar que rejeita (é o que carregarJev faz quando o jev.js existe e não carrega): fail-closed.
   {
     const r = await classificar({ texto, carregar: async () => { throw new TypeError("sk-segredo"); }, optIn: true });
-    afirmar(quatro(r, "erro ao carregar o cliente (TypeError)"), "carregar que rejeita → só o name do erro");
+    afirmar(quatro(r, "falhou ao carregar o cliente (TypeError)") && !JSON.stringify(r).includes("sk-segredo"), "carregar que rejeita → falhou ao carregar, só o name do erro");
   }
 
   // perguntar que lança síncrono e que rejeita com segredo na message: só o name, nunca a message.
@@ -417,11 +417,27 @@ console.log("carregarJev: a fronteira com o contrato do #42, com um jev.js falso
         decidir: async (estado, perguntas, opcoes) => { chamadas.push({ estado, perguntas, opcoes }); return { sensivel: ${JSON.stringify(resposta)} }; },
       };`;
 
-    // R1: sem cliente na instalação → null. Quebrado ou fora da forma → null, sem lançar.
+    // R1: sem cliente na instalação → null ("não encontrado"). Presente mas quebrado ou fora da forma →
+    // rejeita com o name do erro ("falhou ao carregar"): a mensagem não pode dizer que o arquivo não
+    // existe quando ele está lá (achado 7 do G4).
+    const nomeDaRejeicao = async (promessa) => promessa.then(() => "resolveu", (erro) => erro?.name);
     afirmar((await carregarJev({ claudeHome: join(raiz, "vazia") })) === null, "R1: sem hooks/jev.js → null");
-    afirmar((await carregarJev({ claudeHome: instalar("throw new Error('quebrado');") })) === null, "R1: módulo que lança ao carregar → null");
-    afirmar((await carregarJev({ claudeHome: instalar("module.exports = { MAX_ESTADO: 10 };") })) === null, "R1: sem decidir → null");
-    afirmar((await carregarJev({ claudeHome: instalar("module.exports = { decidir: async () => ({}) };") })) === null, "R1: sem MAX_ESTADO → null");
+    afirmar((await nomeDaRejeicao(carregarJev({ claudeHome: instalar("throw new RangeError('quebrado');") }))) === "RangeError", "R1: módulo que lança ao carregar → rejeita com o name dele");
+    afirmar((await nomeDaRejeicao(carregarJev({ claudeHome: instalar("module.exports = { MAX_ESTADO: 10 };") }))) === "ClienteForaDoContrato", "R1: sem decidir → rejeita ClienteForaDoContrato");
+    afirmar((await nomeDaRejeicao(carregarJev({ claudeHome: instalar("module.exports = { decidir: async () => ({}) };") }))) === "ClienteForaDoContrato", "R1: sem MAX_ESTADO → rejeita ClienteForaDoContrato");
+
+    // Ponta a ponta com classificar: ausente e quebrado saem com motivos distintos, os dois sensíveis.
+    const ausente = await classificar({ texto: "t", carregar: () => carregarJev({ claudeHome: join(raiz, "vazia") }), optIn: true });
+    afirmar(CATEGORIAS.every((c) => ausente.jev[c].motivo === "cliente do Jev não encontrado"), "classificar: jev.js ausente → cliente do Jev não encontrado");
+    // O cenário do achado 7: um package.json com "type":"module" acima da CLAUDE_HOME faz o jev.js ser
+    // lido como ESM, e `module.exports` não existe. O createRequire não evita isso (o import() também
+    // falhava); o que muda é a mensagem, que agora diz que o arquivo está lá e não carregou.
+    const escopoEsm = join(raiz, "escopo-esm");
+    mkdirSync(join(escopoEsm, "casa", "hooks"), { recursive: true });
+    writeFileSync(join(escopoEsm, "package.json"), '{"type":"module"}\n');
+    writeFileSync(join(escopoEsm, "casa", "hooks", "jev.js"), "module.exports = { MAX_ESTADO: 10, decidir: async () => ({}) };\n");
+    const esm = await classificar({ texto: "t", carregar: () => carregarJev({ claudeHome: join(escopoEsm, "casa") }), optIn: true });
+    afirmar(CATEGORIAS.every((c) => /^falhou ao carregar o cliente \(\w+\)$/.test(esm.jev[c].motivo)), `classificar: jev.js lido como ESM → falhou ao carregar (${esm.jev.dado.motivo})`);
 
     // R1 + origem: o caminho vem da CLAUDE_HOME dada, e o `cliente` da saída é ele.
     const casaOk = instalar(respostaFalsa({ estado: "ok", tipo: "noul", sim: false, probabilidade: 0.05 }));
@@ -478,12 +494,17 @@ console.log("estático: um cliente só, sem rede nem processo (CA6)");
   const proibido = /fetch\s*\(|XMLHttpRequest|WebSocket|undici|["'](node:)?(http|https|http2|net|tls|dgram|child_process)["']/;
   afirmar(!proibido.test(fonte), "o fonte não casa rede nem child_process");
 
-  // `import(` dinâmico só dentro de carregarJev: a posição de cada um tem de cair no corpo dela.
+  // Carregar código (`import(` dinâmico, `require(`, `createRequire(`) só dentro de carregarJev: a
+  // posição de cada um tem de cair no corpo dela.
   const inicio = fonte.indexOf("export async function carregarJev");
   const fim = fonte.indexOf("\n}\n", inicio);
-  const posicoes = [...fonte.matchAll(/\bimport\s*\(/g)].map((x) => x.index);
+  // Os comentários de linha viram espaços (mesmo tamanho, as posições não mudam): citar o contrato num
+  // comentário não é carregar código.
+  const semComentarios = fonte.replace(/^(\s*)\/\/.*$/gm, (linha) => " ".repeat(linha.length));
+  const posicoes = [...semComentarios.matchAll(/\bimport\s*\(|\brequire\s*\(|\bcreateRequire\s*\(/g)].map((x) => x.index);
   afirmar(inicio !== -1 && fim !== -1, "carregarJev existe no fonte");
-  afirmar(posicoes.every((p) => p > inicio && p < fim), `todo import( dinâmico está em carregarJev (${posicoes.length} encontrado(s))`);
+  afirmar(posicoes.length > 0 && posicoes.every((p) => p > inicio && p < fim), `todo carregamento de código está em carregarJev (${posicoes.length} encontrado(s))`);
+  afirmar(fonte.includes("createRequire(import.meta.url)(caminho)"), "o cliente é carregado com createRequire(import.meta.url)(caminho), como no contrato do #42");
 }
 
 console.log("strings: deploy nas listas de categorias da Fase 4 e dos docs (CA7)");

@@ -245,6 +245,14 @@ node "<Base directory da skill>/sensivel.mjs" --spec <caminho do spec.md> --auto
   o hook nem o servidor MCP, por um caminho resolvível a partir da instalação (`<CLAUDE_HOME>` ou o
   `args[0]` do `mcpServers.brain` em `~/.claude.json`, como `sync.sh:67-76`). `carregarJev` resolve
   pelo caminho que o contrato declarar, nunca pela posição do script no repo; ausente → `null`.
+
+  > **Correção (2026-11-11), achado 7 do G4 da PR #53.** Carrega com
+  > `createRequire(import.meta.url)(caminho)`, como o contrato do #42 fixa para skills com script (o
+  > `import()` de antes divergia dele). Arquivo ausente → `null` → `cliente do Jev não encontrado`;
+  > presente mas que não carrega ou sem `decidir`/`MAX_ESTADO` → `carregarJev` rejeita →
+  > `falhou ao carregar o cliente (<name do erro>)`. Os dois seguem fail-closed. O cenário citado no
+  > achado (jev.js sob um `package.json` com `"type":"module"`) falha com os dois carregadores; o que
+  > a correção muda é a mensagem, que deixa de dizer que o arquivo não existe.
 - **R2 — uma pergunta e um trecho → sim/não com probabilidade, ou indisponível.** O contrato diz o
   que a probabilidade é. Confiança na resposta dada → `confianca = p`. P(sim) → `resposta = p >= 0.5
   ? "sim" : "nao"` e `confianca = max(p, 1 - p)`. O contrato não diz → desvio.

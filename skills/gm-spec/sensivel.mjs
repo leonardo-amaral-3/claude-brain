@@ -20,7 +20,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 export const CATEGORIAS = ["dado", "faturamento", "deploy", "migration"];
 export const LIMIAR = 0.9; // confiança mínima de um "não" do Jev; cofre #1393
@@ -62,12 +63,16 @@ export function claudeHomePadrao() {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 }
 
-// A fronteira com o cliente do Jev do #42: a única função que o conhece. Nunca lança; devolve o
-// cliente adaptado à forma `Jev` ou `null`.
+// A fronteira com o cliente do Jev do #42: a única função que o conhece. Devolve o cliente adaptado à
+// forma `Jev`, `null` quando o arquivo não existe, e rejeita quando ele existe mas não carrega ou não
+// tem a forma do contrato — `classificar` traduz a rejeição em "falhou ao carregar o cliente (<name>)".
+// Separar os dois casos é o que impede a mensagem de dizer que o cliente não existe quando ele está lá
+// (achado 7 do G4 da PR #53); os dois continuam fail-closed.
 //
 // O contrato (planning/42-filtro-jev/spec.md, § "Contrato do cliente do Jev (estável)"), ponto a ponto:
-//  - R1: o cliente é `<CLAUDE_HOME>/hooks/jev.js`, um módulo CommonJS sem dependência. O caminho vem da
-//    instalação, nunca da posição deste script no repo; ausente ou quebrado → `null`.
+//  - R1: o cliente é `<CLAUDE_HOME>/hooks/jev.js`, um módulo CommonJS sem dependência, carregado com
+//    `createRequire(import.meta.url)(caminho)`, como o contrato fixa para skills com script. O caminho
+//    vem da instalação, nunca da posição deste script no repo.
 //  - R2: usa `decidir` com uma pergunta `noul`, cuja `probabilidade` é P(sim). O limiar de decisão é
 //    de quem chama: `sim` quando p >= 0,5 e `confianca = max(p, 1 - p)`.
 //  - R3: flag (`BRAIN_JEV` com o uso `spec`) e chave (`TYPESAFE_API_KEY`) são do cliente, que responde
@@ -77,39 +82,42 @@ export function claudeHomePadrao() {
 //    spec é maior que isso: por isso não é ele. `cabe` mede o mesmo que o cliente mede.
 //  - Orçamento: o cliente aceita `timeoutMs` por chamada e o recebe como `ORCAMENTO_MS`.
 export async function carregarJev({ claudeHome = claudeHomePadrao() } = {}) {
-  try {
-    const caminho = join(claudeHome, "hooks", "jev.js");
-    if (!existsSync(caminho)) return null;
-    const modulo = await import(pathToFileURL(caminho).href);
-    // CommonJS: o `module.exports` inteiro vem em `default`.
-    const cliente = modulo.default ?? modulo;
-    if (typeof cliente?.decidir !== "function" || !Number.isInteger(cliente.MAX_ESTADO)) return null;
-    const maximoDoEstado = cliente.MAX_ESTADO;
-    return {
-      origem: caminho,
-      cabe: (texto) => JSON.stringify(texto).length <= maximoDoEstado,
-      perguntar: async (pergunta, texto) => {
-        const respostas = await cliente.decidir(
-          texto,
-          { sensivel: { tipo: "noul", instrucao: pergunta } },
-          { uso: "spec", timeoutMs: ORCAMENTO_MS },
-        );
-        const resposta = respostas?.sensivel;
-        if (resposta?.estado === "indisponivel") {
-          // `detalhe` é um status HTTP ou uma frase curta; o contrato garante que nunca traz chave nem corpo.
-          const detalhe = typeof resposta.detalhe === "string" ? ` (${resposta.detalhe})` : "";
-          return { estado: "indisponivel", motivo: `${resposta.motivo}${detalhe}` };
-        }
-        const p = resposta?.probabilidade;
-        if (resposta?.estado === "ok" && resposta.tipo === "noul" && Number.isFinite(p) && p >= 0 && p <= 1) {
-          return { estado: "ok", resposta: p >= 0.5 ? "sim" : "nao", confianca: Math.max(p, 1 - p) };
-        }
-        return { estado: "indisponivel", motivo: "resposta inválida" };
-      },
-    };
-  } catch {
-    return null;
+  const caminho = join(claudeHome, "hooks", "jev.js");
+  if (!existsSync(caminho)) return null;
+  // Um `require` que lança (sintaxe, módulo lido como ESM, erro no topo) rejeita com o erro original;
+  // só o `name` dele chega à saída.
+  const cliente = createRequire(import.meta.url)(caminho);
+  if (typeof cliente?.decidir !== "function" || !Number.isInteger(cliente.MAX_ESTADO)) {
+    throw new ClienteForaDoContrato();
   }
+  const maximoDoEstado = cliente.MAX_ESTADO;
+  return {
+    origem: caminho,
+    cabe: (texto) => JSON.stringify(texto).length <= maximoDoEstado,
+    perguntar: async (pergunta, texto) => {
+      const respostas = await cliente.decidir(
+        texto,
+        { sensivel: { tipo: "noul", instrucao: pergunta } },
+        { uso: "spec", timeoutMs: ORCAMENTO_MS },
+      );
+      const resposta = respostas?.sensivel;
+      if (resposta?.estado === "indisponivel") {
+        // `detalhe` é um status HTTP ou uma frase curta; o contrato garante que nunca traz chave nem corpo.
+        const detalhe = typeof resposta.detalhe === "string" ? ` (${resposta.detalhe})` : "";
+        return { estado: "indisponivel", motivo: `${resposta.motivo}${detalhe}` };
+      }
+      const p = resposta?.probabilidade;
+      if (resposta?.estado === "ok" && resposta.tipo === "noul" && Number.isFinite(p) && p >= 0 && p <= 1) {
+        return { estado: "ok", resposta: p >= 0.5 ? "sim" : "nao", confianca: Math.max(p, 1 - p) };
+      }
+      return { estado: "indisponivel", motivo: "resposta inválida" };
+    },
+  };
+}
+
+// O arquivo existe e carrega, mas não exporta `decidir` e `MAX_ESTADO` como o contrato manda.
+class ClienteForaDoContrato extends Error {
+  name = "ClienteForaDoContrato";
 }
 
 // Aceita só a forma do contrato; qualquer outra coisa vira "indisponível", nunca um "nao" por acidente.
@@ -180,7 +188,7 @@ export async function classificar({ texto, carregar = carregarJev, optIn, orcame
     try {
       jev = await Promise.race([Promise.resolve().then(() => carregar()), esgotou]);
     } catch (erro) {
-      return { jev: nasQuatro(`erro ao carregar o cliente (${nomeDoErro(erro)})`), cliente: null };
+      return { jev: nasQuatro(`falhou ao carregar o cliente (${nomeDoErro(erro)})`), cliente: null };
     }
     if (jev === ESGOTOU) return { jev: nasQuatro("tempo esgotado ao carregar o cliente"), cliente: null };
     if (jev === null || jev === undefined) return { jev: nasQuatro("cliente do Jev não encontrado"), cliente: null };
