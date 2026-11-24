@@ -1,0 +1,67 @@
+[
+  {
+    "id": 1,
+    "path": "/w/a.md",
+    "text": "Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. Trecho longo sobre o roteador de fontes. "
+  },
+  {
+    "id": 2,
+    "path": "/w/b.ts",
+    "text": "export const b = 2; // trecho dois"
+  },
+  {
+    "id": 3,
+    "path": "/w/c.md",
+    "text": "Trecho tres: a busca devolve ate dois trechos por documento."
+  },
+  {
+    "id": 4,
+    "path": "/w/d.md",
+    "text": "Trecho quatro, pouco relevante."
+  },
+  {
+    "id": 5,
+    "path": "/w/e.md",
+    "text": "Trecho cinco, nada a ver."
+  },
+  {
+    "id": 7,
+    "path": "/w/g.md",
+    "text": "Trecho sete: o limiar do Jev vale 0,5."
+  },
+  {
+    "id": 8,
+    "path": "/w/h.md",
+    "text": "Trecho oito: texto que o Jev julgou antes da reindexacao."
+  },
+  {
+    "id": 9,
+    "path": "/w/i.md",
+    "text": "Trecho nove: texto NOVO depois da reindexacao."
+  },
+  {
+    "id": 11,
+    "path": "/w/k.md",
+    "text": "Trecho onze: pareado por horario."
+  },
+  {
+    "id": 12,
+    "path": "/w/l.md",
+    "text": "Trecho doze: outro workspace, notoria."
+  },
+  {
+    "id": 13,
+    "path": "/w/m.md",
+    "text": "Trecho treze: outro workspace, notoria, abaixo do limiar."
+  },
+  {
+    "id": 14,
+    "path": "/w/n.md",
+    "text": "Trecho catorze: sessao sem transcript."
+  },
+  {
+    "id": 15,
+    "path": "/w/o.md",
+    "text": "Trecho quinze: slash sem argumento util."
+  }
+]

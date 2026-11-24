@@ -1266,8 +1266,11 @@ caso("uso-pre-migracao-ganha-a-coluna", async () => {
       .all()
       .map((c) => c.name);
     ok(cols.includes("semantica"), `openDb nao migrou a coluna; veio [${cols.join(", ")}]`);
+    for (const nova of ["sessao", "tool_use_id"]) {
+      ok(cols.includes(nova), `openDb nao migrou a coluna ${nova}; veio [${cols.join(", ")}]`);
+    }
 
-    const linha = db.prepare("SELECT ts, semantica FROM uso").get();
+    const linha = db.prepare("SELECT ts, semantica, sessao, tool_use_id FROM uso").get();
     ok(linha !== undefined, "a linha anterior a migracao sumiu");
     ok(Number(linha.ts) === 1, "a migracao reescreveu o dado que ja estava la");
     // O NULL é o contrato, não um detalhe: é ele que mantém a linha velha FORA do denominador da
@@ -1276,6 +1279,8 @@ caso("uso-pre-migracao-ganha-a-coluna", async () => {
       linha.semantica === null,
       `linha pre-migracao devia ficar NULL, veio ${JSON.stringify(linha.semantica)}`
     );
+    ok(linha.sessao === null, `sessao da linha pre-migracao devia ficar NULL, veio ${JSON.stringify(linha.sessao)}`);
+    ok(linha.tool_use_id === null, `tool_use_id da linha pre-migracao devia ficar NULL, veio ${JSON.stringify(linha.tool_use_id)}`);
 
     db.prepare(
       "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, ?, ?, ?, ?)"
