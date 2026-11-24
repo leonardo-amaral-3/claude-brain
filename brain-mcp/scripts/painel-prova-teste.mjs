@@ -10,9 +10,10 @@
 // diretório do diário é sempre um temporário (R4).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
+import { PassThrough } from "node:stream";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -248,6 +249,96 @@ await caso("o teste não escreveu fora do diretório temporário", async () => {
   const ctx = novoCtx();
   prova.amostrar(ctx, 4, "s");
   assert.equal(existsSync(vivo) ? readdirSync(vivo).length : 0, antes);
+});
+
+// ---- julgar: terminal falso (PassThrough com isTTY) para provar o laço sem depender de um TTY real.
+
+/** Um ctx com amostra de 4 itens já criada; devolve também o caminho do arquivo. */
+function comAmostra() {
+  const ctx = novoCtx();
+  prova.amostrar(ctx, 4, "s");
+  return { ctx, arquivo: join(ctx.dir, "gabarito", "amostra-20261124-1230.jsonl") };
+}
+
+/** Roda `julgar` com `respostas` digitadas (uma por linha) e devolve resultado e o que foi mostrado. */
+async function julgarCom(ctx, arquivo, respostas, isTTY = true) {
+  const stdin = new PassThrough();
+  stdin.isTTY = isTTY;
+  const stdout = new PassThrough();
+  let mostrado = "";
+  stdout.on("data", (d) => (mostrado += d));
+  stdin.end(respostas.map((r) => r + "\n").join(""));
+  const r = await prova.julgar({ ...ctx, stdin, stdout }, arquivo);
+  return { r, mostrado };
+}
+
+await caso("julgar sem TTY sai 2 com a mensagem e deixa o arquivo intacto", async () => {
+  const { ctx, arquivo } = comAmostra();
+  const antes = readFileSync(arquivo, "utf8");
+  const { r } = await julgarCom(ctx, arquivo, ["s"], false);
+  assert.equal(r.codigo, 2);
+  assert.match(r.linhas[0], /TTY/);
+  assert.equal(readFileSync(arquivo, "utf8"), antes);
+});
+
+await caso("julgar grava s/n a cada resposta, pula com p e para com q", async () => {
+  const { ctx, arquivo } = comAmostra();
+  const antes = ler(arquivo);
+  const { r, mostrado } = await julgarCom(ctx, arquivo, ["s", "talvez", "n", "p", "q"]);
+  assert.equal(r.codigo, 0);
+  assert.match(r.linhas[0], /julgados agora: 2 \(1 sim, 1 não\); pulados: 1; ainda sem julgamento: 2 \(saiu antes do fim\)/);
+  const depois = ler(arquivo);
+  assert.deepEqual(depois.map((i) => i.julgamento), ["sim", "nao", null, null]);
+  // O resto da linha não muda: só `julgamento`.
+  for (const [k, i] of depois.entries()) assert.deepEqual({ ...i, julgamento: null }, { ...antes[k], julgamento: null });
+  // O texto vai ao terminal, e a resposta inválida foi perguntada de novo (4 prompts de resposta: s, talvez, n, p; q é o 5º).
+  assert.ok(mostrado.includes(antes[0].pergunta) && mostrado.includes(antes[0].trecho));
+  assert.equal(mostrado.split("[s]im, [n]ão").length - 1, 5);
+  // Nada de arquivo temporário sobrando.
+  assert.deepEqual(readdirSync(join(ctx.dir, "gabarito")), ["amostra-20261124-1230.jsonl"]);
+});
+
+await caso("julgar retoma onde parou: só pergunta o que está sem julgamento", async () => {
+  const { ctx, arquivo } = comAmostra();
+  await julgarCom(ctx, arquivo, ["s", "n", "q"]);
+  const { r, mostrado } = await julgarCom(ctx, arquivo, ["n", "s"]);
+  assert.match(r.linhas[0], /julgados agora: 2 \(1 sim, 1 não\); pulados: 0; ainda sem julgamento: 0$/);
+  assert.equal(mostrado.split("[s]im, [n]ão").length - 1, 2);
+  assert.deepEqual(ler(arquivo).map((i) => i.julgamento), ["sim", "nao", "nao", "sim"]);
+  const de_novo = await julgarCom(ctx, arquivo, []);
+  assert.equal(de_novo.r.codigo, 0);
+  assert.match(de_novo.r.linhas[0], /nada a julgar/);
+});
+
+await caso("julgar: entrada que acaba no meio equivale a sair, sem perder o já julgado", async () => {
+  const { ctx, arquivo } = comAmostra();
+  const { r } = await julgarCom(ctx, arquivo, ["sim"]);
+  assert.equal(r.codigo, 0);
+  assert.deepEqual(ler(arquivo).map((i) => i.julgamento), ["sim", null, null, null]);
+});
+
+await caso("julgar aceita só o nome do arquivo (o que --amostrar imprime); inexistente sai 2", async () => {
+  const { ctx } = comAmostra();
+  const { r } = await julgarCom(ctx, "amostra-20261124-1230.jsonl", ["s", "q"]);
+  assert.equal(r.codigo, 0);
+  assert.match(r.linhas[0], /1 sim/);
+  assert.equal((await julgarCom(ctx, "amostra-inexistente.jsonl", ["s"])).r.codigo, 2);
+  assert.equal((await julgarCom(ctx, undefined, ["s"])).r.codigo, 2);
+});
+
+await caso("julgar: o que retorna não traz caminho nem pergunta (R1); o texto só vai ao terminal", async () => {
+  const { ctx, arquivo } = comAmostra();
+  const itens = ler(arquivo);
+  const { r } = await julgarCom(ctx, arquivo, ["s", "q"]);
+  const saida = r.linhas.join("\n");
+  assert.ok(!saida.includes("/w/") && !saida.includes(itens[0].pergunta.slice(0, 20)), saida);
+});
+
+await caso("julgar não come linha que não é JSON", async () => {
+  const { ctx, arquivo } = comAmostra();
+  writeFileSync(arquivo, readFileSync(arquivo, "utf8") + "linha estranha\n");
+  await julgarCom(ctx, arquivo, ["s", "q"]);
+  assert.equal(readFileSync(arquivo, "utf8").split("\n").filter(Boolean).at(-1), "linha estranha");
 });
 
 console.log(falhas ? `\n${falhas} caso(s) reprovado(s)` : "\ntodos os casos passaram");

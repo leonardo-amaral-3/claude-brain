@@ -13,8 +13,9 @@
 // até 500 caracteres da pergunta e 600 do trecho, porque julgar exige ler os dois. Mora em
 // `<ctx.dir>/gabarito/`, fora do repo. A saída que este módulo devolve nunca traz caminho nem texto.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 
 const MAX_PERGUNTA = 500;
 const MAX_TRECHO = 600;
@@ -291,12 +292,125 @@ export function amostrar(ctx, n = N_PADRAO, semente) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// julgar e secao: entram nas tasks 2 e 3 do card #69.
+// julgar
 
-/** @returns {Promise<{ codigo: number, linhas: string[] }>} */
-export async function julgar() {
-  return { codigo: 2, linhas: ["julgar: ainda não implementado"] };
+/** A resposta digitada → 'sim' | 'nao' | 'pular' | 'sair' | null (não entendi, pergunta de novo). */
+function interpretar(texto) {
+  const t = texto.trim().toLowerCase();
+  if (t === "s" || t === "sim") return "sim";
+  if (t === "n" || t === "nao" || t === "não") return "nao";
+  if (t === "p" || t === "pular") return "pular";
+  if (t === "q" || t === "sair") return "sair";
+  return null;
 }
+
+/** Reescreve o arquivo inteiro por um temporário + rename: morrer no meio nunca deixa meio gabarito. */
+function reescrever(arquivo, linhas) {
+  const tmp = `${arquivo}.tmp-${process.pid}`;
+  writeFileSync(tmp, linhas.join("\n") + "\n");
+  renameSync(tmp, arquivo);
+}
+
+/** Só o nome (o que `--amostrar` imprime) procura em `gabarito/`; com diretório, é o caminho dado. */
+function resolverArquivo(ctx, arquivo) {
+  return /[\\/]/.test(arquivo) ? arquivo : join(ctx.dir, "gabarito", arquivo);
+}
+
+/**
+ * Julga no terminal os itens da amostra com `julgamento: null`: mostra pergunta, trecho e `prob` e
+ * pergunta `[s]im relevante, [n]ão, [p]ular, [q] sair`. Grava a cada resposta, então sair no meio
+ * (ou fechar o terminal) não perde nada.
+ *
+ * Esta é a ÚNICA saída do painel que mostra texto de prompt e de trecho: vai direto ao terminal de
+ * quem julga (`ctx.stdout`, padrão `process.stdout`) e nunca ao `linhas` que o agregador devolve, que
+ * só leva contagens. `ctx.stdin` (padrão `process.stdin`) existe para o teste dar um terminal falso.
+ *
+ * Arquivo ausente ou ilegível é argumento inválido → código 2, a mesma regra do agregador.
+ *
+ * @returns {Promise<{ codigo: number, linhas: string[] }>}
+ */
+export async function julgar(ctx, arquivo) {
+  const entrada = ctx.stdin ?? process.stdin;
+  const saida = ctx.stdout ?? process.stdout;
+  if (!entrada.isTTY) return { codigo: 2, linhas: ["julgar: precisa de um terminal interativo (stdin não é TTY); rode `npm run painel -- --julgar <arquivo>` num terminal"] };
+  if (typeof arquivo !== "string" || !arquivo) return { codigo: 2, linhas: ["julgar: faltou o arquivo da amostra (`--julgar <arquivo>`)"] };
+
+  const caminho = resolverArquivo(ctx, arquivo);
+  let brutas;
+  try {
+    brutas = readFileSync(caminho, "utf8").split("\n").filter(Boolean);
+  } catch {
+    return { codigo: 2, linhas: [`julgar: não consegui ler ${arquivo}`] };
+  }
+  // Linha que não é JSON fica como está: o arquivo é do Leonardo, e reescrevê-lo não pode comer nada.
+  const itens = brutas.map((l) => {
+    try {
+      const o = JSON.parse(l);
+      return o && typeof o === "object" ? o : null;
+    } catch {
+      return null;
+    }
+  });
+  const pendentes = itens.map((o, i) => (o && o.julgamento === null ? i : -1)).filter((i) => i >= 0);
+  if (!pendentes.length) return { codigo: 0, linhas: ["nada a julgar: todos os itens já têm julgamento"] };
+
+  const rl = createInterface({ input: entrada, terminal: false });
+  const fila = [];
+  let fim = false;
+  let acorda = null;
+  rl.on("line", (l) => {
+    fila.push(l);
+    acorda?.();
+  });
+  rl.on("close", () => {
+    fim = true;
+    acorda?.();
+  });
+  /** A próxima linha digitada, ou `null` quando a entrada acabou. */
+  const proxima = async () => {
+    while (!fila.length && !fim) await new Promise((r) => (acorda = r));
+    acorda = null;
+    return fila.length ? fila.shift() : null;
+  };
+
+  let sim = 0;
+  let nao = 0;
+  let puladas = 0;
+  let saiu = false;
+  for (const [k, i] of pendentes.entries()) {
+    const it = itens[i];
+    saida.write(`\n[${k + 1}/${pendentes.length}] prob ${it.prob}\nPergunta: ${it.pergunta}\nTrecho:\n${it.trecho}\n`);
+    let resp = null;
+    while (resp === null) {
+      saida.write("o trecho é relevante para a pergunta? [s]im, [n]ão, [p]ular, [q] sair: ");
+      const lida = await proxima();
+      resp = lida === null ? "sair" : interpretar(lida);
+    }
+    if (resp === "sair") {
+      saiu = true;
+      break;
+    }
+    if (resp === "pular") {
+      puladas++;
+      continue;
+    }
+    it.julgamento = resp;
+    brutas[i] = JSON.stringify(it);
+    reescrever(caminho, brutas);
+    if (resp === "sim") sim++;
+    else nao++;
+  }
+  rl.close();
+
+  const restantes = pendentes.length - sim - nao;
+  return {
+    codigo: 0,
+    linhas: [`julgados agora: ${sim + nao} (${sim} sim, ${nao} não); pulados: ${puladas}; ainda sem julgamento: ${restantes}${saiu ? " (saiu antes do fim)" : ""}`],
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// secao: entra na task 3 do card #69.
 
 /** @returns {Promise<string>} */
 export async function secao() {
