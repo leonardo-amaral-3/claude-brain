@@ -46,7 +46,11 @@ export function lerEventos({ dir, desde, ate }) {
         if (typeof e.ts !== "number" || (e.ts >= desde && e.ts < ate)) saida.outraVersao++;
         continue;
       }
-      if (typeof e.ts === "number" && e.ts >= desde && e.ts < ate) saida.eventos.push(e);
+      if (typeof e.ts !== "number") {
+        saida.invalidas++; // v=1 sem ts numerico: nao da para datar, e sumir calado esconderia a perda
+        continue;
+      }
+      if (e.ts >= desde && e.ts < ate) saida.eventos.push(e);
     }
   }
   saida.eventos.sort((a, b) => a.ts - b.ts);

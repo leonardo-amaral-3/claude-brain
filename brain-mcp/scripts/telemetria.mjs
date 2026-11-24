@@ -603,7 +603,9 @@ async function casoStdout() {
  * `CLAUDE_CODE_SESSION_ID` unico NO AMBIENTE (de proposito, sem `envSemJev`: o que se mede e se elas
  * se protegem sozinhas), e confere que nenhum diario do lugar padrao ganhou linha com esse sessao.
  * A saida das suites e descartada; o codigo delas e so informado (a prova delas e o proprio comando).
- * Este caso nunca escreve no diario vivo: so le.
+ * Este caso nunca escreve no diario vivo: so le. Limite conhecido: o hook toma o `sessao` do payload, nao
+ * do ambiente, entao um vazamento vindo so do hook nao leva a marca plantada; o hook so grava com o
+ * falso se houver BRAIN_TELEMETRIA_DIR (`ligada`), e essa trava e o que o caso `ab`/`gravador` provam.
  */
 async function casoPoluicao() {
   const v = verificador();
@@ -770,23 +772,30 @@ export function conferirCobertura({ dir, projetos, desde, ate }) {
       const t = Date.parse(e?.timestamp);
       if (ehEntradaDePrompt(e) && t >= desde && t < ate) prompts.push({ id: e.promptId ?? null, t });
     }
+    // Duas passadas: o casamento exato por promptId reserva o evento antes de a janela de horario
+    // poder levar o evento de outro prompt (senao o prompt sem evento proprio parece coberto).
     const usados = new Set();
-    for (const p of prompts) {
+    const exatos = prompts.map((p) => {
+      const e = evs.find((x) => p.id !== null && x.prompt === p.id && !usados.has(x));
+      if (e) usados.add(e);
+      return e ?? null;
+    });
+    prompts.forEach((p, i) => {
       r.prompts++;
-      const exato = evs.find((e) => p.id !== null && e.prompt === p.id);
-      const horario = exato ? null : evs.find((e) => !usados.has(e) && e.ts >= p.t - MS_ANTES && e.ts <= p.t + MS_DEPOIS);
-      if (exato) {
+      if (exatos[i]) {
         r.comEvento++;
         r.porPromptId++;
-        usados.add(exato);
-      } else if (horario) {
+        return;
+      }
+      const horario = evs.find((e) => !usados.has(e) && e.ts >= p.t - MS_ANTES && e.ts <= p.t + MS_DEPOIS);
+      if (horario) {
         r.comEvento++;
         r.soPorHorario++;
         usados.add(horario);
       } else {
         r.semEvento++;
       }
-    }
+    });
     r.eventosSemPar += evs.filter((e) => !usados.has(e)).length;
   }
   return r;

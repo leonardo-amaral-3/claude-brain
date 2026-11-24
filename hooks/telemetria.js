@@ -102,9 +102,9 @@ function gravar(evento, env = process.env) {
     const linha = montarLinha(evento);
     const dir = dirTelemetria(env);
     const arq = arquivoDoDia(evento.ts, env);
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const novo = !fs.existsSync(arq);
-    fs.appendFileSync(arq, linha + '\n');
+    fs.appendFileSync(arq, linha + '\n', { mode: 0o600 });
     if (novo) varrer(dir, evento.ts);
     return true;
   } catch {
