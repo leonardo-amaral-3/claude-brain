@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `medirAproveitamento` — o aproveitamento por evento, lido do transcript
 
