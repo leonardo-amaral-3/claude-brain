@@ -14,6 +14,13 @@
 //
 // Falha em silencio — hook de contexto nunca pode atrapalhar o prompt. Mas silencio esconde bug:
 // rode com BRAIN_HOOK_DEBUG=1 para ver o erro no stderr.
+//
+// Telemetria (claude-brain#66): com BRAIN_TELEMETRIA=1 cada execucao grava UM evento `contexto` no
+// diario (hooks/telemetria.js), em todo desfecho. Contrato: planning/66-telemetria/spec.md. Gravar
+// vem DEPOIS da stdout e dentro de try: nunca muda o que foi injetado nem segura o prompt.
+
+// Primeira linha executavel, antes dos require: o `ms_total` do evento nao inclui a partida do node.
+const T0 = Date.now();
 const fs = require('fs');
 const path = require('path');
 const cfg = require('./brain-config.js');
@@ -256,18 +263,23 @@ const limiarJev = () => {
   return Number.isFinite(n) && n >= 0 && n <= 1 ? n : LIMIAR_JEV;
 };
 
-// Devolve { passaram, enviados, limiar }, ou null = "filtro indisponivel, injete como hoje".
+// Devolve { estado: 'ok', passaram, enviados, lista, limiar, notas } ou { estado, motivo?, enviados?,
+// limiar? } com estado 'sem_chave' | 'sem_enviaveis' | 'indisponivel' | 'prazo_hook' | 'erro'. So o
+// `ok` filtra; o resto vale "filtro indisponivel, injete como hoje" (o chamador trata `sem_enviaveis`
+// a parte: o bloco continua vazio, como sempre foi). O estado existe para a telemetria saber POR QUE
+// nao filtrou. `enviados` e a contagem (o cabecalho do bloco a usa); `lista` sao os candidatos que
+// foram ao Jev, e `notas[i]` e a probabilidade de `lista[i]` (a nota volta ao item pelo objeto).
 const filtrarComJev = async (alvo, cands) => {
   let timer;
   try {
     const jev = require('./jev.js');
-    if (!jev.ligado('contexto')) return null;
+    if (!jev.ligado('contexto')) return { estado: 'sem_chave' };
     const limiar = limiarJev();
     // Candidato sem texto nao vai ao Jev (emenda 3 da spec do #42): o cliente o recusaria com
     // `entrada_invalida`, e isso abandonaria o filtro do prompt inteiro. Ele so fica fora do bloco
     // filtrado. Acontece porque o piso de tokens tambem le o breadcrumb.
     const enviados = cands.filter((r) => String(r.full_text || '') !== '');
-    if (!enviados.length) return { passaram: [], enviados: 0, limiar };
+    if (!enviados.length) return { estado: 'sem_enviaveis' };
     const prazo = new Promise((r) => {
       timer = setTimeout(() => r(null), PRAZO_HOOK_JEV);
     });
@@ -280,20 +292,39 @@ const filtrarComJev = async (alvo, cands) => {
           titulo: r.breadcrumb || '',
           fonte: r.source || '',
         })),
-        { uso: 'contexto', instrucao: INSTRUCAO_JEV, timeoutMs: TIMEOUT_JEV }
+        {
+          uso: 'contexto',
+          instrucao: INSTRUCAO_JEV,
+          timeoutMs: TIMEOUT_JEV,
+          telemetria: { sessao: reg.sessao, prompt: reg.prompt },
+        }
       ),
       prazo,
     ]);
-    if (!Array.isArray(vs) || vs.length !== enviados.length || vs.some((v) => !v || v.estado !== 'ok')) return null;
+    if (vs === null) return { estado: 'prazo_hook', enviados: enviados.length, limiar };
+    if (!Array.isArray(vs) || vs.length !== enviados.length || vs.some((v) => !v)) {
+      return { estado: 'erro', enviados: enviados.length, limiar };
+    }
+    const fora = vs.find((v) => v.estado !== 'ok');
+    if (fora) {
+      return { estado: 'indisponivel', motivo: fora.motivo, enviados: enviados.length, limiar };
+    }
     if (DEBUG) {
       vs.forEach((v, i) =>
         process.stderr.write('[brain-contexto] jev ' + (i + 1) + ' ' + v.probabilidade + ' ' + enviados[i].path + '\n')
       );
     }
-    return { passaram: enviados.filter((_, i) => vs[i].probabilidade >= limiar), enviados: enviados.length, limiar };
+    return {
+      estado: 'ok',
+      passaram: enviados.filter((_, i) => vs[i].probabilidade >= limiar),
+      enviados: enviados.length,
+      lista: enviados,
+      limiar,
+      notas: vs.map((v) => v.probabilidade),
+    };
   } catch (e) {
     if (DEBUG) process.stderr.write('[brain-contexto] jev ' + (e && e.stack ? e.stack : e) + '\n');
-    return null;
+    return { estado: 'erro' };
   } finally {
     clearTimeout(timer);
   }
@@ -316,20 +347,100 @@ const linha = (i, titulo, meta, caminho, trecho) =>
 // import() dinamico nao registra handle no libuv: sem isto o processo sai com codigo 0 antes de
 // a promise resolver, e o hook "funciona" sem nunca imprimir nada. Foi exatamente o que aconteceu.
 const manter = setInterval(() => {}, 1000);
+
+// O evento `contexto` desta execucao, com todo campo no valor "nao chegou la" (spec do #66, §
+// Contrato do evento). Cada ponto de saida preenche `desfecho` antes de chamar `fim`.
+const reg = {
+  ts: T0,
+  evento: 'contexto',
+  sessao: null,
+  prompt: null,
+  ws: null,
+  tipo: null,
+  comando: null,
+  alvo_chars: null,
+  alvo_tokens: null,
+  desfecho: null,
+  entidade: null,
+  candidatos: null,
+  jev: null,
+  jev_motivo: null,
+  grupo: null,
+  enviados: null,
+  aprovados: null,
+  limiar: null,
+  mostrados: 0,
+  itens: [],
+  ms_busca: null,
+  ms_jev: null,
+  ms_total: 0,
+  erro: null,
+};
+let gravado = false;
+
+// Ordem que importa: `ms_total` e medido ANTES da stdout, a stdout sai como sempre, e so depois
+// vem a gravacao, com o `require` dentro do try. Um telemetria.js ausente, quebrado ou lento de
+// disco nunca muda o que foi injetado. `gravado` evita a linha dupla quando a propria escrita da
+// stdout lanca e o catch final chama `fim` de novo.
 const fim = (saida) => {
+  reg.ms_total = Date.now() - T0;
   if (saida) process.stdout.write(saida);
   clearInterval(manter);
+  if (gravado) return;
+  gravado = true;
+  try {
+    require('./telemetria.js').gravar(reg);
+  } catch {}
+};
+
+// Corta o nome da funcao/arquivo do erro: so `e.name[:code]`, nunca `e.message` (mensagem de
+// SQLite/FTS pode conter token do prompt, e o diario nao guarda texto do prompt).
+const nomeDoErro = (e) => String((e && e.name) || 'Error') + (e && e.code ? ':' + e.code : '');
+
+// Itens do passo 5: os primeiros LIMITE_JEV candidatos, na ordem do ranking. `mostrado` e `prob`
+// ligam ao item por IDENTIDADE DE OBJETO (o mesmo caminho pode vir em dois trechos), nunca por
+// caminho. `trecho_sha` e o SHA-256 (12 hex) do texto que o Jev julgou. Dentro de try: a telemetria
+// nao pode derrubar a injecao.
+const itensDoPasso5 = (primeiros, achados, jev) => {
+  try {
+    const crypto = require('crypto');
+    const mostrados = new Set(achados);
+    const nota = new Map();
+    if (jev && jev.estado === 'ok') jev.lista.forEach((r, i) => nota.set(r, jev.notas[i]));
+    return primeiros.map((r, i) => {
+      const texto = String(r.full_text || '');
+      return {
+        caminho: String(r.path),
+        fonte: r.source == null ? null : String(r.source),
+        pos: i + 1,
+        chunk: Number.isInteger(r.chunk_id) ? r.chunk_id : null,
+        trecho_sha: texto ? crypto.createHash('sha256').update(texto).digest('hex').slice(0, 12) : null,
+        prob: nota.has(r) ? nota.get(r) : null,
+        mostrado: mostrados.has(r),
+      };
+    });
+  } catch {
+    return [];
+  }
 };
 
 (async () => {
   try {
-    let bruto = '';
+    // stdin ilegivel OU JSON malformado: `sem_payload`. A stdout nao muda (o malformado antes caia
+    // no catch final e tambem nao imprimia nada).
+    let h;
     try {
-      bruto = fs.readFileSync(0, 'utf8');
+      h = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
     } catch {
+      reg.desfecho = 'sem_payload';
       return fim();
     }
-    const h = JSON.parse(bruto || '{}');
+    if (h === null || typeof h !== 'object') {
+      reg.desfecho = 'sem_payload';
+      return fim();
+    }
+    if (typeof h.session_id === 'string' && h.session_id) reg.sessao = h.session_id;
+    if (typeof h.prompt_id === 'string' && h.prompt_id) reg.prompt = h.prompt_id;
     // Payload inteiro sob BRAIN_HOOK_DEBUG=1: e assim que se confere um campo novo do harness
     // sem precisar de sonda temporaria no arquivo instalado. Foi o que respondeu o `source` abaixo.
     if (DEBUG) process.stderr.write('[brain-contexto] payload ' + JSON.stringify(h) + String.fromCharCode(10));
@@ -342,7 +453,10 @@ const fim = (saida) => {
     // de slash command (`/gm-implement 11-cerebro-em-slash-command`) quanto em prompt normal.
     // Logo o guard passa nos dois e nao ha nada a relaxar; se um dia aparecer valor novo, o dump
     // acima o mostra.
-    if (h.source && h.source !== 'user') return fim();
+    if (h.source && h.source !== 'user') {
+      reg.desfecho = 'ignorado';
+      return fim();
+    }
 
     const prompt = String(h.prompt || '').trim();
 
@@ -355,12 +469,23 @@ const fim = (saida) => {
     const ehSlash = prompt.startsWith('/');
     const mSlash = ehSlash ? prompt.match(/^\/\S+\s*([\s\S]*)$/) : null;
     const arg = mSlash ? mSlash[1].trim() : '';
+    // Telemetria: so o NOME do comando, e so se for um nome de verdade ('/home/x' tambem comeca com
+    // barra e o hook o trata como slash, mas nao pode gravar caminho). Nunca o argumento.
+    reg.tipo = ehSlash ? 'slash' : 'texto';
+    if (ehSlash) {
+      const nome = prompt.match(/^\/\S+/)[0];
+      reg.comando = /^\/[a-z0-9:_-]+$/i.test(nome) ? nome : '(outro)';
+    }
+    reg.alvo_chars = ehSlash ? arg.length : prompt.length;
 
     // Sem argumento nao ha o que resolver, e injetar ali e desperdicio puro: medido, 82 dos 373
     // slash commands (22%) nao tem argumento e 62 deles sao `/clear` — o contexto injetado seria
     // descartado no turno seguinte.
-    if (ehSlash && !arg) return fim();
-    if (!ehSlash && prompt.length < 12) return fim(); // "ok", "continua" nao tem o que buscar
+    if ((ehSlash && !arg) || (!ehSlash && prompt.length < 12)) {
+      // "ok", "continua" nao tem o que buscar
+      reg.desfecho = 'curto';
+      return fim();
+    }
 
     // O alvo da busca e o ARGUMENTO quando o prompt e slash command. O nome do comando so
     // adiciona ruido, e ruido que reprova: `gm` e `explore` de `/gm-explore como funciona o
@@ -369,13 +494,18 @@ const fim = (saida) => {
     const alvo = ehSlash ? arg : prompt;
 
     const ws = cfg.doCwd(String(h.cwd || ''));
-    if (!ws || !ws.db || !fs.existsSync(ws.db)) return fim();
+    if (ws && ws.nome != null) reg.ws = String(ws.nome);
+    if (!ws || !ws.db || !fs.existsSync(ws.db)) {
+      reg.desfecho = 'sem_indice';
+      return fim();
+    }
 
     // dist/ e ESM; este hook e CJS. import() dinamico atravessa.
     const dist = path.join(path.dirname(ws.db), '..', 'dist');
     const url = (f) => 'file:///' + path.join(dist, f).split(BS).join('/');
     const { openDb } = await import(url('db.js'));
     const { Buscador, tokensDe, normalizar } = await import(url('search.js'));
+    reg.alvo_tokens = tokensDe(alvo).length;
 
     const db = openDb(ws.db);
 
@@ -434,6 +564,18 @@ const fim = (saida) => {
           slots.join('\n\n') +
           '\n\nIsto e a vizinhanca de UMA entidade, nao uma busca. ' +
           RODAPE;
+        reg.desfecho = 'entidade';
+        reg.entidade = ent.chave;
+        reg.mostrados = itens.length;
+        reg.itens = itens.map((e, i) => ({
+          caminho: String(e.doc_path),
+          fonte: e.tipo == null ? null : String(e.tipo),
+          pos: i + 1,
+          chunk: null,
+          trecho_sha: null,
+          prob: null,
+          mostrado: true,
+        }));
         return fim(
           JSON.stringify({
             hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: texto },
@@ -444,11 +586,16 @@ const fim = (saida) => {
     }
 
     // Passo 5 da precedencia — TEXTO. Argumento curto demais nao da busca: `#5` acha o mundo.
-    if (ehSlash && arg.length < 12) return fim();
+    if (ehSlash && arg.length < 12) {
+      reg.desfecho = 'curto';
+      return fim();
+    }
 
     // vec=null: a metade semantica exige carregar o transformer, caro demais por prompt.
     // O Buscador degrada sozinho para lexico puro (~90ms).
+    const tBusca = Date.now();
     const { resultados } = await new Buscador(db, null).buscar(alvo, {}, LIMITE_BRUTO);
+    reg.ms_busca = Date.now() - tBusca;
 
     const pref = barras(ws.prefixo);
     const lista = (ws.repos || ws.exceto || []).map((s) => String(s).toLowerCase());
@@ -480,9 +627,38 @@ const fim = (saida) => {
     // A ordem do ranking e mantida; o Jev so decide quem fica.
     const candidatos = resultados.filter(daqui).filter(relevante);
     let achados = candidatos.slice(0, LIMITE_FINAL);
-    const jev = usaJev() && candidatos.length ? await filtrarComJev(alvo, candidatos.slice(0, LIMITE_JEV)) : null;
-    if (jev) achados = jev.passaram.slice(0, LIMITE_FINAL);
-    if (!achados.length) return fim();
+    reg.candidatos = candidatos.length;
+
+    // `r` e o retorno inteiro de filtrarComJev (com o `estado`); `jev` e o que o resto do caminho
+    // usa e e `null` fora do `ok`, como sempre foi: so o estado e novo, a stdout nao muda.
+    // Ponto de entrada do A/B (task 4 do #67): o sorteio entra aqui, antes desta chamada.
+    let r = null;
+    if (candidatos.length && !usaJev()) {
+      reg.jev = 'desligado';
+    } else if (candidatos.length) {
+      const tJev = Date.now();
+      r = await filtrarComJev(alvo, candidatos.slice(0, LIMITE_JEV));
+      reg.ms_jev = Date.now() - tJev;
+      reg.jev = r.estado;
+      if (r.estado === 'indisponivel') reg.jev_motivo = r.motivo == null ? null : String(r.motivo);
+      if (r.enviados != null) reg.enviados = r.enviados;
+      if (r.limiar != null) reg.limiar = r.limiar;
+    }
+    const jev = r && r.estado === 'ok' ? r : null;
+    if (jev) {
+      achados = jev.passaram.slice(0, LIMITE_FINAL);
+      reg.aprovados = jev.passaram.length;
+    } else if (r && r.estado === 'sem_enviaveis') {
+      // Todos sem texto: o bloco filtrado sai vazio, como antes (nao e "filtro indisponivel").
+      achados = [];
+    }
+    reg.itens = itensDoPasso5(candidatos.slice(0, LIMITE_JEV), achados, jev);
+    if (!achados.length) {
+      reg.desfecho = jev ? 'jev_reprovou_tudo' : r && r.estado === 'sem_enviaveis' ? 'sem_enviaveis' : 'sem_candidatos';
+      return fim();
+    }
+    reg.desfecho = 'injetado';
+    reg.mostrados = achados.length;
 
     const linhas = achados.map((r, i) =>
       linha(
@@ -514,6 +690,8 @@ const fim = (saida) => {
     );
   } catch (e) {
     if (DEBUG) process.stderr.write('[brain-contexto] ' + (e && e.stack ? e.stack : e) + '\n');
+    reg.desfecho = 'erro';
+    reg.erro = nomeDoErro(e);
     fim();
   }
 })();

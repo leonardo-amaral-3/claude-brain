@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: Evento `contexto` no hook, em todo desfecho (sem o A/B)
 
