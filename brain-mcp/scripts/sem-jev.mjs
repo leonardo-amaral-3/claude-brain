@@ -40,5 +40,9 @@ export function semJev(raiz) {
   for (const nome of Object.keys(process.env)) {
     if (!Object.hasOwn(limpo, nome)) delete process.env[nome];
   }
+  // R4 (telemetria, #66): smoke, eval e concorrencia sobem o servidor contra o indice vivo e, com
+  // a sessao que rodou o teste no ambiente, as buscas deles entrariam em `uso.sessao` e a secao
+  // Ganho as contaria como buscas daquela sessao.
+  delete process.env.CLAUDE_CODE_SESSION_ID;
   return { caminho, cliente };
 }
