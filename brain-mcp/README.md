@@ -279,7 +279,7 @@ npm run colher             # recolhe o golden set da tabela uso, preservando os 
 npm run contradicao -- --enviar   # critério 4 do #46: mede a marca do Jev em substituições conhecidas (manda fatos à TypeSafe AI)
 npm run uso                # quantas vezes o Claude chamou cada tool
 npm run smoke              # sobe o servidor por stdio e testa as tools
-npm run jev                # cliente do Jev e filtro do hook (T1-T16), só com o cliente falso, sem rede
+npm run jev                # cliente do Jev e filtro do hook (T1-T16), com o cliente falso e um índice de prova montado pelo teste: sem rede e sem o índice vivo
 npm run roteador           # roteador de source (limiar, teto, quedas), só com o Jev falso, sem rede
 node scripts/injecao.mjs --desde <dia> --ate <dia> --base origin/dev --portao jev   # portão do filtro do Jev no hook
 node dist/cli.js --git     # relê o histórico de git dos repos
