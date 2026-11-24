@@ -1,5 +1,5 @@
 // Teste do cliente do Jev (hooks/jev.js) e do filtro do hook de contexto, sem rede.
-// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev, os dois sobre um indice de prova montado aqui, nunca o vivo); a escolha do T16 tem caso sintetico.
+// Parte cliente: T1-T10 e T17 (telemetria, Emenda 4). Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev, os dois sobre um indice de prova montado aqui, nunca o vivo); a escolha do T16 tem caso sintetico.
 //
 // Uso: npm run jev        sai 0 se tudo passou, 1 na primeira falha ("FALHOU: <caso>"),
 //                         2 se nao deu para medir ("NAO MEDI: <motivo>"): Node sem node:sqlite ou sem
@@ -10,7 +10,7 @@
 // TypeSafe AI nem herdar a chave. Se um caso esquecer de injetar o `fetch` espiao, o global lanca e
 // o caso falha em vez de sair para a rede.
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -349,6 +349,129 @@ function filho(argumentos, env, entrada) {
 }
 
 console.log("jev: T1-T10 OK (parte cliente; sem rede)");
+
+// ---- T17: telemetria (Emenda 4 do contrato, claude-brain#66) -----------------------------------
+// Um evento `jev` por chamada que nao seja `desligado`, so com BRAIN_TELEMETRIA=1; o resultado nao
+// muda por gravar; nada em stdout/stderr. Tudo num diretorio temporario: este caso nunca grava no
+// diario vivo (R4), e o env de cada chamada e explicito (o do processo ja saiu pelo envSemJev).
+{
+  if (!existsSync(join(dirname(caminhoDoCliente), "telemetria.js"))) {
+    naoMedi("hooks/telemetria.js nao esta ao lado do jev.js carregado: T17 so mede o layout do repo ou uma instalacao sincronizada");
+  }
+  const tmp = mkdtempSync(join(tmpdir(), "jev-t17-"));
+  try {
+    const dir = join(tmp, "diario");
+    const lerLinhas = (d = dir) => {
+      const arquivos = existsSync(d) ? readdirSync(d).filter((n) => /^eventos-.*\.jsonl$/.test(n)) : [];
+      return arquivos.flatMap((n) => readFileSync(join(d, n), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)));
+    };
+    const envTele = { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim", BRAIN_TELEMETRIA: "1", BRAIN_TELEMETRIA_DIR: dir, CLAUDE_CODE_SESSION_ID: "sess-amb" };
+    const semTele = { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim" };
+    const op = (extra) => ({ uso: "contexto", ...extra });
+
+    // julgar: uma linha, resultado identico ao sem telemetria, silencio, `v` primeiro
+    const referencia = await jev.julgar("p", TRECHOS, op({ env: semTele }));
+    let resultado;
+    const barulho = await silencioso(async () => {
+      resultado = await jev.julgar("p", TRECHOS, op({ env: envTele, telemetria: { sessao: "s-1", prompt: "p-1" } }));
+    });
+    confere(igual(resultado, referencia), "T17 julgar: resultado identico ao sem telemetria");
+    confere(barulho === "", "T17 julgar: nada em stdout/stderr");
+    let linhas = lerLinhas();
+    confere(linhas.length === 1, `T17 julgar grava uma linha (${linhas.length})`);
+    const l1 = linhas[0];
+    confere(Object.keys(l1).slice(0, 5).join() === "v,ts,evento,sessao,prompt", "T17 envelope na ordem do contrato");
+    confere(l1.v === 1 && l1.evento === "jev" && l1.sessao === "s-1" && l1.prompt === "p-1", "T17 julgar: v, evento, sessao e prompt de opcoes.telemetria");
+    confere(l1.uso === "contexto" && l1.op === "julgar" && l1.cliente === "falso", "T17 julgar: uso, op, cliente");
+    confere(l1.itens === 2 && l1.ok === 2 && l1.sim === 2 && igual(l1.motivos, {}) && igual(l1.detalhes, []), "T17 julgar: contagens");
+    confere(igual(l1.notas, [0.95, 0.95]) && l1.tokens === null && Number.isInteger(l1.ms) && Number.isInteger(l1.ts), "T17 julgar: notas, tokens null, ms e ts inteiros");
+    confere(!JSON.stringify(l1).includes("primeiro trecho") && !JSON.stringify(l1).includes("specs/um.md"), "T17 o evento nao guarda texto nem id de trecho");
+
+    // sem opcoes.telemetria: a sessao vem do ambiente, o prompt e null
+    await jev.julgar("p", TRECHOS, op({ env: envTele }));
+    linhas = lerLinhas();
+    confere(linhas.length === 2 && linhas[1].sessao === "sess-amb" && linhas[1].prompt === null, "T17 sessao do CLAUDE_CODE_SESSION_ID, prompt null");
+
+    // decidir
+    const refD = await jev.decidir("e", { q: NOUL }, op({ env: semTele }));
+    const resD = await jev.decidir("e", { q: NOUL }, op({ env: envTele }));
+    linhas = lerLinhas();
+    confere(igual(resD, refD) && linhas.length === 3 && linhas[2].op === "decidir", "T17 decidir: uma linha, resultado identico");
+    confere(linhas[2].itens === 1 && igual(linhas[2].notas, { q: 0.95 }), "T17 decidir: itens e notas por id");
+    await jev.decidir("e", { q: ESCOLHA }, op({ env: envTele }));
+    confere(igual(lerLinhas()[3].notas, { q: { escolha: "a", confianca: 0.95 } }), "T17 decidir escolha: nota {escolha, confianca}");
+
+    // desligado nao grava; telemetria desligada nao grava
+    await jev.julgar("p", TRECHOS, op({ env: { ...envTele, BRAIN_JEV: "parada" } }));
+    await jev.decidir("e", { q: NOUL }, op({ env: { ...envTele, BRAIN_JEV: "" } }));
+    await jev.julgar("p", [], op({ env: { ...envTele, BRAIN_JEV: "parada" } }));
+    confere(lerLinhas().length === 4, "T17 desligado (barreira de uso) nao grava, nem com trechos vazios");
+    await jev.julgar("p", TRECHOS, op({ env: { ...envTele, BRAIN_TELEMETRIA: "0" } }));
+    confere(lerLinhas().length === 4, "T17 sem BRAIN_TELEMETRIA=1 nao grava");
+
+    // o falso sem BRAIN_TELEMETRIA_DIR desliga: nem o diretorio padrao (aqui um tmp) e criado
+    const home = join(tmp, "claude-home");
+    await jev.julgar("p", TRECHOS, op({ env: { ...semTele, BRAIN_TELEMETRIA: "1", CLAUDE_CONFIG_DIR: home } }));
+    confere(!existsSync(home), "T17 o falso sem BRAIN_TELEMETRIA_DIR nao grava");
+
+    // indisponivel: motivos e detalhes; uso fora da tabela; entrada invalida
+    const antes = lerLinhas().length;
+    await jev.julgar("p", TRECHOS, op({ env: { ...envTele, BRAIN_JEV_FALSO: "indisponivel" } }));
+    await jev.julgar("p", TRECHOS, { uso: "fora", env: envTele });
+    await jev.julgar("p", [{ id: "a", texto: "" }, TRECHOS[0]], op({ env: envTele }));
+    const novas = lerLinhas().slice(antes);
+    confere(novas.length === 3, `T17 tres chamadas, tres linhas (${novas.length})`);
+    confere(novas[0].ok === 0 && igual(novas[0].motivos, { rede: 2 }) && igual(novas[0].detalhes, ["falso"]) && igual(novas[0].notas, [null, null]), "T17 indisponivel: motivos, detalhes e notas null");
+    confere(novas[1].uso === "(fora da tabela)" && novas[1].cliente === "invalida" && igual(novas[1].motivos, { entrada_invalida: 2 }), "T17 uso fora da tabela: '(fora da tabela)', cliente invalida");
+    confere(novas[2].cliente === "falso" && novas[2].ok === 1 && igual(novas[2].motivos, { entrada_invalida: 1 }) && igual(novas[2].notas, [null, 0.95]), "T17 um trecho invalido: so ele fica null");
+
+    // sem chave
+    await jev.julgar("p", TRECHOS, op({ env: { ...envTele, BRAIN_JEV_FALSO: undefined } }));
+    confere(lerLinhas().at(-1).cliente === "sem_chave", "T17 cliente sem_chave");
+
+    // api: tokens somados entre as requisicoes de um julgar; usage que nao e objeto vira null
+    const api = espiao(() => respostaJson({ answers: { relevante: { noul: 0.8 } }, usage: { input_tokens: 3, output_tokens: 2, detalhe: { x: 1 } } }));
+    const envApi = { ...envTele, BRAIN_JEV_FALSO: undefined, TYPESAFE_API_KEY: "chave-de-teste" };
+    await jev.julgar("p", TRECHOS, op({ env: envApi, fetch: api.fetch }));
+    let ultima = lerLinhas().at(-1);
+    confere(ultima.cliente === "api" && igual(ultima.tokens, { input_tokens: 6, output_tokens: 4 }) && igual(ultima.notas, [0.8, 0.8]), "T17 api: tokens somados e notas");
+    const semUsage = espiao(() => respostaJson({ answers: { relevante: { noul: 0.8 } }, usage: "x" }));
+    await jev.julgar("p", TRECHOS, op({ env: envApi, fetch: semUsage.fetch }));
+    confere(lerLinhas().at(-1).tokens === null, "T17 usage que nao e objeto: tokens null");
+    const falha = espiao(() => respostaJson({}, 429));
+    await jev.decidir("e", { q: NOUL }, op({ env: envApi, fetch: falha.fetch }));
+    ultima = lerLinhas().at(-1);
+    confere(ultima.cliente === "api" && igual(ultima.motivos, { http: 1 }) && igual(ultima.detalhes, ["429"]), "T17 http 429: motivo e detalhe");
+
+    // destino indisponivel (um arquivo comum): o resultado nao muda e nada vai a stdout/stderr
+    const arquivoComum = join(tmp, "arquivo-comum");
+    writeFileSync(arquivoComum, "x");
+    let resIndisp;
+    const ruido = await silencioso(async () => {
+      resIndisp = await jev.julgar("p", TRECHOS, op({ env: { ...envTele, BRAIN_TELEMETRIA_DIR: arquivoComum } }));
+    });
+    confere(igual(resIndisp, referencia) && ruido === "", "T17 destino indisponivel: resultado igual, sem saida");
+
+    // envSemJev tira BRAIN_TELEMETRIA e BRAIN_TELEMETRIA_DIR (Emenda 4c), e so o que e do Jev
+    const limpo = jev.envSemJev({ BRAIN_TELEMETRIA: "1", BRAIN_TELEMETRIA_DIR: "/x", BRAIN_TELEMETRIA_AB: "0.2", BRAIN_JEV: "contexto", TYPESAFE_API_KEY: "k", PATH: "/bin", CLAUDE_CODE_SESSION_ID: "s" });
+    confere(igual(limpo, { PATH: "/bin", CLAUDE_CODE_SESSION_ID: "s" }), `T17 envSemJev tira BRAIN_TELEMETRIA* (${JSON.stringify(Object.keys(limpo))})`);
+
+    // CLI: aceita `telemetria` no JSON da stdin; ignora o que nao e objeto
+    const dirCli = join(tmp, "cli");
+    const envCli = { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim", BRAIN_TELEMETRIA: "1", BRAIN_TELEMETRIA_DIR: dirCli };
+    const viaCli = (extra) => filho([caminhoDoCliente], envCli, JSON.stringify({ op: "julgar", uso: "contexto", pergunta: "x", trechos: [{ id: "a", texto: "b" }], ...extra }));
+    const c1 = await viaCli({ telemetria: { sessao: "s-cli", prompt: "p-cli" } });
+    confere(c1.codigo === 0 && c1.stderr === "" && JSON.parse(c1.stdout).ok === true, "T17 CLI com telemetria: envelope normal, stderr vazia");
+    const c2 = await viaCli({ telemetria: "texto" });
+    confere(c2.stdout === c1.stdout && c2.codigo === 0, "T17 CLI: telemetria que nao e objeto e ignorada");
+    const l = lerLinhas(dirCli);
+    confere(l.length === 2 && l[0].sessao === "s-cli" && l[0].prompt === "p-cli" && l[1].prompt === null, "T17 CLI: o evento leva sessao e prompt do JSON");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+console.log("jev: T17 OK (telemetria, Emenda 4; diretorio temporario)");
 
 // ==== Parte hook: T11-T16 ======================================================================
 // Roda o hook da worktree contra o de origin/dev, sempre com o cliente falso: nada aqui toca a rede.

@@ -327,6 +327,8 @@ const DESLIGADO_EM_LINHA = '{"estado":"desligado","categoria":null,"probabilidad
 // Ambiente isolado: sem NENHUMA fonte de flag ou chave que a spec do #42 nomeia (`BRAIN_JEV`,
 // `BRAIN_JEV_FALSO`, `TYPESAFE_API_KEY`; o #42 só as lê do ambiente, não de arquivo), e com os
 // diretórios pessoais num diretório vazio, para nada instalado na máquina ser encontrado.
+// Também sem `BRAIN_TELEMETRIA*` (claude-brain#66, R4): o filho (e) carrega o `hooks/jev.js` de
+// verdade, e um `BRAIN_TELEMETRIA_DIR` exportado no shell o faria gravar eventos no diário vivo.
 const diretoriosTemporarios = [];
 const diretorioVazio = () => {
   const dir = mkdtempSync(join(tmpdir(), "classificar-parada-"));
@@ -336,7 +338,7 @@ const diretorioVazio = () => {
 const ambienteIsolado = () => {
   const env = {};
   for (const [nome, valor] of Object.entries(process.env)) {
-    if (nome === "TYPESAFE_API_KEY" || nome.startsWith("BRAIN_JEV")) continue;
+    if (nome === "TYPESAFE_API_KEY" || nome.startsWith("BRAIN_JEV") || nome.startsWith("BRAIN_TELEMETRIA")) continue;
     env[nome] = valor;
   }
   const vazio = diretorioVazio();
