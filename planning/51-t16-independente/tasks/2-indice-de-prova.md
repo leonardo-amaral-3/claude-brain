@@ -28,7 +28,7 @@ From `brain-mcp/`, with no `BRAIN_JEV`, `TYPESAFE_API_KEY` or `BRAIN_JEV_FALSO` 
 - CA1' (a): `npm run jev 2>&1 | grep -E '^(jev:|FALHOU|NÃO MEDI)'; echo ${PIPESTATUS[0]}` → `0`, with `jev: T1-T10 OK …`, `jev: T16 escolha sintetica OK (sem indice)` and `jev: T11-T16 OK (parte hook; cliente falso, indice de prova, sem rede)`, in that order.
 - CA1' (b): the same with `BRAIN_WORKSPACES=/nao/existe.json` in front → same three lines, `0`.
 - CA1' (a) once more with `PATH=/home/leo/.local/share/mise/installs/node/22.23.5/bin:$PATH` → `0` (the `ExperimentalWarning` on stderr is not a failure).
-- CA2', manual and **not committed**: (a) `esperados.slice(1)` in T16 → exit `1`; (b) 6th name of the results list `"e"` → `"e2"` → exit `2` on `NÃO MEDI … aprovados 6,7,8,9,10 de 10`. Revert both and confirm `git diff` shows neither.
+- CA2', manual and **not committed**: (a) `esperados.slice(1)` in T16 → exit `1`; (b) 6th name of the results list `"e"` → `"e2"` → exit `2` on `NÃO MEDI … aprovados 6,7,8,9,10 de 10`. *(Amendment 2026-11-24, G4 finding 1: now exit `1` on `FALHOU: T16 pre-condicao: aprovados 6,7,8,9,10 de 10 …`.)* Revert both and confirm `git diff` shows neither.
 - CA4: `grep -n "brain-workspaces\|cfgDoHook\|carregar()\|homedir(), \"pessoal\"" scripts/jev.mjs` finds nothing.
 - Acceptance criteria covered: CA1', CA2', CA3 (unchanged, regression), CA4.
 

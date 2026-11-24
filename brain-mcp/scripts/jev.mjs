@@ -2,8 +2,9 @@
 // Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev, os dois sobre um indice de prova montado aqui, nunca o vivo); a escolha do T16 tem caso sintetico.
 //
 // Uso: npm run jev        sai 0 se tudo passou, 1 na primeira falha ("FALHOU: <caso>"),
-//                         2 se nao deu para medir ("NAO MEDI: <motivo>"): Node sem node:sqlite, sem
-//                         origin/dev, ou indice de prova que nao serve mais ao hook. Dois nao e verde.
+//                         2 se nao deu para medir ("NAO MEDI: <motivo>"): Node sem node:sqlite ou sem
+//                         origin/dev. Dois nao e verde. O indice de prova e fixo: pre-condicao dele que
+//                         cai e hook que mudou, e sai 1.
 //
 // Por que o env e o fetch sao trocados antes de qualquer coisa: este script nunca pode falar com a
 // TypeSafe AI nem herdar a chave. Se um caso esquecer de injetar o `fetch` espiao, o global lanca e
@@ -575,7 +576,7 @@ const FALSO_SIM = { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "sim" };
 // ---- T11: flag desligada = byte a byte o hook de origin/dev -------------------------------
 const t11 = await parIgual(PROMPT_DE_PROVA, {});
 if (!textoDoBloco(t11.referencia.stdout).includes("busca lexica automatica")) {
-  naoMedi("o indice de prova nao serve mais: com a flag desligada o hook de origin/dev nao injeta pelo caminho de texto");
+  fail("T11 pre-condicao: com a flag desligada o hook de origin/dev nao injeta do indice de prova pelo caminho de texto (o indice e fixo: o hook mudou)");
 }
 confere(t11.igual, "T11 flag desligada: stdout igual a do hook de origin/dev");
 const caminhosDeT11 = caminhosDoBloco(t11.worktree.stdout);
@@ -583,7 +584,7 @@ const caminhosDeT11 = caminhosDoBloco(t11.worktree.stdout);
 // pre-condicao: candidatos suficientes para T16 (>= 6), contados pelas linhas de debug
 const sondagem = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { ...FALSO_SIM, BRAIN_HOOK_DEBUG: "1" });
 const enviados = candidatosEnviados(sondagem.stderr);
-if (enviados.length < 6) naoMedi(`o indice de prova nao serve mais: so ${enviados.length} candidatos chegam ao Jev (T16 precisa de 6 ou mais)`);
+if (enviados.length < 6) fail(`T16 pre-condicao: so ${enviados.length} candidatos chegam ao Jev, esperados 10 (o indice de prova e fixo: o hook da worktree mudou)`);
 
 // ---- T12: o Jev nega tudo = stdout vazia ---------------------------------------------------
 {
@@ -621,7 +622,7 @@ if (enviados.length < 6) naoMedi(`o indice de prova nao serve mais: so ${enviado
   const sem = await parIgual(PROMPT_DE_ENTIDADE, {});
   const bloco = textoDoBloco(sem.referencia.stdout);
   if (!bloco || bloco.includes("busca lexica automatica")) {
-    naoMedi("o indice de prova nao serve mais: com a flag desligada o bloco de entidade esta vazio ou nao veio do grafo");
+    fail("T15 pre-condicao: com a flag desligada o bloco de entidade do hook de origin/dev esta vazio ou nao veio do grafo (o indice de prova e fixo: o hook mudou)");
   }
   const com = await parIgual(PROMPT_DE_ENTIDADE, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: "nao" });
   confere(com.igual, "T15 entidade com falso nao: igual ao da flag desligada");
@@ -633,7 +634,7 @@ if (enviados.length < 6) naoMedi(`o indice de prova nao serve mais: so ${enviado
   const aprovados = aprovadosDoT16(enviados);
   const posicoes = aprovados.map((a) => a.posicao).join(",");
   // O indice de prova poe o 6o no caminho do 5o: a regra tem de tirar ele, e so ele.
-  if (posicoes !== "7,8,9,10") naoMedi(`o indice de prova nao serve mais: aprovados ${posicoes || "nenhum"} de ${n}, esperados 7,8,9,10`);
+  if (posicoes !== "7,8,9,10") fail(`T16 pre-condicao: aprovados ${posicoes || "nenhum"} de ${n}, esperados 7,8,9,10 de 10 (o indice de prova e fixo: o hook da worktree mudou)`);
   const k = aprovados.length;
   const roteiro = join(pastaTemporaria, "roteiro-t16.json");
   writeFileSync(roteiro, JSON.stringify(roteiroDoT16(aprovados)));

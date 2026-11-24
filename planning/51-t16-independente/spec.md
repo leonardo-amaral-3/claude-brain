@@ -48,6 +48,11 @@
 > ou o `git show origin/dev:hooks/…`, ou quando o índice de prova deixa de servir ao hook (as
 > pré-condições do T11, do T15 e do T16 em `### Emenda 2026-11-24`). Nenhum `NÃO MEDI` depende do
 > conteúdo do índice vivo, que o script não abre mais.
+>
+> **Emenda 2026-11-24 (G4, achado 1; decisão do Leonardo).** As pré-condições do T11, do T15 e do
+> T16 saem do `NÃO MEDI` e viram `FALHOU`, exit **1**. Com o índice de prova fixo, elas só caem quando
+> um hook muda (o da worktree ou o de `origin/dev`), e isso não é ambiente. Exit 2 fica só para a
+> falta do `node:sqlite` ou do `git show origin/dev:hooks/…`.
 
 **CA1 — O T16 mede com o índice vivo de hoje.**
 - Dado o índice vivo de 11/11/2026, em que os candidatos 8, 9 e 10 do `PROMPT_DE_PROVA` repetem os caminhos do 1, do 2 e do 3,
@@ -506,7 +511,13 @@ valendo como sanidade do lote. Se sair diferente de 0, é fora do escopo e vira 
 - **Emenda 2026-11-24: `node:sqlite`, e não `better-sqlite3`.** É o que o `src/db.ts` já usa, vem com
   o Node e não pede dependência. Carregado por `import()` para o Node sem ele dar `NÃO MEDI`, e não um
   erro antes do T1.
-- **Emenda 2026-11-24: pré-condições do índice de prova continuam `NÃO MEDI`, não `FALHOU`.** Se o
+- **Emenda 2026-11-24 (G4, achado 1): a decisão abaixo caiu.** As pré-condições do índice de prova
+  saem `FALHOU`, exit 1, com a mensagem dizendo que o índice é fixo e o hook mudou. O revisor
+  sabotou o hook numa cópia (`filtrarComJev` devolvendo `null`; `LIMITE_JEV = 9`) e os dois deram
+  `NÃO MEDI`, exit 2: um hook quebrado passava como "não deu para medir", o que o CA4 promete não
+  fazer. O Leonardo decidiu corrigir antes do merge. Descartado: só reescrever a mensagem e manter o
+  exit 2. Os dois casos aceitos do fim do item abaixo continuam valendo.
+- ~~**Emenda 2026-11-24: pré-condições do índice de prova continuam `NÃO MEDI`, não `FALHOU`.**~~ (caiu, ver acima) Se o
   hook de `origin/dev` deixar de injetar do índice de prova, ou o `LIMITE_JEV` mudar e os aprovados
   deixarem de ser `7,8,9,10`, quem tem de mudar é o índice de prova, não o hook: é "não deu para
   medir", e exit 2 segue sem abrir PR. O `LIMITE_FINAL` também fica amarrado (o T13 espera "os 5
