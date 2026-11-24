@@ -15,7 +15,44 @@
 - Nunca: chamar a API do Jev, usar `TYPESAFE_API_KEY`, mandar corpus à TypeSafe AI, mexer em `hooks/`, `brain-mcp/scripts/injecao.mjs`, `brain-mcp/src/`, no checkout principal, nas worktrees dos irmãos ou na instalação viva (`~/.claude`, `/home/leo/notoria/claude/brain-mcp`). Nada de `sync.sh push`.
 - Regra 2 de `## A esteira` (smoke + eval) **não se aplica**: nada em `brain-mcp/src/`. A regra 3 (skills) também não.
 
+> **Emenda 2026-11-24 (Execution).** Worktree `/home/leo/pessoal/claude-brain-51-t16-sem-indice`, branch
+> nova `fix/51-t16-sem-indice` criada com `git switch -c` a partir de `origin/dev` a88e7a8 (a PR #56 já
+> está nela). PR para a `dev`. A `fix/51-t16-independente` e a worktree dela ficam como estão. Node:
+> o do PATH (26.12.0) serve; o 22.23.5 também (medido). Nada de `npm ci`/`install`; dependência nova → PARADA.
+
 ## Requisitos & critérios de aceite
+
+> **Emenda 2026-11-24 (decisão do braço direito no modo despachado, cofre #3443, escopo `claude-brain#51`;
+> achado no cofre #3440).** Onde o resto desta spec disser outra coisa, vale esta nota.
+> Em 24/11 o CA1 falhou com o índice vivo: nenhum candidato de 6 em diante escapava da colisão de
+> caminho com os cinco primeiros, e o T16 saía `NÃO MEDI`, exit 2, também na `origin/dev` a88e7a8. O
+> defeito de fundo é o mesmo do card: o T16 depende do conteúdo do índice vivo. A correção é a
+> direção dada pelo Leonardo: **a parte hook do `jev.mjs` (T11-T16) não lê mais o índice vivo.** O
+> próprio teste monta um índice de prova na pasta temporária e roda o hook da worktree e o de
+> `origin/dev`, inalterados, contra ele. Desenho em `### Emenda 2026-11-24 — índice de prova`, abaixo.
+> Os critérios passam a ser:
+>
+> **CA1' — `npm run jev` mede tudo e sai 0 com qualquer índice ou sem índice.**
+> - Dado o checkout da branch, com `brain-mcp/node_modules` e sem `BRAIN_JEV`, `TYPESAFE_API_KEY` nem `BRAIN_JEV_FALSO` no ambiente,
+> - quando se roda `cd brain-mcp && npm run jev` (a) com o `~/.claude/brain-workspaces.json` desta máquina e (b) com `BRAIN_WORKSPACES=/nao/existe.json`,
+> - então as duas rodadas saem `0`, com as três linhas `jev: T1-T10 OK …`, `jev: T16 escolha sintetica OK (sem indice)` e `jev: T11-T16 OK (parte hook; cliente falso, indice de prova, sem rede)`, nessa ordem.
+>
+> **CA2' — O T16 mede a colisão dos dois lados do corte dentro do hook real.**
+> - Dado o índice de prova, em que a busca do `PROMPT_DE_PROVA` devolve 12 resultados, 10 vão ao Jev e o 6º repete o caminho do 5º,
+> - quando o T16 aprova pelo falso só o que `aprovadosDoT16` devolve,
+> - então os aprovados são as posições **7, 8, 9 e 10**, o bloco traz **exatamente** esses quatro caminhos, nessa ordem, e o cabeçalho traz `4 de 10 candidatos passaram; abaixo, os 4 primeiros`.
+>
+> **CA3** (caso sintético da escolha) não muda.
+>
+> **CA4 — O `NÃO MEDI` da parte hook só sobra para ambiente.** Exit 2 só quando falta o `node:sqlite`
+> ou o `git show origin/dev:hooks/…`, ou quando o índice de prova deixa de servir ao hook (as
+> pré-condições do T11, do T15 e do T16 em `### Emenda 2026-11-24`). Nenhum `NÃO MEDI` depende do
+> conteúdo do índice vivo, que o script não abre mais.
+>
+> **Emenda 2026-11-24 (G4, achado 1; decisão do Leonardo).** As pré-condições do T11, do T15 e do
+> T16 saem do `NÃO MEDI` e viram `FALHOU`, exit **1**. Com o índice de prova fixo, elas só caem quando
+> um hook muda (o da worktree ou o de `origin/dev`), e isso não é ambiente. Exit 2 fica só para a
+> falta do `node:sqlite` ou do `git show origin/dev:hooks/…`.
 
 **CA1 — O T16 mede com o índice vivo de hoje.**
 - Dado o índice vivo de 11/11/2026, em que os candidatos 8, 9 e 10 do `PROMPT_DE_PROVA` repetem os caminhos do 1, do 2 e do 3,
@@ -87,6 +124,21 @@ Medidas em 2026-11-11 na worktree (HEAD 69e71ce), com Node v22.23.4 e o índice 
 > dele (sem `pastaSintetica` nem segundo handler de `exit`), e a fabrica `c` fica `{ posicao, caminho }`.
 > (7) Achado 5 (o falso casar por substring e o id do trecho nao ser unico) virou o card #57: muda o
 > formato do roteiro, que e contrato estavel do #42.
+
+**Emenda 2026-11-24: premissas do índice de prova.** Medidas em 2026-11-24 na worktree
+`claude-brain-51-t16-sem-indice` (HEAD a88e7a8 = `origin/dev` depois de `git fetch`), protótipo em
+`/tmp/sonda51b/prova.mjs`.
+
+| Premissa | Como foi provada | Resultado |
+|---|---|---|
+| O defeito reproduz na base de hoje | `cd brain-mcp && npm run jev` (Node 26.12.0, índice vivo) | `T1-T10 OK`, `T16 escolha sintetica OK (sem indice)`, depois `NÃO MEDI: troque o prompt de prova: nenhum candidato de 6 em diante escapa da colisao de caminho com os cinco primeiros`, exit **2** |
+| O hook acha o `dist/` pelo caminho do `.db`, e o `.db` pela config de `BRAIN_WORKSPACES` | `hooks/brain-contexto.js:371-378` (`cfg.doCwd`, `existsSync(ws.db)`, `dist = dirname(db)/../dist`, `import(url('db.js'))`, `import(url('search.js'))`); `hooks/brain-config.js:25` (`ARQUIVO = process.env.BRAIN_WORKSPACES \|\| …`) | um `workspaces.json` próprio, um `.db` qualquer e um `dist/` ao lado bastam para o hook rodar inteiro sem a instalação. É esse o ponto de troca; o hook não muda |
+| Do `dist/` o hook usa só `openDb`, `Buscador`, `tokensDe` e `normalizar` | `hooks/brain-contexto.js:377-378`, `:451`, `:466-469` | o `dist/` falso exporta esses quatro, e mais nada |
+| O caminho de entidade usa só `entidades`, `arestas`, `docs` e `chunks`, por SQL | `hooks/brain-contexto.js:89`, `:122`, `:153-156`, `:162-165`, `:170-174`, `:202-213` | um `.db` com as quatro tabelas e só as colunas que essas consultas leem resolve `/gm-spec #42` |
+| `node:sqlite` existe nos Node desta máquina e o brain-mcp já o usa | `brain-mcp/src/db.ts:1` (`import { DatabaseSync } from "node:sqlite"`); `node -e "require('node:sqlite')"` no 26.12.0 e no 22.23.5 | carrega nos dois. No 22.23.5 escreve `ExperimentalWarning` na stderr, o que não afeta as linhas `[brain-contexto] jev …` |
+| O hook de hoje e o de `origin/dev` rodam contra o índice de prova | protótipo: T11 (flag desligada, as duas stdouts iguais e o bloco com `busca lexica automatica`), sondagem (10 linhas `jev` de 12 resultados), T12 (stdout vazia), T14 lento (igual, 2030 ms), T15 (`/gm-spec #42` resolve `card:repo-teste#42`, igual nos dois) e T16 (roteiro aprovando 7..10) | tudo como esperado no Node 26.12.0 e no 22.23.5. T16: `4 de 10 candidatos passaram; abaixo, os 4 primeiros`, com os caminhos `docs/f.md`, `g.md`, `h.md`, `i.md`, nessa ordem |
+| O código desta emenda roda como está escrito | os três blocos `js` de `### Emenda 2026-11-24 — índice de prova` aplicados, com os itens 1-8, numa cópia de `hooks/` + `brain-mcp/scripts/` em `/tmp/prova51c` (git com `origin/dev` = a88e7a8, `node_modules` por link) | `npm run jev` → exit **0** com a config desta máquina, exit **0** com `BRAIN_WORKSPACES=/nao/existe.json`, exit **0** no Node 22.23.5. O grep do CA4 não acha nada. Sabotagem (a) `esperados.slice(1)` → `FALHOU: T16 so os candidatos 7,8,9,10 de 10, na ordem do ranking`, exit 1. Sabotagem (b) 6º nome `"e2"` → `NÃO MEDI: o indice de prova nao serve mais: aprovados 6,7,8,9,10 de 10, esperados 7,8,9,10`, exit 2 |
+| O `jev.mjs` vira independente do índice vivo | `grep -n "cfgDoHook\|conf\.\|CWD_DE_PROVA" brain-mcp/scripts/jev.mjs` | os únicos pontos que leem a config viva são o pré-voo (`:426-435`), o `CWD_DE_PROVA` (`:455`) e o env do `rodarHook`, que herda o `BRAIN_WORKSPACES` de quem roda. Os três mudam na emenda |
 
 ## Technical Overview
 
@@ -200,20 +252,205 @@ O bloco de hoje (`:517-536`) passa a ser exatamente isto:
 
 Fora `aprovadosDoT16`, `roteiroDoT16`, o caso sintético e este bloco, só muda a linha 2 do cabeçalho. Ela ganha a menção ao caso sintético: `// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev); a escolha do T16 tem caso sintetico sem indice.` O `console.log` final (`:538`) fica como está.
 
+### Emenda 2026-11-24 — índice de prova
+
+Vale sobre as três subseções acima onde elas disserem outra coisa. `aprovadosDoT16`, `roteiroDoT16`
+e o caso sintético (CA3) ficam **como estão na `origin/dev` a88e7a8**. Linhas citadas são as da a88e7a8.
+Tudo em `brain-mcp/scripts/jev.mjs`, mais uma linha no `brain-mcp/README.md`.
+
+**1. Cabeçalho do arquivo (`:2-6`).** A linha 2 vira
+`// Parte cliente: T1-T10. Parte hook: T11-T16 (hooks/brain-contexto.js contra o de origin/dev, os dois sobre um indice de prova montado aqui, nunca o vivo); a escolha do T16 tem caso sintetico.`
+As linhas 5-6 viram `//                         2 se nao deu para medir ("NAO MEDI: <motivo>"): Node sem node:sqlite, sem` /
+`//                         origin/dev, ou indice de prova que nao serve mais ao hook. Dois nao e verde.`
+
+**2. Sai o pré-voo do índice vivo (`:426-435`)**, com o comentário dele: `cfgDoHook`, `conf`,
+`distDoIndice` e o laço do `dist/`. Dois comentários que citam o pré-voo mudam: o do caso sintético (`:383`) vira `// Caso sintetico da escolha (#51): roda antes da parte hook, sem indice e sem rede.`, e o da pasta temporária (`:378-379`) vira `// Pasta temporaria com a referencia (hook e config de origin/dev), o indice de prova e os roteiros` / `// (o sintetico do T16 inclusive, por isso vem antes dele); apagada na saida.` Sai também o `const CWD_DE_PROVA = join(homedir(), "pessoal", "claude-brain");` (`:455`).
+
+**3. Entra o índice de prova**, logo depois de `const PROMPT_DE_ENTIDADE = "/gm-spec #42";` (`:457`) e
+antes de `function rodarHook`. Exatamente este código e este comentário:
+
+```js
+// Indice de prova (#51, emenda 2026-11-24). A parte hook nunca le o indice vivo: ele muda, e o T16
+// ja saiu do ar duas vezes por isso. O hook acha o .db pela config de BRAIN_WORKSPACES e importa o
+// dist/ de dirname(db)/../dist; aqui os tres sao do teste, e o hook (worktree e origin/dev) roda
+// inalterado sobre eles.
+// - dist/search.js: o Buscador devolve 12 resultados fixos para o PROMPT_DE_PROVA (10 vao ao Jev,
+//   pelo LIMITE_JEV do hook) e nenhum para outro prompt. O 6o repete o caminho do 5o (dois trechos
+//   do mesmo arquivo), a colisao que o T16 tem de excluir. tokensDe e normalizar sao as de
+//   src/search.ts sem as stopwords: o piso de relevancia nao esta em teste, e todo trecho traz o
+//   prompt inteiro.
+// - data/brain.db (node:sqlite): so as quatro tabelas que o caminho de entidade le, com o card 42
+//   do repo-teste e um vizinho, para o T15.
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = await import("node:sqlite"));
+} catch {
+  naoMedi(`node:sqlite indisponivel no Node ${process.version}: o indice de prova precisa dele`);
+}
+const indiceDeProva = join(pastaTemporaria, "indice");
+const prefixoDeProva = join(pastaTemporaria, "ws");
+const CWD_DE_PROVA = join(prefixoDeProva, "repo-teste");
+const workspacesDeProva = join(pastaTemporaria, "workspaces.json");
+// O doCwd do brain-config.js compara o cwd ja com '/' contra o prefixo como veio: no Windows o
+// prefixo e o db vao gravados com '/', como a config viva os teria depois do expandir.
+const comBarra = (p) => p.split("\\").join("/");
+{
+  mkdirSync(join(indiceDeProva, "data"), { recursive: true });
+  mkdirSync(join(indiceDeProva, "dist"));
+  mkdirSync(CWD_DE_PROVA, { recursive: true });
+  const doc = (nome) => join(CWD_DE_PROVA, "docs", `${nome}.md`);
+  const resultados = ["a", "b", "c", "d", "e", "e", "f", "g", "h", "i", "j", "k"].map((nome, i) => ({
+    path: doc(nome),
+    source: "docs",
+    repo: "repo-teste",
+    feature: null,
+    doc_type: "doc",
+    status: null,
+    data: "2026-11-24",
+    breadcrumb: `Trecho ${i + 1}`,
+    full_text: `${PROMPT_DE_PROVA} (trecho ${i + 1})`,
+    snip: `trecho ${i + 1}`,
+  }));
+  writeFileSync(join(indiceDeProva, "package.json"), JSON.stringify({ type: "module" }));
+  writeFileSync(
+    join(indiceDeProva, "dist", "db.js"),
+    'import { DatabaseSync } from "node:sqlite";\nexport const openDb = (p) => new DatabaseSync(p, { readOnly: true });\n'
+  );
+  writeFileSync(
+    join(indiceDeProva, "dist", "search.js"),
+    [
+      `const RESULTADOS = ${JSON.stringify(resultados)};`,
+      `const PROMPT = ${JSON.stringify(PROMPT_DE_PROVA)};`,
+      'export const normalizar = (s) => s.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase();',
+      "export const tokensDe = (q) => [...q.matchAll(/[\\p{L}\\p{N}_]+/gu)].map((m) => normalizar(m[0])).filter((t) => t.length >= 2);",
+      "export class Buscador { async buscar(alvo) { return { resultados: alvo === PROMPT ? RESULTADOS : [] }; } }",
+      "",
+    ].join("\n")
+  );
+  const dbDeProva = join(indiceDeProva, "data", "brain.db");
+  const db = new DatabaseSync(dbDeProva);
+  db.exec(`CREATE TABLE entidades (id INTEGER PRIMARY KEY, tipo TEXT, chave TEXT, titulo TEXT, repo TEXT, status TEXT, data TEXT, doc_path TEXT);
+    CREATE TABLE arestas (de INTEGER, para INTEGER);
+    CREATE TABLE docs (id INTEGER PRIMARY KEY, path TEXT UNIQUE, doc_type TEXT);
+    CREATE TABLE chunks (doc_id INTEGER, ord INTEGER, text TEXT);`);
+  const card = join(CWD_DE_PROVA, "cards", "42.md");
+  const pr = join(CWD_DE_PROVA, "prs", "48.md");
+  const entidade = db.prepare("INSERT INTO entidades VALUES (?, ?, ?, ?, 'repo-teste', ?, ?, ?)");
+  entidade.run(1, "card", "card:repo-teste#42", "Card 42", "OPEN", "2026-11-01", card);
+  entidade.run(2, "pr", "pr:repo-teste#48", "PR 48", "MERGED", "2026-11-02", pr);
+  db.exec("INSERT INTO arestas VALUES (1, 2)");
+  const documento = db.prepare("INSERT INTO docs VALUES (?, ?, 'doc')");
+  documento.run(1, card);
+  documento.run(2, pr);
+  db.exec("INSERT INTO chunks VALUES (1, 0, 'corpo do card 42'), (2, 0, 'corpo da pr 48')");
+  db.close();
+  writeFileSync(
+    workspacesDeProva,
+    JSON.stringify({ db: comBarra(dbDeProva), workspaces: [{ nome: "teste", prefixo: comBarra(prefixoDeProva), repos: ["repo-teste"] }] })
+  );
+}
+```
+
+**4. `rodarHook` (`:460-478`).** A linha do ambiente vira
+`const ambiente = { ...jev.envSemJev(process.env), ...env, BRAIN_WORKSPACES: workspacesDeProva };`, com o
+comentário `// BRAIN_WORKSPACES por ultimo: nenhum env de quem roda (nem um caso) tira o hook do indice de prova.`
+na linha de cima. O resto da função não muda (o `cwd: CWD_DE_PROVA` do `stdin` passa a ser o do índice de prova).
+
+**5. Saem as repetições por índice que muda.** O índice de prova não muda durante a rodada, e
+repetir um teste determinístico só esconderia um vermelho intermitente.
+- `parIgual` (`:480-492`) vira, com este comentário:
+  ```js
+  // Referencia e worktree em seguida, sobre o mesmo indice de prova: deterministico, sem repeticao.
+  async function parIgual(prompt, envDaWorktree) {
+    const referencia = await rodarHook(hookDeReferencia, prompt, {});
+    const worktree = await rodarHook(hookDaWorktree, prompt, envDaWorktree);
+    return { igual: semCr(referencia.stdout) === semCr(worktree.stdout), referencia, worktree };
+  }
+  ```
+- T13 (`:532-546`) passa a ser exatamente:
+  ```js
+  // ---- T13: o Jev aprova tudo = os mesmos caminhos de T11, na mesma ordem, com o cabecalho novo --
+  {
+    const sem = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, {});
+    const com = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { ...FALSO_SIM, BRAIN_HOOK_DEBUG: "1" });
+    const n = candidatosEnviados(com.stderr).length;
+    const cabecalho = `filtrada pelo Jev: ${n} de ${n} candidatos passaram; abaixo, os 5 primeiros`;
+    const ok = igual(caminhosDoBloco(sem.stdout), caminhosDoBloco(com.stdout)) && textoDoBloco(com.stdout).includes(cabecalho);
+    confere(ok, `T13 falso sim: mesmos caminhos e cabecalho novo (n=${n})`);
+  }
+  ```
+- T16: ver o item 7.
+
+**6. Mensagens das pré-condições.** Mesmo lugar e mesmo `naoMedi`, só o texto muda:
+- T11 (`:516`): `"o indice de prova nao serve mais: com a flag desligada o hook de origin/dev nao injeta pelo caminho de texto"`.
+- sondagem (`:524`): `` `o indice de prova nao serve mais: so ${enviados.length} candidatos chegam ao Jev (T16 precisa de 6 ou mais)` ``.
+- T15 (`:568`): `"o indice de prova nao serve mais: com a flag desligada o bloco de entidade esta vazio ou nao veio do grafo"`.
+
+**7. T16 (`:574-605`)** passa a ser exatamente isto, sobre os `enviados` da sondagem (`:522-523`):
+
+```js
+// ---- T16: o Jev aprova so os candidatos de 6 em diante que escapam da colisao = so esses, na ordem do ranking --
+{
+  const n = enviados.length;
+  const aprovados = aprovadosDoT16(enviados);
+  const posicoes = aprovados.map((a) => a.posicao).join(",");
+  // O indice de prova poe o 6o no caminho do 5o: a regra tem de tirar ele, e so ele.
+  if (posicoes !== "7,8,9,10") naoMedi(`o indice de prova nao serve mais: aprovados ${posicoes || "nenhum"} de ${n}, esperados 7,8,9,10`);
+  const k = aprovados.length;
+  const roteiro = join(pastaTemporaria, "roteiro-t16.json");
+  writeFileSync(roteiro, JSON.stringify(roteiroDoT16(aprovados)));
+  const r = await rodarHook(hookDaWorktree, PROMPT_DE_PROVA, { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: roteiro });
+  // O hook mostra so os LIMITE_FINAL primeiros que passaram (hooks/brain-contexto.js:484), como o cabecalho.
+  const esperados = aprovados.slice(0, 5).map((a) => a.caminho);
+  confere(igual(caminhosDoBloco(r.stdout), esperados), `T16 so os candidatos ${posicoes} de ${n}, na ordem do ranking`);
+  confere(
+    textoDoBloco(r.stdout).includes(`${k} de ${n} candidatos passaram; abaixo, os ${Math.min(k, 5)} primeiros`),
+    `T16 cabecalho ${k} de ${n}`
+  );
+}
+```
+
+**8. Última linha (`:607`)**: `console.log("jev: T11-T16 OK (parte hook; cliente falso, indice de prova, sem rede)");`.
+
+**9. Imports.** Nenhum novo no topo: o `node:sqlite` entra pelo `import()` do item 3, para o Node sem
+ele cair em `NÃO MEDI` e não num erro de carga antes do T1. Depois de tirar o pré-voo, conferir que
+`existsSync`, `dirname` e `homedir` continuam usados (`caminhoDoCliente`, `root`, `claudeHome`) e não
+deixar import morto.
+
+**10. `brain-mcp/README.md:282`** vira
+`npm run jev                # cliente do Jev e filtro do hook (T1-T16), com o cliente falso e um índice de prova montado pelo teste: sem rede e sem o índice vivo`.
+
 ## File Change Summary
 - `brain-mcp/scripts/jev.mjs` — alterado: `aprovadosDoT16` e `roteiroDoT16`, o caso sintético antes do pré-voo, que imprime `jev: T16 escolha sintetica OK (sem indice)`, e o T16 usando a regra nova com `k` aprovados.
 - `planning/51-t16-independente/spec.md` — criado (esta spec).
 
 Nada em `hooks/`, `brain-mcp/scripts/injecao.mjs`, `brain-mcp/src/`, `brain-mcp/package.json`, `skills/` ou docs.
 
+> **Emenda 2026-11-24.** Na branch `fix/51-t16-sem-indice`:
+> - `brain-mcp/scripts/jev.mjs` — alterado: cabeçalho; sai o pré-voo do índice vivo e o `CWD_DE_PROVA` em `~/pessoal`; entra o índice de prova; `rodarHook` fixa o `BRAIN_WORKSPACES`; saem as repetições de `parIgual`, T13 e T16; textos das pré-condições; T16 sobre os `enviados` da sondagem com `7,8,9,10` esperados; última linha.
+> - `brain-mcp/README.md` — a linha do `npm run jev` (`:282`).
+> - `planning/51-t16-independente/spec.md` — esta emenda.
+>
+> Continua nada em `hooks/`, `brain-mcp/scripts/injecao.mjs`, `brain-mcp/src/`, `brain-mcp/package.json` ou `skills/`.
+
 ## Migrations & compatibilidade
 N/A. É um script de teste. Não muda formato em disco, índice, contrato do cliente do Jev nem superfície das tools. Sem colisão, o T16 faz o mesmo que hoje (CA3, item 4).
+
+> **Emenda 2026-11-24.** Continua N/A. O índice de prova é escrito só na pasta temporária do teste,
+> apagada na saída. O índice vivo deixa de ser aberto pelo `jev.mjs`.
 
 ## Rollback
 `git revert` do commit da task na `dev`. O efeito é voltar ao T16 que sai 2 com colisão. Nada é instalado: o `jev.mjs` só roda do repo.
 
+> **Emenda 2026-11-24.** `git revert` do commit da emenda volta ao T16 sobre o índice vivo, que hoje
+> sai 2. Nada é instalado.
+
 ## Verificação pós-deploy
 N/A como verificação bloqueante do G5: não muda dado nem formato em disco, e nada vai para a instalação (o `jev.mjs` não entra no `sync.sh`). A conferência de fato é o próprio portão: `npm run jev` saindo 0 na worktree, contra o índice vivo, registrado na PR.
+
+> **Emenda 2026-11-24.** Continua N/A como bloqueante. A conferência é o portão nas duas rodadas do
+> CA1' (com a config desta máquina e com `BRAIN_WORKSPACES=/nao/existe.json`), as duas com exit 0,
+> registradas na PR.
 
 ## Plano de testes
 
@@ -230,7 +467,83 @@ Portão do `/gm-ship`: `npm run jev` exit 0. Os portões de `src/` (smoke + eval
 não se aplicam (`## Execution`). O `injecao.mjs --portao jev` não é tocado, mas rodá-lo continua
 valendo como sanidade do lote. Se sair diferente de 0, é fora do escopo e vira `PARADA`.
 
+> **Emenda 2026-11-24: plano de testes.** Vale sobre a tabela acima.
+>
+> | Critério | Caso | Prova |
+> |---|---|---|
+> | CA1' | as duas rodadas | `cd brain-mcp && npm run jev 2>&1 | grep -E '^(jev:\|FALHOU\|NÃO MEDI)'; echo ${PIPESTATUS[0]}` e o mesmo com `BRAIN_WORKSPACES=/nao/existe.json` na frente, sem `BRAIN_JEV`, `TYPESAFE_API_KEY` nem `BRAIN_JEV_FALSO` no env: as duas `0`, cada uma com as três linhas OK do CA1' e nessa ordem, coladas na PR |
+> | CA2' | T16 | passa com `7,8,9,10` e `4 de 10`. Para ver que mede, conferência manual **não** commitada: (a) `esperados.slice(1)` → exit 1; (b) trocar o 6º nome da lista de resultados de `"e"` para `"e2"` → exit 2 no `NÃO MEDI … aprovados 6,7,8,9,10 de 10`, prova de que a colisão do índice de prova é o que tira o 6 |
+> | CA3 | caso sintético | inalterado: a linha `jev: T16 escolha sintetica OK (sem indice)` sai antes da parte hook |
+> | CA4 | leitura do código | `grep -n "brain-workspaces\|cfgDoHook\|carregar()\|homedir(), \"pessoal\"" brain-mcp/scripts/jev.mjs` não acha nada; os `naoMedi` da parte hook são só os dos itens 3, 6 e 7 da emenda e o do `git show` (`:449`) |
+> | regressão | T1-T15 | passam nas duas rodadas do CA1' |
+>
+> Node: o do PATH (26.12.0). Rodar também com o 22.23.5
+> (`PATH=/home/leo/.local/share/mise/installs/node/22.23.5/bin:$PATH`) uma vez, a rodada (a), e
+> registrar na PR: o `ExperimentalWarning` do `node:sqlite` na stderr não é falha.
+> Portão do `/gm-ship`: as duas rodadas do CA1' com exit 0. Os de `src/` e de `skills/` seguem sem se
+> aplicar, e o `node scripts/classificar-parada-teste.mjs` também não (nada em `hooks/jev.js`).
+
 ## Technical Decisions
+
+- **Emenda 2026-11-24: índice de prova montado pelo teste, e não o índice vivo** (cofre #3443). O
+  hook já acha o `dist/` pelo caminho do `.db` e o `.db` pela config de `BRAIN_WORKSPACES`: esse é o
+  ponto de troca, e o hook não muda. Descartados: trocar o `PROMPT_DE_PROVA` (volta a quebrar quando
+  o índice mudar; descartado pelo Leonardo, cofre #3440); indexar arquivos sintéticos com o indexador
+  real (pede `dist/` compilado e o transformer, lento, e esbarra no `sharp` do Node 26); usar o `dist/`
+  real da instalação com um `.db` pequeno (depende do caminho da instalação, que sem `BRAIN_WORKSPACES`
+  não se acha, e falharia em outra máquina); aceitar candidatos injetados no hook ou mudar o id do
+  trecho (mexe no contrato do #42 por um teste; é o card #57); manter T11-T15 no índice vivo e só o
+  T16 no de prova (sem índice o script sairia 2 ou pularia casos com exit 0, e o CA1' pede tudo medido
+  sem índice).
+- **Emenda 2026-11-24: T11-T15 também vão para o índice de prova.** Eles comparam o hook da worktree
+  com o de `origin/dev`; a comparação vale igual sobre qualquer índice, e sobre um fixo deixa de
+  precisar de repetição. **O que deixa de ser coberto pelo `npm run jev`** (achado 3 do revisor
+  independente): a identidade byte a byte sobre o corpus real, e os ramos que o índice de prova não
+  exercita — `daqui` por repo (fontes `github`/`git`) e por `exceto`, as stopwords do `tokensDe`, os
+  passos 1, 3 e 4 da entidade, a diversidade por tipo e o rank de spec dos vizinhos. Sobre o corpus
+  real, quem mede é o `injecao.mjs --portao jev`, que continua lendo o índice vivo, não é tocado e só
+  mede PR que muda `hooks/brain-contexto.js` (com o hook igual ao da base ele sai 2 por desenho,
+  `injecao.mjs:458`). Esta emenda não muda o status dele na esteira.
+- **Emenda 2026-11-24: `dist/` falso, e não o real.** O que está em teste é o filtro do Jev no hook
+  (quem passa, a ordem, o cabeçalho), não a busca. O `Buscador` falso devolve a lista fixa e o
+  `tokensDe` falso não tem stopwords; como todo trecho traz o prompt inteiro, o piso de relevância
+  passa com qualquer tokenização razoável.
+- **Emenda 2026-11-24: `node:sqlite`, e não `better-sqlite3`.** É o que o `src/db.ts` já usa, vem com
+  o Node e não pede dependência. Carregado por `import()` para o Node sem ele dar `NÃO MEDI`, e não um
+  erro antes do T1.
+- **Emenda 2026-11-24 (G4, achado 1): a decisão abaixo caiu.** As pré-condições do índice de prova
+  saem `FALHOU`, exit 1, com a mensagem dizendo que o índice é fixo e o hook mudou. O revisor
+  sabotou o hook numa cópia (`filtrarComJev` devolvendo `null`; `LIMITE_JEV = 9`) e os dois deram
+  `NÃO MEDI`, exit 2: um hook quebrado passava como "não deu para medir", o que o CA4 promete não
+  fazer. O Leonardo decidiu corrigir antes do merge. Descartado: só reescrever a mensagem e manter o
+  exit 2. Os dois casos aceitos do fim do item abaixo continuam valendo.
+- ~~**Emenda 2026-11-24: pré-condições do índice de prova continuam `NÃO MEDI`, não `FALHOU`.**~~ (caiu, ver acima) Se o
+  hook de `origin/dev` deixar de injetar do índice de prova, ou o `LIMITE_JEV` mudar e os aprovados
+  deixarem de ser `7,8,9,10`, quem tem de mudar é o índice de prova, não o hook: é "não deu para
+  medir", e exit 2 segue sem abrir PR. O `LIMITE_FINAL` também fica amarrado (o T13 espera "os 5
+  primeiros"). Dois casos aceitos, que saem com o motivo menos preciso (achados 4 e 9): um hook futuro
+  que importe do `dist/` um nome que o falso não exporta falha na carga, fica com stdout vazia e o T11
+  sai `FALHOU … igual` (exit 1), e não `NÃO MEDI`; e um `NODE_OPTIONS` de quem roda vaza para o hook
+  pelo `envSemJev` e pode derrubá-lo com a mensagem "o indice de prova nao serve mais". Nos dois, o
+  `BRAIN_HOOK_DEBUG=1` na sonda mostra a causa. Não se mexe no `envSemJev` (contrato do #42).
+- **Emenda 2026-11-24: saem as repetições.** Elas existiam porque o índice vivo muda durante a
+  rodada. Sobre um índice fixo, repetir só esconderia um vermelho intermitente.
+- **Emenda 2026-11-24: revisão de IA independente** (contexto limpo, só o caminho desta spec, sem
+  blocker). Cada achado e o que foi feito com ele:
+  - (1) no Windows o `doCwd` não casaria o prefixo com `\`: confirmado em `hooks/brain-config.js:55-56`. O
+    prefixo e o `db` vão gravados com `/` (`comBarra`, item 3).
+  - (2) `## Coding Standards` contradizia a emenda: ganhou bloco de emenda com os três arquivos.
+  - (3) cobertura perdida descrita pela metade: a decisão "T11-T15 também vão para o índice de prova"
+    lista agora os ramos não cobertos e o alcance real do `injecao --portao jev`.
+  - (4) `dist/` falso desatualizado vira `FALHOU`, e (9) `NODE_OPTIONS` vazando para o hook: aceitos e
+    documentados na decisão das pré-condições, sem mexer no `envSemJev`.
+  - (5) o portão não provava as três linhas: o plano faz `grep` e cola as linhas na PR.
+  - (6) comentários que citavam o pré-voo: entram no item 2.
+  - (7) o T13 sem código exato: ganhou o bloco.
+  - (8) linhas citadas: alinhadas.
+  - (10) `LIMITE_FINAL` também amarrado: dito na decisão.
+  O código revisado (com `comBarra` e o bloco do T13) foi aplicado de novo em `/tmp/prova51c`: as
+  duas rodadas do CA1' saíram 0 com as três linhas na ordem.
 
 - **Excluir os candidatos que colidem, em vez de abortar.** Descartados: trocar o
   `PROMPT_DE_PROVA` (o índice volta a mudar e o problema volta) e mudar o id do trecho no hook
@@ -270,6 +583,12 @@ valendo como sanidade do lote. Se sair diferente de 0, é fora do escopo e vira 
   - (8) o ramo do `NÃO MEDI` não tem teste automático. Declarado como verificado lendo o código.
 
 ## Coding Standards
+
+> **Emenda 2026-11-24.** O commit da emenda inclui, por nome, `brain-mcp/scripts/jev.mjs`,
+> `brain-mcp/README.md` e `planning/51-t16-independente/spec.md`, nunca `git add -A`. As mudanças em
+> `parIgual`, T11, T13, T15 e T16 descritas em `### Emenda 2026-11-24 — índice de prova` são o
+> escopo; o "não refatorar T11-T15" abaixo vale para tudo o que não está lá. Mensagem
+> `fix(jev): …(#51)`.
 - Seguir o estilo do arquivo: ESM, `confere(cond, "Tnn …")`, mensagens sem acento nos literais de
   `confere`/`naoMedi` (como os de hoje), comentários curtos em pt-BR sem acento.
 - Nada além do especificado: não refatorar T11-T15, não mexer no `PROMPT_DE_PROVA`, não tocar
