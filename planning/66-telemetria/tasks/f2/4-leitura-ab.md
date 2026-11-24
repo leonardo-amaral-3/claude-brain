@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: a leitura do A/B com e sem o filtro do Jev
 

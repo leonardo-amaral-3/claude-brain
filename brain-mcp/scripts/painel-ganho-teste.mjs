@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { medirAproveitamento, secao } from "./painel/ganho.mjs";
+import { medirAproveitamento, secao, wilson } from "./painel/ganho.mjs";
 import { T0, contexto, diz, item, meta, prompt, toolResult, transcript, usa } from "./fixtures/telemetria/ganho/construtor.mjs";
 
 let falhas = 0;
@@ -192,6 +192,83 @@ try {
   } finally {
     rmSync(tmp2, { recursive: true, force: true });
   }
+}
+
+// ---- A leitura do A/B: grupos gerados em codigo (>= 30 prompts por grupo).
+{
+  const w = wilson(30, 40);
+  ok(Math.abs(w.lo - 0.598) < 0.001 && Math.abs(w.hi - 0.858) < 0.001, `Wilson 30/40: ${JSON.stringify(w)}`);
+  ok(wilson(0, 0) === null, "Wilson sem amostra");
+
+  /** `grupos`: { com_filtro: [...], sem_filtro: [...] }; cada prompt { aprov, rebusca, jev, desfecho }. */
+  async function cenario(grupos) {
+    const dir = mkdtempSync(join(tmpdir(), "painel-ganho-ab-"));
+    try {
+      let t = T0;
+      const e = [];
+      const eventos = [];
+      for (const [grupo, lista] of Object.entries(grupos)) {
+        lista.forEach((p, i) => {
+          const id = `${grupo}-${i}`;
+          const pe = prompt(id, `PROMPTSECRETO ${id}`, (t += 1000));
+          e.push(pe);
+          if (p.aprov) e.push(usa("Read", { file_path: `/w/${id}.md` }, (t += 10)));
+          if (p.rebusca) e.push(usa("mcp__brain__search_context", { query: `PROMPTSECRETO ${id}` }, (t += 10)));
+          const mostra = p.desfecho !== "jev_reprovou_tudo";
+          eventos.push(
+            contexto({
+              prompt: id, grupo, ts: Date.parse(pe.timestamp), desfecho: p.desfecho ?? "injetado", jev: p.jev ?? "ok",
+              itens: mostra ? [item(`/w/${id}.md`, 1)] : [item(`/w/${id}.md`, 1, false)], mostrados: mostra ? 1 : 0,
+            })
+          );
+        });
+      }
+      transcript(join(dir, "projects"), "-w", "sA", e);
+      return await secao({ eventos, projetos: join(dir, "projects"), db: null });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const rep = (n, p) => Array.from({ length: n }, () => ({ ...p }));
+
+  // com_filtro: 40 prompts = 30 aproveitados (4 com rebusca), 3 com o Jev indisponivel, 4 que o Jev
+  // reprovou por inteiro, 3 injetados sem aproveitamento. sem_filtro: 40 prompts, 10 aproveitados.
+  const com = [
+    ...rep(26, { aprov: true }),
+    ...rep(4, { aprov: true, rebusca: true }),
+    ...rep(3, { jev: "indisponivel" }),
+    ...rep(4, { desfecho: "jev_reprovou_tudo" }),
+    ...rep(3, {}),
+  ];
+  const sem = [...rep(10, { aprov: true }), ...rep(30, { jev: null })];
+  const a = await cenario({ com_filtro: com, sem_filtro: sem });
+  const tem = (saida, trecho, msg) => ok(saida.includes(trecho), `${msg}: faltou «${trecho}» em\n${saida}`);
+  tem(a, "com_filtro: 40 prompts; trechos mostrados por prompt 0,90, aproveitados por prompt 0,75", "medias do com_filtro (jev_reprovou_tudo conta no com_filtro)");
+  tem(a, "sem_filtro: 40 prompts; trechos mostrados por prompt 1,00, aproveitados por prompt 0,25", "medias do sem_filtro");
+  tem(a, "com ao menos um aproveitado: 30 de 40, 75,0% [59,8%–85,8%]; com rebusca: 4 de 40, 10,0%", "Wilson e rebusca do com_filtro");
+  tem(a, "com ao menos um aproveitado: 10 de 40, 25,0% [14,2%–40,2%]", "Wilson do sem_filtro");
+  tem(a, "sai do com_filtro quem não teve jev = ok: 3 prompts", "por protocolo tira os jev diferentes de ok");
+  tem(a, "com_filtro: 37 prompts", "o com_filtro por protocolo tem 37");
+  tem(a, "Veredito (primária): com_filtro tem a maior porcentagem", "veredito com intervalos disjuntos");
+  // O sem_filtro nunca entra na taxa normal: dos 76 injetados do cenario, so os 36 do com_filtro contam
+  // (30 aproveitados + 3 indisponiveis + 3 sem aproveitamento; os 4 jev_reprovou_tudo nao injetam).
+  tem(a, "Prompts com injeção (fora do grupo sem_filtro): 36", "sem_filtro fora da conta normal");
+  tem(a, "trechos mostrados 36, aproveitados 30", "a taxa normal e a do com_filtro");
+  tem(a, "jev_reprovou_tudo): 0 de 4", "jev_reprovou_tudo entra como linha de base do com_filtro");
+  ok(!/\/w\/|PROMPTSECRETO/.test(a), "o bloco A/B imprimiu caminho ou texto de prompt");
+
+  // um grupo com menos de 30 prompts
+  const b = await cenario({ com_filtro: com, sem_filtro: sem.slice(0, 29) });
+  tem(b, "Veredito (primária): inconclusivo (algum grupo tem menos de 30 prompts", "grupo pequeno");
+  // intervalos que se sobrepoem
+  const c = await cenario({ com_filtro: [...rep(20, { aprov: true }), ...rep(20, {})], sem_filtro: [...rep(18, { aprov: true }), ...rep(22, {})] });
+  tem(c, "Veredito (primária): inconclusivo (os intervalos", "intervalos sobrepostos");
+  // sem_filtro melhor
+  const d = await cenario({ com_filtro: rep(40, {}), sem_filtro: rep(40, { aprov: true }) });
+  tem(d, "Veredito (primária): sem_filtro tem a maior porcentagem", "veredito a favor do sem_filtro");
+  // sem grupo
+  const f = await cenario({});
+  tem(f, "A/B desligado no período", "sem evento com grupo");
 }
 
 if (falhas) {

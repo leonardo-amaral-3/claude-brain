@@ -246,9 +246,78 @@ function linhasUso(ctx, comInjecao, todosContexto) {
   ];
 }
 
-/** Ponto de entrada da comparacao A/B (task 4). */
-function blocoAB(_ctx, _contexto) {
-  return [];
+/** Intervalo de Wilson de 95% (z = 1,96) para x sucessos em n; `null` sem amostra. */
+export function wilson(x, n, z = 1.96) {
+  if (n <= 0) return null;
+  const p = x / n;
+  const d = 1 + (z * z) / n;
+  const centro = (p + (z * z) / (2 * n)) / d;
+  const meia = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d;
+  return { lo: Math.max(0, centro - meia), hi: Math.min(1, centro + meia) };
+}
+
+const MIN_POR_GRUPO = 30;
+const fmtNum = (n, d) => (d > 0 ? (n / d).toFixed(2).replace(".", ",") : "n/d");
+const fmtIc = (x, n) => {
+  const w = wilson(x, n);
+  return `${fmtPct(x, n)}${w ? ` [${(100 * w.lo).toFixed(1).replace(".", ",")}%–${(100 * w.hi).toFixed(1).replace(".", ",")}%]` : ""}`;
+};
+
+/** Uma linha por grupo: prompts, medias por prompt e as duas proporcoes com Wilson, sempre sobre prompts. */
+function linhaGrupo(nome, medidas) {
+  const n = medidas.length;
+  const aprov = (m) => distintos([...m.abertos, ...m.citados]).length;
+  const comAlgum = medidas.filter((m) => aprov(m) > 0).length;
+  const rebusca = medidas.filter((m) => m.rebusca).length;
+  return [
+    `  ${nome}: ${n} prompts; trechos mostrados por prompt ${fmtNum(soma(medidas.map((m) => m.mostrados.length)), n)}, aproveitados por prompt ${fmtNum(soma(medidas.map(aprov)), n)}`,
+    `    com ao menos um aproveitado: ${comAlgum} de ${n}, ${fmtIc(comAlgum, n)}; com rebusca: ${rebusca} de ${n}, ${fmtIc(rebusca, n)}`,
+  ];
+}
+
+/**
+ * Comparacao A/B com e sem o filtro do Jev. A unidade e o prompt sorteado, nao o trecho: a taxa por
+ * trecho favorece o filtro por construcao (ele mostra menos, e so os aprovados).
+ */
+function blocoAB(ctx, todos) {
+  const sorteados = todos.filter((e) => e.grupo === "com_filtro" || e.grupo === "sem_filtro");
+  if (sorteados.length === 0) return ["A/B com e sem o filtro do Jev: A/B desligado no período"];
+  const medidas = medirAproveitamento(sorteados, ctx);
+  const comPar = (grupo) =>
+    sorteados
+      .filter((e) => e.grupo === grupo)
+      .map((e) => [e, medidas.get(`${e.sessao}|${e.prompt ?? "ts:" + e.ts}`)])
+      .filter(([, m]) => m && (m.par === "promptId" || m.par === "horario"));
+  const com = comPar("com_filtro");
+  const sem = comPar("sem_filtro");
+  const itt = (lista) => lista.map(([, m]) => m);
+  const pp = com.filter(([e]) => e.jev === "ok");
+
+  const out = [
+    "A/B com e sem o filtro do Jev (a unidade é o prompt sorteado, com par no transcript):",
+    "Primária, por intenção de tratar (todo prompt conta no grupo sorteado, inclusive com o Jev indisponível):",
+    ...linhaGrupo("com_filtro", itt(com)),
+    ...linhaGrupo("sem_filtro", itt(sem)),
+    `Secundária, por protocolo (sai do com_filtro quem não teve jev = ok: ${com.length - pp.length} prompts):`,
+    ...linhaGrupo("com_filtro", itt(pp)),
+    ...linhaGrupo("sem_filtro", itt(sem)),
+  ];
+
+  const aprov = (m) => distintos([...m.abertos, ...m.citados]).length > 0;
+  const xc = itt(com).filter(aprov).length;
+  const xs = itt(sem).filter(aprov).length;
+  const wc = wilson(xc, com.length);
+  const ws = wilson(xs, sem.length);
+  let veredito;
+  if (com.length < MIN_POR_GRUPO || sem.length < MIN_POR_GRUPO) {
+    veredito = `inconclusivo (algum grupo tem menos de ${MIN_POR_GRUPO} prompts: com_filtro ${com.length}, sem_filtro ${sem.length})`;
+  } else if (wc.lo <= ws.hi && ws.lo <= wc.hi) {
+    veredito = "inconclusivo (os intervalos de 95% da métrica principal se sobrepõem)";
+  } else {
+    veredito = `${xc / com.length > xs / sem.length ? "com_filtro" : "sem_filtro"} tem a maior porcentagem de prompts com ao menos um trecho aproveitado`;
+  }
+  out.push(`Veredito (primária): ${veredito}`);
+  return out;
 }
 
 export async function secao(ctx) {
