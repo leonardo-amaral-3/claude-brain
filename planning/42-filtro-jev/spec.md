@@ -329,6 +329,8 @@ if (!achados.length) return fim();
 >
 > **Correção (2026-11-10), achado 7 do G4 da PR #48.** O `PRAZO_HOOK_JEV` deixou de ser o número `2200` solto e passou a `TIMEOUT_JEV + 200`, com `TIMEOUT_JEV = 2000` passado explícito ao `julgar`: um `TIMEOUT_MS` diferente no `jev.js` não separa mais os dois prazos sem aviso. O teto de 2200 ms do CA3 não muda.
 
+> **Emenda 4 (claude-brain#66), aditiva.** (a) `Opcoes` ganha `telemetria?: { sessao?: string, prompt?: string }`, e a CLI aceita a mesma chave no JSON da stdin. (b) `decidir` e `julgar` gravam um evento `jev` no diário de telemetria (`planning/66-telemetria/spec.md` § *Contrato do evento*) por chamada que não seja `desligado`, pelo `hooks/telemetria.js` e só com ele ligado; a gravação é síncrona, depois de o resultado estar pronto, dentro de `try`, e falhar nela não muda o resultado. As garantias continuam todas: nada em stdout/stderr, nunca lança, resolve em até `timeoutMs` + 50 ms. (c) `envSemJev` passa a tirar também toda chave que começa com `BRAIN_TELEMETRIA`. (d) O adaptador devolve, além das respostas, o `usage` do corpo quando for objeto (interno; alimenta o campo `tokens`).
+
 O formato da linha de debug é fixo, `[brain-contexto] jev <posição 1-based> <probabilidade> <path>`, porque o T16 o lê.
 
 Texto do bloco:

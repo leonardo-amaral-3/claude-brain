@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: Evento `jev` no `hooks/jev.js` (Emenda 4 do contrato do #42)
 

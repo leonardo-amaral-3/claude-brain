@@ -27,6 +27,10 @@
 //                     curinga: `1`, `*` e `todos` nao ligam nada. Ausente = tudo desligado.
 //   TYPESAFE_API_KEY  a chave. Nunca em arquivo do repo nem de config.
 //   BRAIN_JEV_FALSO   cliente falso. DEFINIDA, mesmo vazia, o real nunca roda.
+//   BRAIN_TELEMETRIA  `1` liga o diario de telemetria (Emenda 4): cada julgar/decidir que nao seja
+//                     `desligado` grava um evento `jev` via hooks/telemetria.js. BRAIN_TELEMETRIA_DIR
+//                     muda o destino. O falso do Jev desliga a gravacao, salvo com BRAIN_TELEMETRIA_DIR.
+//   CLAUDE_CODE_SESSION_ID  a sessao do evento, quando opcoes.telemetria.sessao nao veio.
 //
 // Ordem de decisao por chamada (a primeira que casa vence, para todas as chaves; emenda 2):
 //   1. uso fora da tabela                  -> entrada_invalida
@@ -40,13 +44,18 @@
 //
 // Funcoes (module.exports = { ligado, decidir, julgar, envSemJev, ...constantes }):
 //   ligado(uso, env?)                       -> boolean, sem I/O
-//   envSemJev(env)                          -> copia sem TYPESAFE_API_KEY e sem chave BRAIN_JEV*
+//   envSemJev(env)                          -> copia sem TYPESAFE_API_KEY e sem chave BRAIN_JEV* nem BRAIN_TELEMETRIA*
 //   decidir(estado, perguntas, opcoes)      -> Promise<Record<id, RespostaNoul|RespostaEscolha|Indisponivel>>
 //   julgar(pergunta, trechos, opcoes)       -> Promise<Array<RespostaNoul|Indisponivel>>
+//   opcoes.telemetria = { sessao?, prompt? } (Emenda 4a): o hook de contexto passa os ids do payload;
+//   a CLI aceita a mesma chave no JSON da stdin. Sem ela, a sessao vem de CLAUDE_CODE_SESSION_ID.
 //
 // Garantias de decidir e julgar: nunca rejeitam nem lancam, nunca fazem retry, resolvem em ate
 // timeoutMs + 50 ms, nao escrevem em stdout nem em stderr. Carregar o modulo tambem nao escreve
 // nada; so o modo CLI escreve, e so a linha do envelope.
+// Emenda 4b: gravar o evento `jev` e sincrono, depois de o resultado estar pronto, dentro de try
+// (o require de telemetria.js tambem): falhar nele nao muda o resultado e nao escreve em
+// stdout/stderr. Gravar arquivo nao e proibido; escrever em stdout/stderr e.
 //
 // CLI (require.main === module): stdin {"op":"decidir"|"julgar","uso":...}, stdout UMA linha
 //   {"ok":true,"resultado":...} ou {"ok":false,"motivo":"entrada_invalida"}; exit 0 sempre que o
@@ -76,7 +85,8 @@ const fs = require('fs');
 /** @typedef {{ estado: 'indisponivel', motivo: Motivo, detalhe?: string }} Indisponivel
  *  detalhe: status HTTP ('429') ou frase curta. Nunca contem a chave nem o corpo enviado. */
 /** @typedef {{ uso: Uso, timeoutMs?: number, env?: Record<string,string|undefined>,
- *              fetch?: typeof fetch, instrucao?: string }} Opcoes   // uso e OBRIGATORIO */
+ *              fetch?: typeof fetch, instrucao?: string,
+ *              telemetria?: { sessao?: string, prompt?: string } }} Opcoes   // uso e OBRIGATORIO */
 
 const TIMEOUT_MS = 2000;
 const MAX_TEXTO = 4000;
@@ -135,14 +145,15 @@ function ligado(uso, env) {
 }
 
 /**
- * Copia de `env` sem a chave e sem toda variavel BRAIN_JEV*. E o que todo script de teste ou
- * medicao passa a processo filho que possa carregar o cliente: a chave nao vaza por heranca.
+ * Copia de `env` sem a chave e sem toda variavel BRAIN_JEV* e BRAIN_TELEMETRIA* (Emenda 4c). E o
+ * que todo script de teste ou medicao passa a processo filho que possa carregar o cliente: a chave
+ * nao vaza por heranca, e um teste nao grava no diario de telemetria vivo.
  * @param {Record<string,string|undefined>} env
  */
 function envSemJev(env) {
   const copia = {};
   for (const nome of Object.keys(env || {})) {
-    if (nome === 'TYPESAFE_API_KEY' || nome.startsWith('BRAIN_JEV')) continue;
+    if (nome === 'TYPESAFE_API_KEY' || nome.startsWith('BRAIN_JEV') || nome.startsWith('BRAIN_TELEMETRIA')) continue;
     copia[nome] = env[nome];
   }
   return copia;
@@ -299,7 +310,9 @@ function interpretarResposta(pergunta, bruta) {
   return { estado: 'ok', tipo: 'escolha', escolha: bruta.choice, confianca: bruta.confidence, probabilidades };
 }
 
-// Uma requisicao ao Jev. Devolve {respostas: answers} ou {falha: Indisponivel}; nunca lanca.
+// Uma requisicao ao Jev. Devolve {respostas: answers, usage} ou {falha: Indisponivel}; nunca lanca.
+// `usage` e o `corpo.usage` quando e objeto, senao null (interno: alimenta o campo `tokens` do evento
+// de telemetria; o formato nao foi verificado contra a API, premissa A1 do #42).
 async function consultarApi(estado, perguntas, chave, enviar, prazo) {
   const questions = {};
   for (const id of Object.keys(perguntas)) questions[id] = perguntaParaApi(perguntas[id]);
@@ -318,7 +331,7 @@ async function consultarApi(estado, perguntas, chave, enviar, prazo) {
       return { falha: prazo.estourou() ? indisponivel('timeout') : indisponivel('resposta_invalida') };
     }
     if (!corpo || !ehObjeto(corpo.answers)) return { falha: indisponivel('resposta_invalida') };
-    return { respostas: corpo.answers };
+    return { respostas: corpo.answers, usage: ehObjeto(corpo.usage) ? corpo.usage : null };
   } catch (_) {
     return { falha: prazo.estourou() ? indisponivel('timeout') : indisponivel('rede') };
   }
@@ -370,6 +383,94 @@ function paraTodasAsChaves(perguntas, resposta) {
   return saida;
 }
 
+// --- Telemetria (Emenda 4, claude-brain#66) ---------------------------------------------------
+// Um evento `jev` por chamada de `julgar`/`decidir` que nao seja `desligado`, gravado por
+// hooks/telemetria.js e so com BRAIN_TELEMETRIA=1. Contrato: planning/66-telemetria/spec.md §
+// Contrato do evento. A gravacao e sincrona, depois de o resultado estar pronto, dentro de try:
+// falhar nela nao muda o resultado, e nada vai a stdout/stderr.
+
+// `meta` e preenchida pelas funcoes internas enquanto a chamada anda: ate onde ela foi (`cliente`),
+// se a barreira devolveu `desligado` (nao ha uso, nao ha linha) e o `usage` somado da API.
+function novaMeta() {
+  return { cliente: 'invalida', desligado: false, tokens: null };
+}
+
+// Soma, chave a chave, os campos numericos do `usage`; so conta objeto (senao `tokens` fica null).
+function somarUsage(meta, usage) {
+  if (!ehObjeto(usage)) return;
+  if (meta.tokens === null) meta.tokens = {};
+  for (const nome of Object.keys(usage)) {
+    if (typeof usage[nome] === 'number' && Number.isFinite(usage[nome])) {
+      meta.tokens[nome] = (meta.tokens[nome] || 0) + usage[nome];
+    }
+  }
+}
+
+const textoNaoVazio = (valor) => (typeof valor === 'string' && valor !== '' ? valor : null);
+
+function notaDe(resposta) {
+  if (!ehObjeto(resposta) || resposta.estado !== 'ok') return null;
+  if (resposta.tipo === 'noul') return resposta.probabilidade;
+  return { escolha: resposta.escolha, confianca: resposta.confianca };
+}
+
+function montarEvento(op, opcoes, t0, meta, itens, resultado) {
+  const env = envDe(opcoes);
+  const pedido = opcoes && ehObjeto(opcoes.telemetria) ? opcoes.telemetria : {};
+  const respostas = op === 'julgar' ? (Array.isArray(resultado) ? resultado : []) : Object.values(ehObjeto(resultado) ? resultado : {});
+  let ok = 0;
+  let sim = 0;
+  const motivos = {};
+  const detalhes = [];
+  for (const r of respostas) {
+    if (!ehObjeto(r)) continue;
+    if (r.estado === 'ok') {
+      ok++;
+      if (r.tipo === 'noul' && r.sim === true) sim++;
+    } else if (r.estado === 'indisponivel') {
+      motivos[r.motivo] = (motivos[r.motivo] || 0) + 1;
+      if (typeof r.detalhe === 'string') {
+        const d = r.detalhe.slice(0, 40);
+        if (!detalhes.includes(d) && detalhes.length < 5) detalhes.push(d);
+      }
+    }
+  }
+  let notas;
+  if (op === 'julgar') {
+    notas = respostas.map(notaDe);
+  } else {
+    notas = {};
+    if (ehObjeto(resultado)) for (const id of Object.keys(resultado)) notas[id] = notaDe(resultado[id]);
+  }
+  return {
+    ts: t0,
+    evento: 'jev',
+    sessao: textoNaoVazio(pedido.sessao) ?? textoNaoVazio(env.CLAUDE_CODE_SESSION_ID),
+    prompt: textoNaoVazio(pedido.prompt),
+    uso: opcoes && USOS.includes(opcoes.uso) ? opcoes.uso : '(fora da tabela)',
+    op,
+    cliente: meta.cliente,
+    itens,
+    ok,
+    sim,
+    motivos,
+    detalhes,
+    notas,
+    ms: Date.now() - t0,
+    tokens: meta.tokens,
+  };
+}
+
+function registrar(op, opcoes, t0, meta, itens, resultado) {
+  try {
+    if (meta.desligado) return;
+    // O require tambem fica dentro do try: um telemetria.js ausente ou quebrado nunca muda o resultado.
+    require('./telemetria.js').gravar(montarEvento(op, opcoes, t0, meta, itens, resultado), envDe(opcoes));
+  } catch (_) {
+    /* telemetria nunca derruba o julgamento */
+  }
+}
+
 // --- API publica -----------------------------------------------------------------------------
 
 /**
@@ -381,10 +482,24 @@ function paraTodasAsChaves(perguntas, resposta) {
  * @returns {Promise<Record<string, RespostaNoul|RespostaEscolha|Indisponivel>>}
  */
 async function decidir(estado, perguntas, opcoes) {
+  const t0 = Date.now();
+  const meta = novaMeta();
+  const resultado = await decidirInterno(estado, perguntas, opcoes, meta);
+  registrar('decidir', opcoes, t0, meta, ehObjeto(perguntas) ? Object.keys(perguntas).length : 0, resultado);
+  return resultado;
+}
+
+async function decidirInterno(estado, perguntas, opcoes, meta) {
   try {
-    if (!ehObjeto(perguntas)) return {};
+    if (!ehObjeto(perguntas)) {
+      if (barreiraDeUso(opcoes) === 'desligado') meta.desligado = true;
+      return {};
+    }
     const barreira = barreiraDeUso(opcoes);
-    if (barreira) return paraTodasAsChaves(perguntas, indisponivel(barreira));
+    if (barreira) {
+      if (barreira === 'desligado') meta.desligado = true;
+      return paraTodasAsChaves(perguntas, indisponivel(barreira));
+    }
     const env = envDe(opcoes);
     const timeoutMs = prazoDe(opcoes);
 
@@ -396,6 +511,7 @@ async function decidir(estado, perguntas, opcoes) {
     }
 
     if (env.BRAIN_JEV_FALSO !== undefined) {
+      meta.cliente = 'falso';
       const itens = ids.map((id) => ({
         chave: id,
         pergunta: perguntas[id],
@@ -408,12 +524,18 @@ async function decidir(estado, perguntas, opcoes) {
     }
 
     const chave = chaveDaApi(env);
-    if (chave === '') return paraTodasAsChaves(perguntas, indisponivel('sem_chave'));
+    if (chave === '') {
+      meta.cliente = 'sem_chave';
+      return paraTodasAsChaves(perguntas, indisponivel('sem_chave'));
+    }
 
+    meta.cliente = 'api';
     const prazo = criarPrazo(timeoutMs);
     try {
       const enviar = (opcoes && opcoes.fetch) || globalThis.fetch;
-      return respostasPorChave(perguntas, await consultarComPrazo(estado, perguntas, chave, enviar, prazo));
+      const resultado = await consultarComPrazo(estado, perguntas, chave, enviar, prazo);
+      somarUsage(meta, resultado.usage);
+      return respostasPorChave(perguntas, resultado);
     } finally {
       prazo.limpar();
     }
@@ -432,11 +554,25 @@ async function decidir(estado, perguntas, opcoes) {
  * @returns {Promise<Array<RespostaNoul|Indisponivel>>}
  */
 async function julgar(pergunta, trechos, opcoes) {
+  const t0 = Date.now();
+  const meta = novaMeta();
+  const resultado = await julgarInterno(pergunta, trechos, opcoes, meta);
+  registrar('julgar', opcoes, t0, meta, Array.isArray(trechos) ? trechos.length : 0, resultado);
+  return resultado;
+}
+
+async function julgarInterno(pergunta, trechos, opcoes, meta) {
   try {
-    if (!Array.isArray(trechos) || trechos.length === 0) return [];
+    if (!Array.isArray(trechos) || trechos.length === 0) {
+      if (barreiraDeUso(opcoes) === 'desligado') meta.desligado = true;
+      return [];
+    }
     const todos = (resposta) => trechos.map(() => resposta);
     const barreira = barreiraDeUso(opcoes);
-    if (barreira) return todos(indisponivel(barreira));
+    if (barreira) {
+      if (barreira === 'desligado') meta.desligado = true;
+      return todos(indisponivel(barreira));
+    }
     const env = envDe(opcoes);
     const timeoutMs = prazoDe(opcoes);
     const instrucao = opcoes.instrucao === undefined || opcoes.instrucao === null ? INSTRUCAO_PADRAO : opcoes.instrucao;
@@ -451,6 +587,7 @@ async function julgar(pergunta, trechos, opcoes) {
     );
 
     if (env.BRAIN_JEV_FALSO !== undefined) {
+      meta.cliente = 'falso';
       const itens = [];
       trechos.forEach((trecho, indice) => {
         if (enviavel[indice]) itens.push({ chave: indice, pergunta: perguntaNoul, contexto: { pergunta, trechoId: trecho.id, id: 'relevante' } });
@@ -462,8 +599,12 @@ async function julgar(pergunta, trechos, opcoes) {
     }
 
     const chave = chaveDaApi(env);
-    if (chave === '') return todos(indisponivel('sem_chave'));
+    if (chave === '') {
+      meta.cliente = 'sem_chave';
+      return todos(indisponivel('sem_chave'));
+    }
 
+    meta.cliente = 'api';
     const perguntaCortada = pergunta.slice(0, MAX_PERGUNTA);
     const prazo = criarPrazo(timeoutMs);
     try {
@@ -477,6 +618,7 @@ async function julgar(pergunta, trechos, opcoes) {
           if (typeof trecho.fonte === 'string') dadosDoTrecho.fonte = trecho.fonte;
           const perguntas = { relevante: perguntaNoul };
           const resultado = await consultarComPrazo({ pergunta: perguntaCortada, trecho: dadosDoTrecho }, perguntas, chave, enviar, prazo);
+          somarUsage(meta, resultado.usage);
           return respostasPorChave(perguntas, resultado).relevante;
         }),
       );
@@ -500,6 +642,11 @@ function escreverEnvelope(envelope) {
   process.exitCode = 0;
 }
 
+// `telemetria` no JSON da stdin (Emenda 4a): so objeto; o resto e ignorado.
+function telemetriaDoPedido(pedido) {
+  return ehObjeto(pedido.telemetria) ? pedido.telemetria : undefined;
+}
+
 async function executarCli() {
   let envelope;
   try {
@@ -511,11 +658,11 @@ async function executarCli() {
     if (!ehObjeto(pedido)) {
       envelope = ENVELOPE_INVALIDO;
     } else if (pedido.op === 'decidir') {
-      envelope = { ok: true, resultado: await decidir(pedido.estado, pedido.perguntas, { uso: pedido.uso, timeoutMs: pedido.timeoutMs }) };
+      envelope = { ok: true, resultado: await decidir(pedido.estado, pedido.perguntas, { uso: pedido.uso, timeoutMs: pedido.timeoutMs, telemetria: telemetriaDoPedido(pedido) }) };
     } else if (pedido.op === 'julgar') {
       envelope = {
         ok: true,
-        resultado: await julgar(pedido.pergunta, pedido.trechos, { uso: pedido.uso, instrucao: pedido.instrucao, timeoutMs: pedido.timeoutMs }),
+        resultado: await julgar(pedido.pergunta, pedido.trechos, { uso: pedido.uso, instrucao: pedido.instrucao, timeoutMs: pedido.timeoutMs, telemetria: telemetriaDoPedido(pedido) }),
       };
     } else {
       envelope = ENVELOPE_INVALIDO;
