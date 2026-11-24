@@ -24,6 +24,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { lerEventos } from "./painel/eventos.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 
@@ -724,30 +725,6 @@ function ehEntradaDePrompt(e) {
   return !textoDaEntrada(e).startsWith("<local-command");
 }
 
-/** Eventos `contexto` v=1 do diario com ts em [desde, ate). Linha invalida e outra versao so sao contadas. */
-function eventosDoDiario(dir, desde, ate) {
-  const saida = { eventos: [], invalidas: 0, outraVersao: 0 };
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return saida;
-  const dia = (ts) => new Date(ts).toISOString().slice(0, 10);
-  for (const nome of fs.readdirSync(dir).sort()) {
-    const m = /^eventos-(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(nome);
-    if (!m || m[1] < dia(desde) || m[1] > dia(ate)) continue;
-    for (const linha of fs.readFileSync(join(dir, nome), "utf8").split("\n")) {
-      if (!linha) continue;
-      let e;
-      try {
-        e = JSON.parse(linha);
-      } catch {
-        saida.invalidas++;
-        continue;
-      }
-      if (e?.v !== 1) saida.outraVersao++;
-      else if (e.evento === "contexto" && e.ts >= desde && e.ts < ate) saida.eventos.push(e);
-    }
-  }
-  return saida;
-}
-
 /** O transcript `<projetos>/*\/<sessao>.jsonl`, ou null. */
 function acharTranscript(projetos, sessao) {
   if (!fs.existsSync(projetos) || !/^[\w-]+$/.test(sessao)) return null;
@@ -765,7 +742,9 @@ function acharTranscript(projetos, sessao) {
  * por `promptId`, o payload nao traz o id que o transcript usa. So contagens (R1).
  */
 export function conferirCobertura({ dir, projetos, desde, ate }) {
-  const { eventos, invalidas, outraVersao } = eventosDoDiario(dir, desde, ate);
+  const lidos = lerEventos({ dir, desde, ate });
+  const eventos = lidos.eventos.filter((e) => e.evento === "contexto");
+  const { invalidas, outraVersao } = lidos;
   const porSessao = new Map();
   for (const e of eventos) {
     if (typeof e.sessao !== "string") continue;
