@@ -462,5 +462,36 @@ await caso("secao não é afetada pelo período do painel: lê o gabarito sem fi
   assert.match(await prova.secao(ctx), /itens julgados: 10/);
 });
 
+await caso("secao: o mesmo item sorteado em duas amostras conta uma vez; arquivo sem julgado não entra na conta", async () => {
+  const ctx = ctxGabarito({ carregarSecao: async () => null });
+  const pasta = join(ctx.dir, "gabarito");
+  // Repete, em outro arquivo, um item já julgado (mesma sessao|prompt|pos), e cria um arquivo todo sem julgamento.
+  writeFileSync(join(pasta, "amostra-20261122-1000.jsonl"), JSON.stringify(itemDe(GABARITO[0], 0)) + "\n");
+  writeFileSync(join(pasta, "amostra-20261123-1000.jsonl"), JSON.stringify({ ...itemDe(["y", 0.8, null, true], 50), julgamento: null }) + "\n");
+  const saida = await prova.secao(ctx);
+  assert.match(saida, /itens julgados: 10 em 2 arquivo\(s\) \(5 sim, 5 não\)/, saida);
+});
+
+await caso("secao: avisa que as taxas são da amostra estratificada", async () => {
+  assert.match(await prova.secao(ctxGabarito({ carregarSecao: async () => null })), /taxas da amostra/);
+});
+
+await caso("amostrar: evento sem limiar numérico fica fora do universo", async () => {
+  const sem = eventos.map((e) => (e.evento === "contexto" ? { ...e, limiar: null } : e));
+  const r = prova.amostrar(novoCtx({ eventos: sem }), 30, "s");
+  assert.equal(r.codigo, 2, r.linhas.join(" | "));
+});
+
+await caso("julgar: escape e controle do texto não chegam ao terminal", async () => {
+  const { ctx, arquivo } = comAmostra();
+  const linhas = ler(arquivo);
+  linhas[0].pergunta = "pergunta\x1b[2Jlimpa\rsobrescreve";
+  linhas[0].trecho = "trecho\x1b]0;titulo\x07fim";
+  writeFileSync(arquivo, linhas.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  const { mostrado } = await julgarCom(ctx, arquivo, ["q"]);
+  assert.ok(!mostrado.includes("\x1b") && !mostrado.includes("\r"), JSON.stringify(mostrado));
+  assert.match(mostrado, /pergunta.*limpa.*sobrescreve/);
+});
+
 console.log(falhas ? `\n${falhas} caso(s) reprovado(s)` : "\ntodos os casos passaram");
 process.exit(falhas ? 1 : 0);

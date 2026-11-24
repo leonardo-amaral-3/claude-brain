@@ -166,14 +166,26 @@ const sha12 = (texto) => createHash("sha256").update(texto).digest("hex").slice(
 function criarTrechos(db) {
   const porId = db.prepare("SELECT text FROM chunks WHERE id = ?");
   const porCaminho = db.prepare("SELECT c.text FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE d.path = ?");
+  const shaDoCaminho = new Map(); // caminho → Map(sha → texto): a rodada lê e faz o SHA de cada documento uma vez
   return function trecho(item) {
     const direto = porId.get(item.chunk);
     if (direto && sha12(direto.text) === item.trecho_sha) return cortar(direto.text, MAX_TRECHO);
-    for (const r of porCaminho.all(item.caminho)) {
-      if (sha12(r.text) === item.trecho_sha) return cortar(r.text, MAX_TRECHO);
+    if (!shaDoCaminho.has(item.caminho)) {
+      const m = new Map();
+      for (const r of porCaminho.all(item.caminho)) {
+        const h = sha12(r.text);
+        if (!m.has(h)) m.set(h, r.text);
+      }
+      shaDoCaminho.set(item.caminho, m);
     }
-    return null;
+    const achado = shaDoCaminho.get(item.caminho).get(item.trecho_sha);
+    return achado === undefined ? null : cortar(achado, MAX_TRECHO);
   };
+}
+
+/** Texto de transcript e de chunk vai ao terminal: escape e controle (ANSI, OSC, `\r`) não podem reescrever a tela. */
+function limpar(t) {
+  return String(t ?? "").replace(/\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|.)?/g, "").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -226,6 +238,8 @@ export function amostrar(ctx, n = N_PADRAO, semente) {
     for (const item of ev.itens) {
       // Sem chunk ou sem SHA não há como recuperar o texto julgado: fora do universo.
       if (typeof item?.prob !== "number" || !Number.isInteger(item.chunk) || typeof item.trecho_sha !== "string") continue;
+      // Sem limiar numérico o evento não diz de que lado do corte o item caiu: estrato indefinido, fora.
+      if (typeof ev.limiar !== "number") continue;
       const chave = `${ev.sessao}|${ev.prompt ?? "ts:" + ev.ts}|${item.pos}`;
       if (vistos.has(chave)) continue;
       vistos.add(chave);
@@ -379,7 +393,7 @@ export async function julgar(ctx, arquivo) {
   let saiu = false;
   for (const [k, i] of pendentes.entries()) {
     const it = itens[i];
-    saida.write(`\n[${k + 1}/${pendentes.length}] prob ${it.prob}\nPergunta: ${it.pergunta}\nTrecho:\n${it.trecho}\n`);
+    saida.write(`\n[${k + 1}/${pendentes.length}] prob ${it.prob}\nPergunta: ${limpar(it.pergunta)}\nTrecho:\n${limpar(it.trecho)}\n`);
     let resp = null;
     while (resp === null) {
       saida.write("o trecho é relevante para a pergunta? [s]im, [n]ão, [p]ular, [q] sair: ");
@@ -426,18 +440,26 @@ function lerJulgados(dir) {
     return { itens: [], arquivos: 0 };
   }
   const itens = [];
+  const vistos = new Set(); // o mesmo item sorteado em duas amostras conta uma vez (vale o primeiro julgado)
+  const comJulgado = new Set();
   for (const nome of nomes) {
     for (const l of readFileSync(join(pasta, nome), "utf8").split("\n")) {
       if (!l) continue;
       try {
         const o = JSON.parse(l);
-        if (o && (o.julgamento === "sim" || o.julgamento === "nao") && typeof o.prob === "number") itens.push(o);
+        if (o && (o.julgamento === "sim" || o.julgamento === "nao") && typeof o.prob === "number") {
+          const chave = `${o.sessao}|${o.prompt ?? "ts:" + o.ts_evento}|${o.pos}`;
+          if (vistos.has(chave)) continue;
+          vistos.add(chave);
+          itens.push(o);
+          comJulgado.add(nome);
+        }
       } catch {
         // linha estranha: o `julgar` também a preserva e segue
       }
     }
   }
-  return { itens, arquivos: nomes.length };
+  return { itens, arquivos: comJulgado.size };
 }
 
 /** Matriz de confusão do Jev contra o julgamento humano, com `aprovado(i)` dizendo o que o Jev fez. */
@@ -505,6 +527,7 @@ export async function secao(ctx) {
   linhas.push(
     `  no limiar gravado (${limiares.map(fmt).join(", ") || "n/d"}): VP ${c.tp} · FP ${c.fp} · FN ${c.fn} · VN ${c.tn}`,
     `    ${resumo(c)}`,
+    "  (taxas da amostra, que sorteia metade acima e metade abaixo do limiar: não são as do universo)",
     "  limiares hipotéticos (mesmo gabarito, outro corte):"
   );
   for (const t of LIMIARES) linhas.push(`    ${fmt(t)}: ${resumo(confusao(itens, (i) => i.prob >= t))}`);
