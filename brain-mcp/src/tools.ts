@@ -65,7 +65,7 @@ export function registerTools(
   // Toda chamada vira uma linha em `uso` — é o que transforma "acho que o Claude
   // não usa o cérebro" em número. Ver: npm run uso
   const registerTool = (name: string, cfg: unknown, handler: (args: any) => Promise<any>): void => {
-    (server as any).registerTool(name, cfg, async (args: any) => {
+    (server as any).registerTool(name, cfg, async (args: any, extra?: any) => {
       const t0 = Date.now();
       let resp: any;
       try {
@@ -79,8 +79,12 @@ export function registerTools(
           // tool que não é `search_context`, e o `Query vazia` que retorna antes de buscar — vira
           // NULL, que é o que mantém essas linhas fora do denominador em `scripts/uso.mjs`.
           const sem: unknown = resp?._meta?.brain?.semantica;
+          // Sessão e tool_use_id ligam a linha ao transcript (painel Ganho). Ambos anuláveis.
+          const sessaoEnv = process.env.CLAUDE_CODE_SESSION_ID;
+          const sessao = typeof sessaoEnv === "string" && sessaoEnv !== "" ? sessaoEnv : null;
+          const tuid: unknown = extra?._meta?.["claudecode/toolUseId"];
           db.prepare(
-            "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica, sessao, tool_use_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
           ).run(
             Date.now(),
             name,
@@ -88,7 +92,9 @@ export function registerTools(
             Date.now() - t0,
             txt.length,
             /^Nenhum resultado|^Query vazia|^Nenhuma/.test(txt) ? 1 : 0,
-            typeof sem === "boolean" ? (sem ? 1 : 0) : null
+            typeof sem === "boolean" ? (sem ? 1 : 0) : null,
+            sessao,
+            typeof tuid === "string" ? tuid : null
           );
         } catch {
           /* log de uso nunca pode derrubar a tool */
