@@ -1,0 +1,122 @@
+{
+  "rodadas": [
+    {
+      "data": "2026-11-24T21:12:02.015Z",
+      "sha256": "ebc4023cf541d262f73056be4c23241bc560f584b23ee7ae2852ffe428005b0b",
+      "autor": {
+        "dado": "sim",
+        "faturamento": "nao",
+        "deploy": "nao",
+        "migration": "sim"
+      },
+      "cliente": null,
+      "categorias": {
+        "dado": {
+          "motivos": [
+            "autor",
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        },
+        "faturamento": {
+          "motivos": [
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        },
+        "deploy": {
+          "motivos": [
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        },
+        "migration": {
+          "motivos": [
+            "autor",
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        }
+      }
+    },
+    {
+      "data": "2026-11-24T21:21:31.435Z",
+      "sha256": "4d1f854bbc027632702af0ab6b0e9ab70ac5e5f08df9632428d9dea607e0e4ff",
+      "autor": {
+        "dado": "sim",
+        "faturamento": "nao",
+        "deploy": "nao",
+        "migration": "sim"
+      },
+      "cliente": null,
+      "categorias": {
+        "dado": {
+          "motivos": [
+            "autor",
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        },
+        "faturamento": {
+          "motivos": [
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        },
+        "deploy": {
+          "motivos": [
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        },
+        "migration": {
+          "motivos": [
+            "autor",
+            "jev-indisponivel"
+          ],
+          "jev": {
+            "estado": "indisponivel",
+            "motivo": "envio de spec ao Jev não autorizado nesta máquina"
+          }
+        }
+      }
+    }
+  ],
+  "uniao": {
+    "dado": [
+      "autor",
+      "jev-indisponivel"
+    ],
+    "faturamento": [
+      "jev-indisponivel"
+    ],
+    "deploy": [
+      "jev-indisponivel"
+    ],
+    "migration": [
+      "autor",
+      "jev-indisponivel"
+    ]
+  }
+}
