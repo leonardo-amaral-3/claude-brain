@@ -127,7 +127,8 @@ export function medirAproveitamento(eventos, ctx) {
     const janela = [];
     for (let i = ini + 1; i < entradas.length; i++) {
       const e = entradas[i];
-      if (ehPrompt(e) && e.promptId !== entradaTurno.promptId) break;
+      // Sem promptId no turno, `undefined !== undefined` nunca fecharia a janela: qualquer prompt seguinte fecha.
+      if (ehPrompt(e) && (entradaTurno.promptId == null || e.promptId !== entradaTurno.promptId)) break;
       if (e?.isSidechain === true) continue;
       if (e?.type === "assistant") janela.push(e);
     }
