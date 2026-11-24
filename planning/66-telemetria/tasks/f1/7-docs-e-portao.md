@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 7: `docs/telemetria.md` e a suíte inteira do portão da F1
 
