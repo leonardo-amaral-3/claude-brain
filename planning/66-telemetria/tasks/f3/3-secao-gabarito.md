@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: Seção `Gabarito` (`prova.secao`) e a concordância com o aproveitamento
 

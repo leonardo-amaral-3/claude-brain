@@ -410,9 +410,109 @@ export async function julgar(ctx, arquivo) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// secao: entra na task 3 do card #69.
+// secao
 
-/** @returns {Promise<string>} */
-export async function secao() {
-  return "Gabarito: seção ainda não implementada";
+const LIMIARES = [0.3, 0.4, 0.5, 0.6, 0.7];
+const fmt = (x) => String(x).replace(".", ",");
+const taxa = (a, b) => (b ? `${fmt(((100 * a) / b).toFixed(1))}% (${a}/${b})` : "n/d (0/0)");
+
+/** Todos os itens julgados de `<dir>/gabarito/amostra-*.jsonl`, sem filtro de período: o gabarito acumula. */
+function lerJulgados(dir) {
+  const pasta = join(dir, "gabarito");
+  let nomes = [];
+  try {
+    nomes = readdirSync(pasta).filter((n) => /^amostra-.*\.jsonl$/.test(n)).sort();
+  } catch {
+    return { itens: [], arquivos: 0 };
+  }
+  const itens = [];
+  for (const nome of nomes) {
+    for (const l of readFileSync(join(pasta, nome), "utf8").split("\n")) {
+      if (!l) continue;
+      try {
+        const o = JSON.parse(l);
+        if (o && (o.julgamento === "sim" || o.julgamento === "nao") && typeof o.prob === "number") itens.push(o);
+      } catch {
+        // linha estranha: o `julgar` também a preserva e segue
+      }
+    }
+  }
+  return { itens, arquivos: nomes.length };
+}
+
+/** Matriz de confusão do Jev contra o julgamento humano, com `aprovado(i)` dizendo o que o Jev fez. */
+function confusao(itens, aprovado) {
+  let tp = 0, fp = 0, fn = 0, tn = 0;
+  for (const i of itens) {
+    const a = aprovado(i);
+    const sim = i.julgamento === "sim";
+    if (a && sim) tp++;
+    else if (a) fp++;
+    else if (sim) fn++;
+    else tn++;
+  }
+  return { tp, fp, fn, tn, n: itens.length };
+}
+
+const resumo = (c) =>
+  `precisão ${taxa(c.tp, c.tp + c.fp)} · cobertura ${taxa(c.tp, c.tp + c.fn)} · acurácia ${taxa(c.tp + c.tn, c.n)}`;
+
+/** A concordância com o aproveitamento da F2, ou a linha que diz o que falta. */
+async function concordancia(ctx, itens) {
+  const mod = await ctx.carregarSecao?.("ganho");
+  if (typeof mod?.medirAproveitamento !== "function") return ["concordância com o aproveitamento: precisa de painel/ganho.mjs (F2)"];
+  // O gabarito é acumulado e pode ser anterior ao período do painel: lê os eventos dos itens, não os do ctx.
+  const tss = itens.map((i) => i.ts_evento).filter(Number.isFinite);
+  if (!tss.length) return ["concordância com o aproveitamento: nenhum item julgado traz ts_evento"];
+  const lido = await ctx.lerEventos({ desde: Math.min(...tss) - 60000, ate: Math.max(...tss) + 60000 });
+  const medidas = await mod.medirAproveitamento(Array.isArray(lido) ? lido : lido.eventos, ctx);
+  const por = { sim: { n: 0, aprov: 0 }, nao: { n: 0, aprov: 0 } };
+  let semMedida = 0;
+  for (const i of itens.filter((x) => x.mostrado === true)) {
+    const m = medidas.get(`${i.sessao}|${i.prompt ?? "ts:" + i.ts_evento}`);
+    if (!m || m.par === "sem_par" || m.par === "sem_transcript") {
+      semMedida++;
+      continue;
+    }
+    por[i.julgamento].n++;
+    if (m.abertos.includes(i.caminho) || m.citados.includes(i.caminho)) por[i.julgamento].aprov++;
+  }
+  return [
+    "concordância com o aproveitamento (itens mostrados, com transcript):",
+    `  julgados sim: aproveitados ${taxa(por.sim.aprov, por.sim.n)}`,
+    `  julgados não: aproveitados ${taxa(por.nao.aprov, por.nao.n)}`,
+    `  sem medida no transcript: ${semMedida}`,
+  ];
+}
+
+/**
+ * Seção `Gabarito`: sobre os itens julgados, a precisão e a cobertura do Jev no limiar gravado em cada
+ * item e numa tabela de limiares hipotéticos (só mostra o efeito; não muda limiar nenhum). Só
+ * contagens e taxas (R1): nem caminho nem texto.
+ *
+ * @returns {Promise<string>}
+ */
+export async function secao(ctx) {
+  const { itens, arquivos } = lerJulgados(ctx.dir);
+  if (!itens.length) return "Gabarito\n  gabarito vazio: rode --amostrar e --julgar";
+
+  const limiares = [...new Set(itens.map((i) => i.limiar).filter((l) => typeof l === "number"))].sort((a, b) => a - b);
+  const sim = itens.filter((i) => i.julgamento === "sim").length;
+  const linhas = ["Gabarito", `  itens julgados: ${itens.length} em ${arquivos} arquivo(s) (${sim} sim, ${itens.length - sim} não)`];
+
+  const gravados = itens.filter((i) => typeof i.limiar === "number");
+  const c = confusao(gravados, (i) => i.prob >= i.limiar);
+  linhas.push(
+    `  no limiar gravado (${limiares.map(fmt).join(", ") || "n/d"}): VP ${c.tp} · FP ${c.fp} · FN ${c.fn} · VN ${c.tn}`,
+    `    ${resumo(c)}`,
+    "  limiares hipotéticos (mesmo gabarito, outro corte):"
+  );
+  for (const t of LIMIARES) linhas.push(`    ${fmt(t)}: ${resumo(confusao(itens, (i) => i.prob >= t))}`);
+
+  try {
+    linhas.push(...(await concordancia(ctx, itens)).map((l) => (l.startsWith(" ") ? l : "  " + l)));
+  } catch (e) {
+    linhas.push(`  concordância com o aproveitamento: indisponível (${e?.name ?? "erro"})`);
+  }
+  return linhas.join("\n");
 }

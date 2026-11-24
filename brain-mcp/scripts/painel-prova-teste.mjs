@@ -10,7 +10,7 @@
 // diretório do diário é sempre um temporário (R4).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
@@ -339,6 +339,127 @@ await caso("julgar não come linha que não é JSON", async () => {
   writeFileSync(arquivo, readFileSync(arquivo, "utf8") + "linha estranha\n");
   await julgarCom(ctx, arquivo, ["s", "q"]);
   assert.equal(readFileSync(arquivo, "utf8").split("\n").filter(Boolean).at(-1), "linha estranha");
+});
+
+// ---- secao: um gabarito com julgamentos conhecidos, e os números conferidos à mão.
+
+// prob, julgamento, mostrado — todos com limiar 0,5. Contas no limiar gravado (0,5): aprovados a,b,c,d,e,j;
+// VP 3 (a,b,d) · FP 3 (c,e,j) · FN 2 (f,i) · VN 2 (g,h). Os outros cortes estão nos asserts.
+const GABARITO = [
+  ["a", 0.9, "sim", true], ["b", 0.8, "sim", true], ["c", 0.7, "nao", true], ["d", 0.6, "sim", false], ["e", 0.55, "nao", false],
+  ["f", 0.45, "sim", true], ["g", 0.35, "nao", true], ["h", 0.2, "nao", false], ["i", 0.1, "sim", false], ["j", 0.65, "nao", true],
+];
+const TS0 = 1795600000000;
+
+function itemDe([id, prob, julgamento, mostrado], k) {
+  return {
+    v: 1, criado: "2026-11-24T12:30:00.000Z", sessao: "s-g", prompt: `p-${id}`, ts_evento: TS0 + k * 1000, caminho: `/w/${id}.md`, fonte: "planning",
+    pos: 1, chunk: k + 1, prob, limiar: 0.5, mostrado, grupo: "com_filtro", pergunta: `Pergunta secreta ${id}`, trecho: `Trecho secreto ${id}`, julgamento, nota: "",
+  };
+}
+
+/** ctx com o gabarito repartido em dois arquivos (a seção acumula), mais um item sem julgamento. */
+function ctxGabarito(extra = {}) {
+  const ctx = novoCtx(extra);
+  const pasta = join(ctx.dir, "gabarito");
+  mkdirSync(pasta, { recursive: true });
+  const itens = GABARITO.map(itemDe);
+  const escrever = (nome, lista) => writeFileSync(join(pasta, nome), lista.map((i) => JSON.stringify(i)).join("\n") + "\n");
+  escrever("amostra-20261120-1000.jsonl", itens.slice(0, 6));
+  escrever("amostra-20261121-1000.jsonl", [...itens.slice(6), { ...itemDe(["z", 0.9, null, true], 99), julgamento: null }]);
+  return ctx;
+}
+
+/** `ganho` de teste: devolve um módulo com `medirAproveitamento` e guarda como foi chamado. */
+function ganhoFalso() {
+  const chamadas = { lerEventos: [], medir: 0 };
+  const medida = (par, abertos = [], citados = []) => ({ par, mostrados: [], abertos, citados, rebusca: false });
+  const mapa = new Map([
+    ["s-g|p-a", medida("promptId", ["/w/a.md"])],
+    ["s-g|p-b", medida("horario", [], ["/w/b.md"])],
+    ["s-g|p-c", medida("promptId", ["/w/c.md"])],
+    ["s-g|p-f", medida("promptId")],
+    ["s-g|p-g", medida("sem_par")],
+    ["s-g|p-j", medida("promptId")],
+  ]);
+  return {
+    chamadas,
+    carregarSecao: async (nome) => {
+      assert.equal(nome, "ganho");
+      return {
+        medirAproveitamento: (eventos) => {
+          chamadas.medir++;
+          assert.ok(Array.isArray(eventos));
+          return mapa;
+        },
+      };
+    },
+    lerEventos: async (periodo) => {
+      chamadas.lerEventos.push(periodo);
+      return { eventos: [], invalidas: 0, outraVersao: 0, arquivos: 0 };
+    },
+  };
+}
+
+await caso("secao: precisão, cobertura e acurácia no limiar gravado, sobre os dois arquivos", async () => {
+  const saida = await prova.secao(ctxGabarito({ carregarSecao: async () => null }));
+  assert.match(saida, /itens julgados: 10 em 2 arquivo\(s\) \(5 sim, 5 não\)/);
+  assert.match(saida, /no limiar gravado \(0,5\): VP 3 · FP 3 · FN 2 · VN 2/);
+  assert.match(saida, /precisão 50,0% \(3\/6\) · cobertura 60,0% \(3\/5\) · acurácia 50,0% \(5\/10\)/);
+});
+
+await caso("secao: tabela de limiares 0,3 a 0,7 com os números esperados", async () => {
+  const saida = await prova.secao(ctxGabarito({ carregarSecao: async () => null }));
+  const linha = (t) => saida.split("\n").find((l) => l.startsWith(`    ${t}:`));
+  assert.equal(linha("0,3"), "    0,3: precisão 50,0% (4/8) · cobertura 80,0% (4/5) · acurácia 50,0% (5/10)");
+  assert.equal(linha("0,4"), "    0,4: precisão 57,1% (4/7) · cobertura 80,0% (4/5) · acurácia 60,0% (6/10)");
+  assert.equal(linha("0,5"), "    0,5: precisão 50,0% (3/6) · cobertura 60,0% (3/5) · acurácia 50,0% (5/10)");
+  assert.equal(linha("0,6"), "    0,6: precisão 60,0% (3/5) · cobertura 60,0% (3/5) · acurácia 60,0% (6/10)");
+  assert.equal(linha("0,7"), "    0,7: precisão 66,7% (2/3) · cobertura 40,0% (2/5) · acurácia 60,0% (6/10)");
+});
+
+await caso("secao: com ganho.mjs mostra a concordância e lê os eventos com ±60000 ms", async () => {
+  const g = ganhoFalso();
+  const saida = await prova.secao(ctxGabarito(g));
+  assert.match(saida, /julgados sim: aproveitados 66,7% \(2\/3\)/);
+  assert.match(saida, /julgados não: aproveitados 50,0% \(1\/2\)/);
+  assert.match(saida, /sem medida no transcript: 1/);
+  assert.equal(g.chamadas.medir, 1);
+  // O item sem julgamento (ts 99) não entra no intervalo: min = TS0, max = TS0 + 9000.
+  assert.deepEqual(g.chamadas.lerEventos, [{ desde: TS0 - 60000, ate: TS0 + 9000 + 60000 }]);
+});
+
+await caso("secao: sem ganho.mjs (carregarSecao devolve null) mostra a linha da F2", async () => {
+  const saida = await prova.secao(ctxGabarito({ carregarSecao: async () => null }));
+  assert.match(saida, /concordância com o aproveitamento: precisa de painel\/ganho\.mjs \(F2\)/);
+  const semFuncao = await prova.secao(ctxGabarito({ carregarSecao: async () => ({}) }));
+  assert.match(semFuncao, /precisa de painel\/ganho\.mjs \(F2\)/);
+});
+
+await caso("secao: ganho que falha não derruba a seção", async () => {
+  const saida = await prova.secao(ctxGabarito({ carregarSecao: async () => { throw new TypeError("x"); } }));
+  assert.match(saida, /concordância com o aproveitamento: indisponível \(TypeError\)/);
+  assert.match(saida, /precisão 50,0%/);
+});
+
+await caso("secao: sem item julgado diz que o gabarito está vazio", async () => {
+  const vazio = novoCtx();
+  assert.match(await prova.secao(vazio), /gabarito vazio: rode --amostrar e --julgar/);
+  // Amostra criada e ainda não julgada também é gabarito vazio.
+  prova.amostrar(vazio, 4, "s");
+  assert.match(await prova.secao(vazio), /gabarito vazio/);
+});
+
+await caso("secao: a saída não traz caminho nem pergunta nem trecho (R1)", async () => {
+  for (const extra of [ganhoFalso(), { carregarSecao: async () => null }]) {
+    const saida = await prova.secao(ctxGabarito(extra));
+    assert.ok(!saida.includes("/w/") && !saida.includes("secreta") && !saida.includes("secreto"), saida);
+  }
+});
+
+await caso("secao não é afetada pelo período do painel: lê o gabarito sem filtro", async () => {
+  const ctx = ctxGabarito({ carregarSecao: async () => null, desde: 0, ate: 1, eventos: [] });
+  assert.match(await prova.secao(ctx), /itens julgados: 10/);
 });
 
 console.log(falhas ? `\n${falhas} caso(s) reprovado(s)` : "\ntodos os casos passaram");
