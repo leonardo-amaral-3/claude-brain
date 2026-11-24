@@ -3,7 +3,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { medirAproveitamento } from "./painel/ganho.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { medirAproveitamento, secao } from "./painel/ganho.mjs";
 import { T0, contexto, diz, item, meta, prompt, toolResult, transcript, usa } from "./fixtures/telemetria/ganho/construtor.mjs";
 
 let falhas = 0;
@@ -107,6 +108,92 @@ try {
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }
+// ---- A secao: numeros esperados sobre uma fixture pequena, e o sinal do `uso`.
+{
+  const tmp2 = mkdtempSync(join(tmpdir(), "painel-ganho-secao-"));
+  try {
+    const projetos2 = join(tmp2, "projects");
+    let t = T0;
+    const passo = () => (t += 1000);
+    const e = [];
+    const tsDe = {};
+    const abre = (id, texto, ...resto) => {
+      const p = prompt(id, texto, passo());
+      tsDe[id] = Date.parse(p.timestamp);
+      e.push(p, ...resto);
+    };
+    abre("q1", "PROMPTSECRETO um", usa("Read", { file_path: "/w/a.md" }, passo()));
+    abre("q2", "PROMPTSECRETO planejamento telemetria", diz("o /w/c.md resolve", passo()), usa("mcp__brain__search_context", { query: "planejamento telemetria" }, passo()));
+    abre("q3", "PROMPTSECRETO tres", diz("nada", passo()));
+    abre("q4", "PROMPTSECRETO quatro cinco", usa("mcp__brain__search_context", { query: "quatro cinco" }, passo()));
+    abre("q5", "PROMPTSECRETO cinco");
+    abre("q6", "PROMPTSECRETO seis", usa("Read", { file_path: "/w/e.md" }, passo()));
+    abre("p-h", "PROMPTSECRETO horario", diz("nada", passo()));
+    transcript(projetos2, "-w", "sA", e);
+
+    const mk = (id, itens, extra = {}) => contexto({ prompt: id, ts: tsDe[id], itens, mostrados: itens.filter((i) => i.mostrado).length, ...extra });
+    const eventos = [
+      mk("q1", [item("/w/a.md", 1), item("/w/b.ts", 2)]),
+      mk("q2", [item("/w/c.md", 1)], { desfecho: "entidade", jev: null }),
+      mk("q3", [item("/w/d.md", 1)]),
+      mk("q4", [], { desfecho: "sem_candidatos", jev: null }),
+      mk("q5", [], { desfecho: "jev_reprovou_tudo" }),
+      mk("q6", [item("/w/e.md", 1)], { grupo: "sem_filtro", jev: "sem_filtro_ab" }),
+      mk("id-x", [item("/w/f.md", 1)], { ts: tsDe["p-h"] + 100 }),
+      mk("sem-par", [item("/w/g.md", 1)], { ts: T0 + 9_999_999 }),
+      mk("sem-transcript", [item("/w/h.md", 1)], { sessao: "nao-existe" }),
+    ];
+
+    // uso: com a coluna sessao
+    const comColuna = new DatabaseSync(":memory:");
+    comColuna.exec("CREATE TABLE uso (id INTEGER PRIMARY KEY, ts INTEGER, tool TEXT, args TEXT, ms INTEGER, resp_chars INTEGER, vazio INTEGER, semantica INTEGER, sessao TEXT, tool_use_id TEXT)");
+    const ins = comColuna.prepare("INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, sessao) VALUES (?, ?, ?, 1, 1, 0, ?)");
+    ins.run(tsDe.q1 + 500, "search_context", '{"query":"x"}', "sA");
+    ins.run(tsDe.q1 + 600, "read_doc", '{"path":"/w/a.md"}', "sA"); // acerto
+    ins.run(tsDe.q1 + 700, "read_doc", '{"path":"/w/b.ts","heading":"truncado e sem fim', "sA"); // JSON cortado: regex, acerto
+    ins.run(tsDe.q1 + 800, "read_doc", '{"path":"/w/zzz.md"}', "sA"); // nao mostrado
+    ins.run(tsDe.q1 + 900, "read_doc", "{}", "sA"); // sem path
+    ins.run(tsDe.q1 + 950, "search_context", "{}", "outra"); // outra sessao
+    ins.run(tsDe.q2 + 100, "search_context", "{}", "sA");
+    ins.run(tsDe.q2 + 200, "search_context", "{}", "sA");
+    ins.run(tsDe.q6 + 100, "search_context", "{}", "sA"); // janela do sem_filtro: fora da conta
+    ins.run(T0 + 9_999_999 + 10 * 60 * 1000, "search_context", "{}", "sA"); // dentro dos 30 min do sem-par
+    ins.run(T0 + 9_999_999 + 40 * 60 * 1000, "search_context", "{}", "sA"); // alem do teto
+
+    const saida = await secao({ eventos, projetos: projetos2, db: comColuna });
+    const tem = (trecho, msg) => ok(saida.includes(trecho), `${msg}: faltou «${trecho}» em\n${saida}`);
+    tem("Prompts com injeção (fora do grupo sem_filtro): 6", "o sem_filtro fica fora dos prompts com injecao");
+    tem("casados por promptId 3, por horário 1; sem par no transcript 1; sem transcript 1", "contagem do pareamento");
+    // com par: q1 (2 mostrados, 1 aberto), q2 (1 mostrado, 1 citado), q3 (1, 0), id-x (1, 0)
+    tem("trechos mostrados 5, aproveitados 2 (abertos 1, citados 1); taxa de aproveitamento 40,0%", "taxa de aproveitamento");
+    tem("prompts com ao menos um trecho aproveitado: 2 de 4 (50,0%)", "prompts com algum aproveitado");
+    tem("rebusca: 1 de 4 (25,0%)", "rebusca dos prompts com injecao");
+    tem("jev_reprovou_tudo): 1 de 2 (50,0%)", "linha de base da rebusca");
+    tem("só vale comparada", "aviso da rebusca");
+    tem("Por desfecho, entidade (1 prompts com par):", "bloco da entidade");
+    tem("trechos mostrados 1, aproveitados 1 (abertos 0, citados 1); taxa de aproveitamento 100,0%", "entidade");
+    tem("Por desfecho, injetado (3 prompts com par):", "bloco do injetado");
+    tem("trechos mostrados 4, aproveitados 1 (abertos 1, citados 0); taxa de aproveitamento 25,0%", "injetado");
+    tem("eventos com injeção: 6; chamadas a search_context na janela: 4; a read_doc: 4", "sinal do uso: contagens");
+    tem("read_doc de caminho que a injeção mostrou: 2", "sinal do uso: acertos (JSON inteiro e cortado)");
+    // R1: nem caminho nem texto de prompt
+    ok(!/\/w\/|PROMPTSECRETO|a\.md/.test(saida), "a secao imprimiu caminho ou texto de prompt");
+
+    // sem a coluna sessao e sem db
+    const semColuna = new DatabaseSync(":memory:");
+    semColuna.exec("CREATE TABLE uso (id INTEGER PRIMARY KEY, ts INTEGER, tool TEXT, args TEXT, ms INTEGER, resp_chars INTEGER, vazio INTEGER)");
+    for (const db of [semColuna, null]) {
+      const s2 = await secao({ eventos, projetos: projetos2, db });
+      ok(s2.includes("uso sem sessão (servidor anterior à F2)"), "sem coluna/db devia dizer que o uso nao tem sessao");
+    }
+    // sem transcript nenhum casado
+    const s3 = await secao({ eventos: [eventos[8]], projetos: projetos2, db: null });
+    ok(s3.includes("nenhum prompt com injeção casou com transcript"), "sem par: nao ha taxa");
+  } finally {
+    rmSync(tmp2, { recursive: true, force: true });
+  }
+}
+
 if (falhas) {
   console.error(`${falhas} falha(s)`);
   process.exit(1);

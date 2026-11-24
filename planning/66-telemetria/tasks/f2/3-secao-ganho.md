@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: a seção `Ganho` — taxas, linha de base e o sinal do `uso`
 
