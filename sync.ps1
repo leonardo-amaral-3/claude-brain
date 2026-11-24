@@ -135,7 +135,7 @@ foreach ($s in Get-ChildItem (Join-Path $repo 'skills') -Directory) {
 # e pode ter hook de terceiro. A mesma lista e o gabarito do relato de orfao la embaixo.
 $hooksVersionados = @('brain-config.js', 'jev.js', 'brain-briefing.js', 'brain-contexto.js',
                       'obsidian-diario.js', 'obsidian-diario-titulo.js',
-                      'custo-contexto.js', 'grafo-espelho.js')
+                      'custo-contexto.js', 'grafo-espelho.js', 'telemetria.js')
 $pares += @{ nome = 'hooks'; repo = Join-Path $repo 'hooks'; vivo = Join-Path $claudeHome 'hooks'
              arquivos = $hooksVersionados }
 
