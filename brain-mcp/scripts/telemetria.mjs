@@ -14,7 +14,7 @@
 //
 // A saida so traz contagens e nomes de caso (R1): nunca caminho de prompt nem texto.
 //
-// Casos que as proximas tasks acrescentam, em CASOS abaixo: ab, poluicao; e os modos --custo e
+// Casos que as proximas tasks acrescentam, em CASOS abaixo: poluicao; e os modos --custo e
 // --conferir. Nao ha stub que passe: caso que nao existe nao e listado.
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -22,6 +22,7 @@ import os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), ".."); // brain-mcp/
 const repo = join(root, ".."); // raiz do repo
@@ -458,6 +459,99 @@ async function casoEventos() {
   return v;
 }
 
+// ---------------------------------------------------------------- caso: ab (CA3, a chave)
+
+/** O `u` do hook (brain-contexto.js, sortearGrupo): SHA-256 do prompt_id, 32 bits, em [0, 1). */
+const uDe = (promptId) => parseInt(createHash("sha256").update(promptId).digest("hex").slice(0, 8), 16) / 2 ** 32;
+
+/** Um prompt_id de teste cujo `u` esta do lado pedido: a prova nao depende de sorte. */
+function promptComU(lado) {
+  for (let i = 0; i < 10000; i++) {
+    const id = `ab-${i}`;
+    const u = uDe(id);
+    if (lado === "alto" ? u > 0.9 : u < 0.1) return id;
+  }
+  throw new Error("nenhum prompt_id de teste achado");
+}
+
+/** A chave do A/B: o sorteio, o grupo no evento, e "sem a variavel nada e sorteado". */
+async function casoAb() {
+  const v = verificador();
+  const prompts = await escolherPrompts();
+  const tmp = novoTmp("telemetria-ab");
+  try {
+    const alto = promptComU("alto");
+    const baixo = promptComU("baixo");
+    let n = 0;
+    // Roda o hook uma vez com a telemetria ligada (a menos que `tele: false`) e devolve a stdout e o contexto gravado.
+    const rodar = async ({ ab, promptId = "prompt-teste", jev = FALSO_SIM, tele = true }) => {
+      const dir = join(tmp, `d${n++}`);
+      const env = { ...jev, ...(ab === undefined ? {} : { BRAIN_TELEMETRIA_AB: ab }), ...(tele ? { BRAIN_TELEMETRIA: "1", BRAIN_TELEMETRIA_DIR: dir } : {}) };
+      const r = await rodarHook({ prompt: prompts.texto, env, payload: { prompt_id: promptId } });
+      v.ok(r.codigo === 0 && r.stderr === "", `ab ${ab}: codigo 0 e stderr vazia`);
+      const linhas = lerDiario(dir);
+      return { stdout: r.stdout, contexto: linhas.find((l) => l.evento === "contexto"), jevs: linhas.filter((l) => l.evento === "jev") };
+    };
+
+    // Referencias: o Jev desligado (a stdout que o `sem_filtro` tem de repetir) e o Jev ligado sem A/B.
+    const desligado = await rodar({ jev: {}, tele: false });
+    const ligado = await rodar({});
+    v.ok(desligado.stdout !== "" && ligado.stdout !== "" && desligado.stdout !== ligado.stdout, "ab: as referencias existem e diferem (o cabecalho filtrado nao e o do Jev desligado)");
+    v.igual([ligado.contexto.grupo, ligado.contexto.jev], [null, "ok"], "ab sem variavel: nenhum sorteio, o Jev filtra");
+
+    // p = 1: todo prompt elegivel sai sem_filtro, a stdout e a do Jev desligado, e o Jev nem e chamado.
+    for (const id of [alto, baixo, "prompt-teste"]) {
+      const r = await rodar({ ab: "1", promptId: id });
+      v.igual([r.contexto.grupo, r.contexto.jev], ["sem_filtro", "sem_filtro_ab"], `ab=1 (${id}): grupo sem_filtro, jev sem_filtro_ab`);
+      v.igual(r.stdout, desligado.stdout, `ab=1 (${id}): a stdout e a do Jev desligado`);
+      v.ok(r.jevs.length === 0, `ab=1 (${id}): o Jev nao foi chamado`);
+      v.ok(r.contexto.desfecho === "injetado" && r.contexto.enviados === null && r.contexto.aprovados === null && r.contexto.limiar === null && r.contexto.itens.every((i) => i.prob === null), `ab=1 (${id}): sem enviados, aprovados, limiar nem prob`);
+      v.ok(r.contexto.itens.filter((i) => i.mostrado).length === r.contexto.mostrados && r.contexto.mostrados > 0, `ab=1 (${id}): itens mostrados = mostrados`);
+    }
+    // Sem prompt_id: sorteio comum, e com p = 1 continua sem_filtro.
+    v.igual((await rodar({ ab: "1", promptId: undefined })).contexto.grupo, "sem_filtro", "ab=1 sem prompt_id: sorteia");
+
+    // p = 0.0001 e `u` conhecido maior: com_filtro, a stdout e a do Jev ligado.
+    const raro = await rodar({ ab: "0.0001", promptId: alto });
+    v.igual([raro.contexto.grupo, raro.contexto.jev], ["com_filtro", "ok"], "ab=0.0001 com u alto: com_filtro, o Jev filtra");
+    v.igual(raro.stdout, ligado.stdout, "ab=0.0001 com u alto: a stdout e a do Jev ligado");
+    v.ok(raro.jevs.length === 1, "ab=0.0001 com u alto: o Jev foi chamado");
+
+    // Determinismo: p = 0.5 e dois prompt_id de lados opostos; a mesma execucao repetida cai no mesmo grupo.
+    for (const [id, grupo] of [[alto, "com_filtro"], [baixo, "sem_filtro"]]) {
+      const a = await rodar({ ab: "0.5", promptId: id });
+      const b = await rodar({ ab: "0.5", promptId: id });
+      v.igual([a.contexto.grupo, b.contexto.grupo], [grupo, grupo], `ab=0.5 (u=${uDe(id).toFixed(3)}): o mesmo prompt_id sorteia sempre ${grupo}`);
+    }
+
+    // Valor invalido: nenhum sorteio, grupo null, o Jev filtra como hoje.
+    for (const ab of ["abc", "0", "-1", "2", "", "NaN", "Infinity"]) {
+      const r = await rodar({ ab });
+      v.igual([r.contexto.grupo, r.contexto.jev], [null, "ok"], `ab=${JSON.stringify(ab)}: sem sorteio`);
+      v.igual(r.stdout, ligado.stdout, `ab=${JSON.stringify(ab)}: a stdout e a do Jev ligado`);
+    }
+
+    // Sem a telemetria ligada o A/B nao existe: nao ha sorteio e a stdout e a do Jev ligado.
+    const semTele = await rodar({ ab: "1", tele: false });
+    v.igual(semTele.stdout, ligado.stdout, "ab=1 sem BRAIN_TELEMETRIA: nao sorteia, a stdout e a do Jev ligado");
+
+    // Sem o Jev (fora de BRAIN_JEV, ou sem chave e sem falso) nao ha sorteio: todo com_filtro sairia sem filtro.
+    const foraDoJev = await rodar({ ab: "1", jev: {} });
+    v.igual([foraDoJev.contexto.grupo, foraDoJev.contexto.jev], [null, "desligado"], "ab=1 com o Jev fora de BRAIN_JEV: sem sorteio");
+    const semChave = await rodar({ ab: "1", jev: { BRAIN_JEV: "contexto" } });
+    v.igual([semChave.contexto.grupo, semChave.contexto.jev], [null, "sem_chave"], "ab=1 sem chave nem falso: sem sorteio");
+    v.igual(semChave.stdout, desligado.stdout, "ab=1 sem chave: a stdout e a de sempre (sem filtro)");
+
+    // Prompt que nao chega ao passo 5 com candidatos (curto) nao e sorteado.
+    const dirCurto = join(tmp, "d-curto");
+    await rodarHook({ prompt: prompts.curto, env: { ...FALSO_SIM, BRAIN_TELEMETRIA_AB: "1", BRAIN_TELEMETRIA: "1", BRAIN_TELEMETRIA_DIR: dirCurto } });
+    v.igual(lerDiario(dirCurto)[0]?.grupo, null, "ab=1 em prompt curto: grupo null");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  return v;
+}
+
 // ---------------------------------------------------------------- caso: stdout (CA4, parte 1)
 
 /** A stdout com a telemetria desligada, ligada e ligada com destino indisponivel e a mesma: byte a byte, codigo 0, stderr vazia. */
@@ -500,10 +594,11 @@ async function casoStdout() {
 
 // ---------------------------------------------------------------- execucao
 
-// Proximas tasks acrescentam aqui: ab, poluicao.
+// Proximas tasks acrescentam aqui: poluicao.
 const CASOS = {
   gravador: casoGravador,
   eventos: casoEventos,
+  ab: casoAb,
   stdout: casoStdout,
 };
 

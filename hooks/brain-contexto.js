@@ -397,6 +397,30 @@ const fim = (saida) => {
 // SQLite/FTS pode conter token do prompt, e o diario nao guarda texto do prompt).
 const nomeDoErro = (e) => String((e && e.name) || 'Error') + (e && e.code ? ':' + e.code : '');
 
+// A/B (claude-brain#66, CA3): com BRAIN_TELEMETRIA_AB=<p>, 0 < p <= 1, sorteia o prompt para
+// `sem_filtro` (probabilidade p: o bloco sai como com o Jev desligado) ou `com_filtro` (o Jev filtra
+// como hoje). Devolve `null` = sem sorteio. Tres condicoes, todas dentro de try (falha = sem A/B):
+// - a telemetria ligada: tirar o filtro de um prompt sem medir o efeito e custo sem retorno;
+// - o Jev de fato responderia (`ligado('contexto')`): sem chave todo `com_filtro` sairia sem filtro
+//   e o dado seria jogado fora;
+// - a variavel valida. O chamador so chega aqui com `usaJev()` e candidatos.
+// Determinístico por `prompt_id` (SHA-256), sem estado: o mesmo prompt cai sempre no mesmo grupo e os
+// dois grupos saem da mesma populacao. Sem `prompt_id`, sorteio comum.
+const sortearGrupo = (promptId) => {
+  try {
+    if (!require('./telemetria.js').ligada()) return null;
+    if (!require('./jev.js').ligado('contexto')) return null;
+    const p = Number(process.env.BRAIN_TELEMETRIA_AB);
+    if (!(Number.isFinite(p) && p > 0 && p <= 1)) return null;
+    const u = promptId
+      ? parseInt(require('crypto').createHash('sha256').update(promptId).digest('hex').slice(0, 8), 16) / 2 ** 32
+      : Math.random();
+    return u < p ? 'sem_filtro' : 'com_filtro';
+  } catch {
+    return null;
+  }
+};
+
 // Itens do passo 5: os primeiros LIMITE_JEV candidatos, na ordem do ranking. `mostrado` e `prob`
 // ligam ao item por IDENTIDADE DE OBJETO (o mesmo caminho pode vir em dois trechos), nunca por
 // caminho. `trecho_sha` e o SHA-256 (12 hex) do texto que o Jev julgou. Dentro de try: a telemetria
@@ -631,10 +655,14 @@ const itensDoPasso5 = (primeiros, achados, jev) => {
 
     // `r` e o retorno inteiro de filtrarComJev (com o `estado`); `jev` e o que o resto do caminho
     // usa e e `null` fora do `ok`, como sempre foi: so o estado e novo, a stdout nao muda.
-    // Ponto de entrada do A/B (task 4 do #67): o sorteio entra aqui, antes desta chamada.
+    // O sorteio do A/B vem imediatamente antes da chamada. `sem_filtro`: nao chama o Jev, `r` fica
+    // null e o bloco sai EXATAMENTE como com o Jev desligado.
+    if (candidatos.length && usaJev()) reg.grupo = sortearGrupo(reg.prompt);
     let r = null;
     if (candidatos.length && !usaJev()) {
       reg.jev = 'desligado';
+    } else if (reg.grupo === 'sem_filtro') {
+      reg.jev = 'sem_filtro_ab';
     } else if (candidatos.length) {
       const tJev = Date.now();
       r = await filtrarComJev(alvo, candidatos.slice(0, LIMITE_JEV));
