@@ -2,6 +2,8 @@
 //
 //   node scripts/telemetria.mjs                 roda todos os casos
 //   node scripts/telemetria.mjs --caso gravador roda um caso
+//   node scripts/telemetria.mjs --custo         o portao do CA4: o hook ligado nao custa mais de 20 ms
+//   node scripts/telemetria.mjs --conferir --dias N   cobertura do diario sobre os transcripts (G5)
 //
 // Codigos: 0 passou, 1 reprovou, 2 nao medi (sem indice, sem brain-workspaces.json). Como injecao.mjs
 // e eval.mjs.
@@ -10,19 +12,20 @@
 // diretorio temporario em BRAIN_TELEMETRIA_DIR, e todo filho que um caso subir parte de
 // `envSemJev(process.env)` (que tira BRAIN_JEV*, BRAIN_TELEMETRIA* e a chave) e acrescenta so as
 // variaveis do caso. Assim um BRAIN_TELEMETRIA_AB ou BRAIN_TELEMETRIA_DIR exportado no shell nao
-// muda o resultado de teste nenhum.
+// muda o resultado de teste nenhum. A unica excecao e o caso `poluicao`, que de proposito passa
+// BRAIN_TELEMETRIA=1 ao ambiente das suites para provar que elas se protegem sozinhas.
 //
 // A saida so traz contagens e nomes de caso (R1): nunca caminho de prompt nem texto.
 //
-// Casos que as proximas tasks acrescentam, em CASOS abaixo: poluicao; e os modos --custo e
-// --conferir. Nao ha stub que passe: caso que nao existe nao e listado.
+// Modos: `--custo` (o portao do CA4, parte 2) e `--conferir --dias N` (a G5: cobertura do diario sobre
+// os transcripts). Nao ha stub que passe: caso que nao existe nao e listado.
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), ".."); // brain-mcp/
 const repo = join(root, ".."); // raiz do repo
@@ -592,25 +595,354 @@ async function casoStdout() {
   return v;
 }
 
+// ---------------------------------------------------------------- caso: poluicao (R4)
+
+/**
+ * Roda as suites da F1 que carregam o jev.js ou o hook com `BRAIN_TELEMETRIA=1` e um
+ * `CLAUDE_CODE_SESSION_ID` unico NO AMBIENTE (de proposito, sem `envSemJev`: o que se mede e se elas
+ * se protegem sozinhas), e confere que nenhum diario do lugar padrao ganhou linha com esse sessao.
+ * A saida das suites e descartada; o codigo delas e so informado (a prova delas e o proprio comando).
+ * Este caso nunca escreve no diario vivo: so le.
+ */
+async function casoPoluicao() {
+  const v = verificador();
+  const sessao = `poluicao-${randomBytes(6).toString("hex")}`;
+  const suites = [
+    { nome: "npm run jev", args: [join(root, "scripts", "jev.mjs")], cwd: root },
+    { nome: "classificar-parada-teste", args: [join(repo, "scripts", "classificar-parada-teste.mjs")], cwd: repo },
+    { nome: "gm-triage-jev-teste", args: [join(repo, "scripts", "gm-triage-jev-teste.mjs")], cwd: repo },
+  ];
+  const casa = process.env.CLAUDE_CONFIG_DIR || join(os.homedir(), ".claude");
+  const lugares = new Set([join(casa, "brain-telemetria")]);
+  // Se o shell exporta BRAIN_TELEMETRIA_DIR, e la que um vazamento cairia: confere tambem.
+  if (process.env.BRAIN_TELEMETRIA_DIR) lugares.add(process.env.BRAIN_TELEMETRIA_DIR);
+
+  const env = { ...process.env, BRAIN_TELEMETRIA: "1", CLAUDE_CODE_SESSION_ID: sessao };
+  for (const suite of suites) {
+    const r = spawnSync(process.execPath, suite.args, { cwd: suite.cwd, env, encoding: "utf8", timeout: 600000, maxBuffer: 64 * 1024 * 1024 });
+    if (r.error) throw new NaoMedi(`a suite ${suite.nome} nao subiu: ${r.error.code ?? r.error.name}`);
+    console.log(`  suite ${suite.nome}: codigo ${r.status}`);
+  }
+
+  const vazados = [];
+  for (const dir of lugares) {
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+    for (const nome of fs.readdirSync(dir).filter((n) => /^eventos-.*\.jsonl$/.test(n))) {
+      const arq = join(dir, nome);
+      const n = fs.readFileSync(arq, "utf8").split("\n").filter((l) => l.includes(`"sessao":"${sessao}"`)).length;
+      if (n) vazados.push({ arq, n });
+    }
+  }
+  v.ok(vazados.length === 0, "nenhuma suite gravou no diario do lugar padrao");
+  if (vazados.length) {
+    const total = vazados.reduce((a, x) => a + x.n, 0);
+    console.log(`  VAZOU: ${total} linha(s) com sessao ${sessao} em ${vazados.length} arquivo(s). Para tira-las:`);
+    for (const x of vazados) console.log(`    grep -v '"sessao":"${sessao}"' ${JSON.stringify(x.arq)} > ${JSON.stringify(x.arq + ".limpo")} && mv ${JSON.stringify(x.arq + ".limpo")} ${JSON.stringify(x.arq)}`);
+  }
+  return v;
+}
+
+// ---------------------------------------------------------------- --custo (CA4, parte 2)
+
+const AQUECIMENTO = 3;
+const MEDIDAS = 30;
+const LIMITE_MS = 20;
+// Mesma definicao de percentil do repo (uso.mjs): indice floor(p * (n - 1)) no vetor ordenado.
+const pct = (v, p) => [...v].sort((a, b) => a - b)[Math.floor(p * (v.length - 1))];
+
+/**
+ * O portao do CA4: a mediana do tempo de parede do hook ligado (dois bracos: destino bom e destino
+ * indisponivel) nao passa a do desligado em mais de 20 ms. 3 rodadas de aquecimento descartadas, depois
+ * 30 execucoes por braco, INTERCALADAS (desligada, ligada, indisponivel, desligada, ...) para a deriva
+ * da maquina cair igual nos tres. Dois prompts: o que injeta pelo passo 5 (com o falso `sim`) e o de
+ * entidade. So imprime numeros.
+ */
+async function custo() {
+  const prompts = await escolherPrompts();
+  const tmp = novoTmp("telemetria-custo");
+  let codigo = 0;
+  try {
+    const arquivoComum = join(tmp, "arquivo-comum");
+    fs.writeFileSync(arquivoComum, "x");
+    const casos = [
+      { nome: "injeta pelo passo 5 (Jev falso sim)", prompt: prompts.texto, env: FALSO_SIM },
+      { nome: "entidade", prompt: prompts.entidade, env: {} },
+    ];
+    console.log(`custo da telemetria no hook: ${AQUECIMENTO} rodadas de aquecimento, ${MEDIDAS} execucoes por braco, intercaladas (tempo de parede do spawn)`);
+    for (const c of casos) {
+      const bracos = {
+        desligada: { ...c.env },
+        ligada: { ...c.env, BRAIN_TELEMETRIA: "1", BRAIN_TELEMETRIA_DIR: join(tmp, "diario") },
+        indisponivel: { ...c.env, BRAIN_TELEMETRIA: "1", BRAIN_TELEMETRIA_DIR: arquivoComum },
+      };
+      const amostras = { desligada: [], ligada: [], indisponivel: [] };
+      for (let rodada = 0; rodada < AQUECIMENTO + MEDIDAS; rodada++) {
+        for (const [nome, env] of Object.entries(bracos)) {
+          const r = await rodarHook({ prompt: c.prompt, env });
+          if (r.codigo !== 0) throw new Error(`o hook saiu com codigo ${r.codigo} no braco ${nome}`);
+          if (rodada >= AQUECIMENTO) amostras[nome].push(r.ms);
+        }
+      }
+      const med = Object.fromEntries(Object.entries(amostras).map(([k, x]) => [k, pct(x, 0.5)]));
+      const dLigada = med.ligada - med.desligada;
+      const dIndisp = med.indisponivel - med.desligada;
+      const passou = dLigada <= LIMITE_MS && dIndisp <= LIMITE_MS;
+      console.log(`  ${c.nome}`);
+      console.log(`    mediana (ms): desligada ${med.desligada} · ligada ${med.ligada} · ligada com destino indisponivel ${med.indisponivel}`);
+      console.log(`    diferenca (ms): ligada ${dLigada >= 0 ? "+" : ""}${dLigada} · destino indisponivel ${dIndisp >= 0 ? "+" : ""}${dIndisp} (limite +${LIMITE_MS})  ${passou ? "passou" : "FALHOU"}`);
+      if (!passou) codigo = 1;
+    }
+    console.log(codigo === 0 ? "custo: as duas diferencas ficaram dentro de 20 ms nos dois prompts" : "custo: REPROVADO");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  return codigo;
+}
+
+// ---------------------------------------------------------------- --conferir (G5)
+
+const MS_ANTES = 2000; // o mesmo par por horario que o painel da F2 usa: [ts - 2000, ts + 15000]
+const MS_DEPOIS = 15000;
+
+/** Texto de uma entrada `user` do transcript: o `content` string, ou os blocos `text` concatenados. */
+function textoDaEntrada(e) {
+  const c = e?.message?.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return c.filter((b) => b?.type === "text").map((b) => b.text ?? "").join("");
+  return "";
+}
+
+/**
+ * Entrada de prompt (premissa P16 da spec): `user`, fora de sidechain, sem `isMeta`, sem bloco
+ * `tool_result`, texto que nao comeca com `<local-command` e que nao e resumo de compactacao.
+ * Slash command e UMA entrada (a `isMeta` com a skill expandida nao conta).
+ */
+function ehEntradaDePrompt(e) {
+  if (e?.type !== "user" || e.isSidechain === true || e.isMeta === true || e.isCompactSummary === true) return false;
+  const c = e.message?.content;
+  if (Array.isArray(c) && c.some((b) => b?.type === "tool_result")) return false;
+  return !textoDaEntrada(e).startsWith("<local-command");
+}
+
+/** Eventos `contexto` v=1 do diario com ts em [desde, ate). Linha invalida e outra versao so sao contadas. */
+function eventosDoDiario(dir, desde, ate) {
+  const saida = { eventos: [], invalidas: 0, outraVersao: 0 };
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return saida;
+  const dia = (ts) => new Date(ts).toISOString().slice(0, 10);
+  for (const nome of fs.readdirSync(dir).sort()) {
+    const m = /^eventos-(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(nome);
+    if (!m || m[1] < dia(desde) || m[1] > dia(ate)) continue;
+    for (const linha of fs.readFileSync(join(dir, nome), "utf8").split("\n")) {
+      if (!linha) continue;
+      let e;
+      try {
+        e = JSON.parse(linha);
+      } catch {
+        saida.invalidas++;
+        continue;
+      }
+      if (e?.v !== 1) saida.outraVersao++;
+      else if (e.evento === "contexto" && e.ts >= desde && e.ts < ate) saida.eventos.push(e);
+    }
+  }
+  return saida;
+}
+
+/** O transcript `<projetos>/*\/<sessao>.jsonl`, ou null. */
+function acharTranscript(projetos, sessao) {
+  if (!fs.existsSync(projetos) || !/^[\w-]+$/.test(sessao)) return null;
+  for (const d of fs.readdirSync(projetos, { withFileTypes: true })) {
+    const arq = join(projetos, d.name, `${sessao}.jsonl`);
+    if (d.isDirectory() && fs.existsSync(arq)) return arq;
+  }
+  return null;
+}
+
+/**
+ * Cobertura do diario sobre os transcripts. Para cada sessao com evento `contexto` no periodo e
+ * transcript ainda existente: os prompts do transcript no periodo (regra de entrada de prompt) e quantos
+ * tem evento, por `promptId` ou, na falta, por horario. Mede as premissas P1 e P6: se nenhum evento casa
+ * por `promptId`, o payload nao traz o id que o transcript usa. So contagens (R1).
+ */
+export function conferirCobertura({ dir, projetos, desde, ate }) {
+  const { eventos, invalidas, outraVersao } = eventosDoDiario(dir, desde, ate);
+  const porSessao = new Map();
+  for (const e of eventos) {
+    if (typeof e.sessao !== "string") continue;
+    if (!porSessao.has(e.sessao)) porSessao.set(e.sessao, []);
+    porSessao.get(e.sessao).push(e);
+  }
+  const r = { eventos: eventos.length, invalidas, outraVersao, semSessao: eventos.filter((e) => typeof e.sessao !== "string").length, sessoes: porSessao.size, semTranscript: 0, prompts: 0, comEvento: 0, porPromptId: 0, soPorHorario: 0, semEvento: 0, eventosSemPar: 0 };
+  for (const [sessao, evs] of porSessao) {
+    const arq = acharTranscript(projetos, sessao);
+    if (!arq) {
+      r.semTranscript++;
+      continue;
+    }
+    const prompts = [];
+    for (const linha of fs.readFileSync(arq, "utf8").split("\n")) {
+      if (!linha) continue;
+      let e;
+      try {
+        e = JSON.parse(linha);
+      } catch {
+        continue;
+      }
+      const t = Date.parse(e?.timestamp);
+      if (ehEntradaDePrompt(e) && t >= desde && t < ate) prompts.push({ id: e.promptId ?? null, t });
+    }
+    const usados = new Set();
+    for (const p of prompts) {
+      r.prompts++;
+      const exato = evs.find((e) => p.id !== null && e.prompt === p.id);
+      const horario = exato ? null : evs.find((e) => !usados.has(e) && e.ts >= p.t - MS_ANTES && e.ts <= p.t + MS_DEPOIS);
+      if (exato) {
+        r.comEvento++;
+        r.porPromptId++;
+        usados.add(exato);
+      } else if (horario) {
+        r.comEvento++;
+        r.soPorHorario++;
+        usados.add(horario);
+      } else {
+        r.semEvento++;
+      }
+    }
+    r.eventosSemPar += evs.filter((e) => !usados.has(e)).length;
+  }
+  return r;
+}
+
+/** `--conferir --dias N`: imprime a cobertura. Codigo 2 sem diario ou sem evento no periodo. */
+function conferir(dias) {
+  const agora = Date.now();
+  const dir = require(join(repo, "hooks", "telemetria.js")).dirTelemetria(process.env);
+  const casa = process.env.CLAUDE_CONFIG_DIR || join(os.homedir(), ".claude");
+  const r = conferirCobertura({ dir, projetos: join(casa, "projects"), desde: agora - dias * DIA_MS, ate: agora });
+  console.log(`conferir: ultimos ${dias} dia(s)`);
+  if (r.eventos === 0) {
+    console.log(`  nao ha evento contexto no periodo (diario ${fs.existsSync(dir) ? "existe" : "nao existe"}): ligue BRAIN_TELEMETRIA=1 no ambiente e reinicie as sessoes`);
+    return 2;
+  }
+  console.log(`  eventos contexto: ${r.eventos} em ${r.sessoes} sessao(oes)${r.semSessao ? ` (${r.semSessao} sem sessao)` : ""} · linhas invalidas ${r.invalidas} · outra versao ${r.outraVersao}`);
+  console.log(`  sessoes sem transcript (so conta o que ainda existe): ${r.semTranscript}`);
+  const pc = (a, b) => (b ? `${((100 * a) / b).toFixed(1)}%` : "n/a");
+  console.log(`  prompts nos transcripts dessas sessoes: ${r.prompts}`);
+  console.log(`  cobertura (prompt com evento): ${r.comEvento}/${r.prompts} = ${pc(r.comEvento, r.prompts)}  (meta da G5: 95% ou mais)`);
+  console.log(`    casaram por prompt = promptId: ${r.porPromptId} · so por horario: ${r.soPorHorario} · sem evento: ${r.semEvento}`);
+  console.log(`  eventos sem prompt no transcript: ${r.eventosSemPar}`);
+  if (r.prompts > 0 && r.porPromptId === 0) console.log("  ATENCAO: nenhum evento casou por promptId: o prompt_id do payload nao e o promptId do transcript (P1/P6); a F2 casa so por horario");
+  return 0;
+}
+
+// ---------------------------------------------------------------- caso: conferir (o proprio --conferir, sobre fixtures)
+
+/** Prova o `--conferir`: um transcript e um diario de mentira, com cada forma de prompt que a regra distingue. */
+async function casoConferir() {
+  const v = verificador();
+  const tmp = novoTmp("telemetria-conferir");
+  try {
+    const agora = Date.now();
+    const iso = (ms) => new Date(ms).toISOString();
+    const sessao = "sessao-conferir";
+    const projetos = join(tmp, "projects", "-x");
+    fs.mkdirSync(projetos, { recursive: true });
+    const t = (min) => agora - min * 60000;
+    const user = (texto, promptId, ms, extra = {}) => ({ type: "user", promptId, timestamp: iso(ms), message: { role: "user", content: texto }, ...extra });
+    const transcript = [
+      user("primeiro prompt", "p-1", t(50)),
+      { type: "assistant", timestamp: iso(t(50) + 1000), message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+      user([{ type: "tool_result", tool_use_id: "x", content: "r" }], "p-1", t(50) + 2000),
+      user("/gm-spec #1", "p-2", t(40)), // slash: a entrada do <command-message>
+      user("skill expandida", "p-2", t(40) + 10, { isMeta: true }),
+      user("<local-command-stdout>x</local-command-stdout>", "p-x", t(35)),
+      user("de sidechain", "p-s", t(34), { isSidechain: true }),
+      user("sem evento", "p-3", t(30)),
+      user("so por horario", "p-4-outro-id", t(20)),
+      user("resumo", "p-c", t(15), { isCompactSummary: true }),
+      user("antigo, fora do periodo", "p-0", agora - 10 * DIA_MS),
+    ];
+    fs.writeFileSync(join(projetos, `${sessao}.jsonl`), transcript.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const evento = (prompt, ms, s = sessao) => ({ v: 1, ts: ms, evento: "contexto", sessao: s, prompt });
+    const dir = join(tmp, "diario");
+    fs.mkdirSync(dir);
+    const eventos = [evento("p-1", t(50) + 100), evento("p-2", t(40) + 100), evento("id-diferente", t(20) + 500), evento("p-orfao", t(5)), evento(null, t(4), "sessao-sem-transcript")];
+    const dia = (ms) => iso(ms).slice(0, 10);
+    // Os eventos podem cair em dois dias UTC: um arquivo por dia, como o gravador.
+    for (const e of eventos) fs.appendFileSync(join(dir, `eventos-${dia(e.ts)}.jsonl`), JSON.stringify(e) + "\n");
+    fs.appendFileSync(join(dir, `eventos-${dia(t(50))}.jsonl`), "{linha quebrada\n" + JSON.stringify({ v: 2, ts: t(50), evento: "contexto" }) + "\n");
+
+    const r = conferirCobertura({ dir, projetos: join(tmp, "projects"), desde: agora - DIA_MS, ate: agora + 60000 });
+    v.igual(r.eventos, 5, "conferir: eventos contexto v=1 no periodo");
+    v.igual([r.invalidas, r.outraVersao], [1, 1], "conferir: linha invalida e outra versao so contadas");
+    v.igual([r.sessoes, r.semTranscript], [2, 1], "conferir: duas sessoes, uma sem transcript");
+    v.igual(r.prompts, 4, "conferir: prompts = entradas de prompt no periodo (sem tool_result, isMeta, local-command, sidechain, compactacao, nem o fora do periodo)");
+    v.igual([r.porPromptId, r.soPorHorario, r.semEvento, r.comEvento], [2, 1, 1, 3], "conferir: por promptId, so por horario, sem evento, com evento");
+    v.igual(r.eventosSemPar, 1, "conferir: o evento orfao nao tem prompt no transcript");
+
+    // E o comando: codigo 2 sem evento, codigo 0 com, e a saida so traz contagens (nenhum caminho nem id).
+    const sem = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--conferir", "--dias", "1"], { env: envDoFilho({ CLAUDE_CONFIG_DIR: join(tmp, "casa-vazia") }), encoding: "utf8" });
+    v.ok(sem.status === 2 && /BRAIN_TELEMETRIA=1/.test(sem.stdout), "conferir: sem evento, codigo 2 com o motivo");
+    const casa = join(tmp, "casa");
+    fs.mkdirSync(casa);
+    fs.symlinkSync(join(tmp, "projects"), join(casa, "projects"), "dir");
+    const com = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--conferir", "--dias", "1"], { env: envDoFilho({ CLAUDE_CONFIG_DIR: casa, BRAIN_TELEMETRIA_DIR: dir }), encoding: "utf8" });
+    v.ok(com.status === 0 && /cobertura.*3\/4 = 75\.0%/.test(com.stdout), `conferir: com evento, codigo 0 e cobertura 3/4 (${com.stdout.split("\n").find((l) => l.includes("cobertura"))?.trim()})`);
+    v.ok(!com.stdout.includes(sessao) && !com.stdout.includes("p-1") && !com.stdout.includes(tmp), "conferir: a saida nao traz id nem caminho");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  return v;
+}
+
 // ---------------------------------------------------------------- execucao
 
-// Proximas tasks acrescentam aqui: poluicao.
 const CASOS = {
   gravador: casoGravador,
   eventos: casoEventos,
   ab: casoAb,
   stdout: casoStdout,
+  conferir: casoConferir,
+  poluicao: casoPoluicao,
 };
 
 async function main() {
   const argv = process.argv.slice(2);
-  const i = argv.indexOf("--caso");
-  const escolhido = i >= 0 ? argv[i + 1] : undefined;
-  const desconhecido = argv.filter((a, k) => a.startsWith("--") && a !== "--caso" && argv[k - 1] !== "--caso");
-  if (desconhecido.length || (i >= 0 && !escolhido)) {
-    console.error(`argumento desconhecido ou sem valor: ${desconhecido.join(" ") || "--caso"}`);
+  const valor = (nome) => {
+    const i = argv.indexOf(nome);
+    return i < 0 ? undefined : argv[i + 1];
+  };
+  const comValor = new Set(["--caso", "--dias"]);
+  const sozinhos = new Set(["--custo", "--conferir"]);
+  const desconhecido = argv.filter((a, k) => (a.startsWith("--") && !comValor.has(a) && !sozinhos.has(a)) || (!a.startsWith("--") && !comValor.has(argv[k - 1] ?? "")));
+  const semValor = [...comValor].filter((n) => argv.includes(n) && (valor(n) === undefined || valor(n).startsWith("--")));
+  if (desconhecido.length || semValor.length) {
+    console.error(`argumento desconhecido ou sem valor: ${[...desconhecido, ...semValor].join(" ")}`);
     process.exit(2);
   }
+
+  if (argv.includes("--custo")) {
+    try {
+      process.exit(await custo());
+    } catch (e) {
+      if (e instanceof NaoMedi) {
+        console.log(`NÃO MEDI  custo: ${e.message}`);
+        process.exit(2);
+      }
+      console.log(`FALHOU  custo: ${e?.name ?? "?"}: ${e?.message ?? ""}`);
+      process.exit(1);
+    }
+  }
+  if (argv.includes("--conferir")) {
+    const dias = valor("--dias") === undefined ? 1 : Number(valor("--dias"));
+    if (!Number.isFinite(dias) || dias <= 0) {
+      console.error("--dias espera um numero maior que zero");
+      process.exit(2);
+    }
+    process.exit(conferir(dias));
+  }
+
+  const escolhido = valor("--caso");
   if (escolhido && !CASOS[escolhido]) {
     console.error(`caso desconhecido: ${escolhido} (existem: ${Object.keys(CASOS).join(", ")})`);
     process.exit(2);
