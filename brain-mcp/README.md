@@ -104,9 +104,29 @@ reconstrói lendo o diff depois. `lembrar` grava na hora: um markdown em `<works
 (visível no Obsidian, indexado como qualquer doc) **e** uma linha na tabela `decisoes`.
 
 Ao gravar, a tool devolve decisões anteriores do mesmo escopo cujo texto é semanticamente próximo
-(cosseno ≥ 0,82). Ela **não afirma que há contradição** — julgar isso automaticamente seria chute
+(cosseno ≥ 0,82). A **busca** não afirma que há contradição — julgar isso automaticamente seria chute
 com cara de certeza. Ela traz os candidatos com a semelhança medida; quem escreve decide se
 substitui (`supersede: <id>`) ou se convivem.
+
+Com a flag do Jev ligada (#42), o `lembrar` vai um passo além: cada vizinha da lista é julgada
+("a decisão nova contradiz esta?") e a que sai com probabilidade ≥ 0,70 aparece marcada, na própria
+linha, como `[contradição provável, Jev 0.93]`. É anotação, não veredito: a tool nunca recusa a
+gravação nem preenche o `supersede` sozinha. O julgamento roda **depois** de a decisão estar gravada,
+com prazo (4 s por padrão); qualquer falha do Jev, valor inválido ou prazo vencido devolve a lista de
+hoje, sem marca nenhuma. Só o `fato` da decisão nova e o `fato` de cada vizinha julgada (até 5) saem
+para a TypeSafe AI. Quais vizinhas, porque o cofre de decisões é um só para todos os workspaces:
+- `lembrar` **com** `escopo`: as do mesmo escopo e as **sem escopo**, de qualquer workspace;
+- `lembrar` **sem** `escopo`: vizinhas de **qualquer escopo e de qualquer workspace** — a consulta
+  não filtra nada além da semelhança;
+- a vizinha que a própria chamada substitui (`supersede`) continua na lista, mas não vai ao Jev.
+
+Nada muda em disco: o `.md` do cofre, a tabela `decisoes` e o comentário `gm:decisao` ficam como eram.
+
+`npm run contradicao -- --enviar` mede essa marca sobre um snapshot do índice (quantas substituições
+já registradas ela acerta, quantas marcas não correspondem a substituição e a latência que soma ao
+`lembrar`). Só envia com a flag do Jev ligada **e** `--enviar`; sem um dos dois, diz o que mandaria e
+sai com código `2`. Uma rodada com o padrão manda o `fato` de até 80 decisões novas e de até 400
+vizinhas, então ela depende da chave do Jev e da autorização de Leonardo para mandar trechos do cofre.
 
 ## Frescor do índice
 
@@ -206,6 +226,46 @@ vazia e, no `search_context`, se a semântica respondeu. `npm run uso` mostra p5
 fração de buscas que saíram só com léxico. É o que transforma "acho que o Claude não usa o cérebro"
 em número, e é dela que o `colher` tira o golden set.
 
+### Roteador de source
+
+Quando o Claude chama `search_context` **sem nenhum filtro** (`source`, `repo`, `feature` ou
+`doc_type`), o roteador pergunta ao Jev, antes da busca, em qual fonte do índice (`planning`, `github`,
+`code`, `git`…) o documento deve estar. Com confiança de pelo menos 0,8, a busca restringe-se a essa
+fonte; a resposta traz a linha final
+`(roteador: busca restrita a source="…" nesta consulta — para outra fonte, passe source)`.
+**Vem desligado.**
+
+- **Ligar**: `roteador` em `BRAIN_JEV`, no ambiente do processo `claude` (ou no `env` do servidor `brain`
+  em `~/.claude.json`), mais `TYPESAFE_API_KEY`. Os dois ficam no parágrafo do Jev acima; o contrato do
+  cliente está em `planning/42-filtro-jev/spec.md`. Tirar `roteador` da lista e reabrir a sessão desliga.
+- **O que vai ao Jev**: a query sem os espaços das pontas e cortada em 500 code points (um emoji fora
+  do BMP conta como um, e o corte nunca parte um par surrogate), a instrução fixa e a lista de fontes
+  com as descrições. Nunca trecho do corpus.
+- **Limiar e teto**: 0,8 de probabilidade e 1 s de orçamento. São valores de partida, não calibrados.
+- **Cai para a busca como veio** quando: o roteador está desligado; a chamada já traz `source`,
+  `repo`, `feature` ou `doc_type` (o Jev não sabe desses filtros, e aí nem é consultado); não há
+  cliente, chave ou resposta dentro do teto; a probabilidade fica abaixo do limiar; a escolha é
+  `qualquer` ou uma fonte fora da lista; ou a busca restrita não acha nada.
+- **A volta por busca vazia é estreita.** A metade semântica devolve sempre os K trechos mais
+  próximos, sem corte de score, então a busca restrita só sai vazia quando a fonte escolhida não tem
+  embeddings ou a busca semântica está fora do ar. O roteador é um **filtro duro**: uma rota
+  confiante e errada (0,8 ou mais na fonte errada) traz K trechos da fonte errada e **esconde o
+  documento certo**, sem volta. Esse risco é pendência da calibração com o Jev real (grupo B do
+  card), junto do limiar e do teto.
+- **`uso`** grava os argumentos como chegaram: o filtro do roteador não entra na tabela nem no golden
+  set que o `colher` tira dela.
+- **`eval`, `smoke` e `concorrencia`** limpam o Jev do ambiente dos filhos que sobem, para a medição não
+  depender de chave nem de rede.
+- **Atualizar o `jev.js`** só vale depois de reabrir a sessão: o `require` guarda o módulo.
+- **`BRAIN_JEV_FALSO`** numa sessão real, com `roteador` na lista, desvia **toda** busca sem filtro
+  pelo roteiro do falso, sem rede. Serve para teste, não para uso diário.
+- **Medir o ganho (B1)**: não há comando nesta versão. Fica para o card de calibração do Jev. O aviso
+  que vai junto: só 7 dos casos do golden sem `source` têm o alvo neste índice, e o teto do ganho é de
+  0,101 para 0,121 de nDCG@5. Um eval com código `0` diria "não piorou nesses casos", e não "o
+  roteador ajuda".
+
+`npm run roteador` roda a suíte do roteador com um Jev falso, sem rede.
+
 ## Comandos
 
 ```sh
@@ -216,8 +276,12 @@ npm run embed              # gera embeddings dos chunks que ainda não têm (ret
 npm run grafo              # reconstrói o grafo de entidades
 npm run eval               # golden set: nDCG@5 sobre snapshot (--base <ref> é o portão)
 npm run colher             # recolhe o golden set da tabela uso, preservando os casos manuais
+npm run contradicao -- --enviar   # critério 4 do #46: mede a marca do Jev em substituições conhecidas (manda fatos à TypeSafe AI)
 npm run uso                # quantas vezes o Claude chamou cada tool
 npm run smoke              # sobe o servidor por stdio e testa as tools
+npm run jev                # cliente do Jev e filtro do hook (T1-T16), com o cliente falso e um índice de prova montado pelo teste: sem rede e sem o índice vivo
+npm run roteador           # roteador de source (limiar, teto, quedas), só com o Jev falso, sem rede
+node scripts/injecao.mjs --desde <dia> --ate <dia> --base origin/dev --portao jev   # portão do filtro do Jev no hook
 node dist/cli.js --git     # relê o histórico de git dos repos
 node dist/cli.js --github  # força sync de cards/PRs
 node dist/cli.js --force   # toma a liderança de um servidor vivo em vez de recusar
@@ -226,9 +290,26 @@ node dist/cli.js --force   # toma a liderança de um servidor vivo em vez de rec
 Variáveis de ambiente: `BRAIN_CONFIG` aponta para outro `brain.config.json` e `BRAIN_DB` para outro
 banco (úteis para testar sem mexer no seu índice); `BRAIN_LEASE_TTL_MS` ajusta o TTL do lease.
 `BRAIN_CLI_ESPERA_MS` muda os 10 s que a CLI espera antes de recusar (0 = recusa na hora).
+`BRAIN_CONTRADICAO_PRAZO_MS` é o prazo do julgamento de contradição no `lembrar` (padrão 4000; só inteiro de 1 a 2147483647 vale, o teto do `setTimeout`).
 `BRAIN_SOMENTE_CONSULTA=1` sobe um servidor que só consulta: não disputa o lease, não varre, não gera
 embeddings, e a tool `reindex` recusa até com `forcar: true`. Ele ainda aquece o modelo, porque a
 busca semântica continua valendo. É o modo que o `eval --base` usa contra o snapshot.
+
+### Jev (opcional, desligado)
+
+O hook `brain-contexto.js` e outros consumidores podem consultar o Jev (TypeSafe AI) por um cliente único,
+`hooks/jev.js`. **Vem desligado**: sem a variável abaixo o hook injeta exatamente como antes, e nada sai
+da máquina sem o uso em `BRAIN_JEV` e `TYPESAFE_API_KEY`.
+
+- `BRAIN_JEV`: lista, separada por vírgula, dos usos ligados. Usos: `contexto`, `triagem`, `spec`, `parada`, `roteador`, `lembrar`. Sem curinga.
+- `TYPESAFE_API_KEY`: a chave. Nunca em arquivo do repo nem de config.
+- `BRAIN_JEV_FALSO`: cliente falso (nunca toca a rede), usado nos testes. Definida, mesmo vazia, o real não roda.
+  Para forçar o falso, use sempre um valor **não vazio** (`sim`, `nao`, `indisponivel`, `lento` ou o caminho de um
+  roteiro): no Windows, definir vazio apaga a variável (`set BRAIN_JEV_FALSO=` no cmd, `$env:BRAIN_JEV_FALSO=''` no
+  PowerShell), e com o uso em `BRAIN_JEV` e a chave definidos o cliente real rodaria.
+- `BRAIN_JEV_LIMIAR_CONTEXTO`: limiar de P(sim) do filtro do hook, entre 0 e 1 (padrão 0,5).
+
+O contrato do cliente está em `planning/42-filtro-jev/spec.md`, § *Contrato do cliente do Jev (estável)*.
 
 ## Registro no Claude Code
 

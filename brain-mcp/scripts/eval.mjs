@@ -38,6 +38,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { semJev } from "./sem-jev.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -667,6 +668,9 @@ async function rodada({ rotulo, entrada, snapshot, config, casos, estado, verbos
 }
 
 async function main(estado) {
+  // Dentro de main, e não no topo: outro script importa este módulo e não pode ter o ambiente mexido.
+  const limpeza = semJev(root);
+  if (limpeza.erro) return naoMedi([limpeza.erro]);
   const args = lerArgumentos(process.argv.slice(2));
   if (args.erros.length) return naoMedi(args.erros);
 

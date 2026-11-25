@@ -203,10 +203,10 @@
     "nota": "negativo ESTRUTURAL: vazio por construção do config — toda raiz mapa tem repo null (7 de 7, medido em 2026-09-11), então a combinação nunca casa, nem na metade léxica nem na vetorial (vectors.ts:80-81 aplica os mesmos filtros). Nenhuma mudança de ranking o faz falhar; por isso volatil: false."
   },
   {
-    "q": "GetIndicadoresController getFalhasPorSetor limitMetricItems",
+    "q": "tradutor ghidra arvores de ouro sub-regras SIHD2",
     "filtros": {
       "source": null,
-      "repo": "modulo-erp",
+      "repo": "extractor",
       "feature": null,
       "doc_type": null
     },
@@ -215,7 +215,7 @@
     "estilo": "keywords",
     "volatil": true,
     "origem": "manual",
-    "nota": "negativo de ASSUNTO AUSENTE: o repo modulo-erp não está no brain.config.json — 0 docs e 0 chunks com embedding em 2026-09-11. Basta indexá-lo para o caso deixar de ser vazio, e por isso volatil: true: o eval sai com código 2 ('o caso apodreceu, recolha de novo'), nunca com 1. Todo negativo deste índice é escopado por filtro, e não por assunto: não há corte de score, então a metade vetorial devolve sempre os K mais próximos (search.ts:278) e uma query sem filtro jamais volta vazia."
+    "nota": "negativo de ASSUNTO AUSENTE: o repo extractor (~/notoria/extractor) não está no brain.config.json — 0 docs em 2026-11-10. Substitui o do modulo-erp, que apodreceu quando o modulo-erp passou a ser indexado (652 docs, cofre #1395). Basta indexar o extractor para este também apodrecer: volatil true, e o eval sai com código 2, nunca com 1."
   },
   {
     "q": "reagrupar AihData por domínio 1067 PRD",

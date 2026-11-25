@@ -172,7 +172,7 @@ Write `planning/<folder>/spec.md`. Keep the exact section names — downstream s
 [como reverter se der errado em prod — ou N/A + por quê]
 
 ## Verificação pós-deploy
-[query/checagem que prova que funcionou; obrigatória quando toca dados ou regra de faturamento — ou N/A + por quê]
+[query/checagem que prova que funcionou; obrigatória quando a spec é sensível — toca dado, faturamento, deploy ou migration (Fase 4) — ou N/A + por quê]
 
 ## Plano de testes
 [qual teste prova cada critério de aceite — nome do arquivo/suíte e o caso]
@@ -200,24 +200,62 @@ Fix what the critique finds; what can't be resolved alone goes to the user as an
 
 This is the gate the rest of the chain leans on: everything downstream executes what clears it, literally.
 
-**Sensitive change first.** When the spec touches data, faturamento rules or migrations, whether a
-second human reads it changes what clearing this gate means — so it is its own call, before the
-spec goes up: one `AskUserQuestion` call, header `2º revisor`, question and options in pt-BR. A
-workspace whose `CLAUDE.md` declares there is no second human skips this call and says so in one line:
+**Classify first: is this spec sensitive?** A spec is sensitive when it touches any of the four
+categories of the norm: **data, faturamento, deploy, migration** (in pt-BR, in the messages: dado,
+faturamento, deploy, migration). The author does not decide alone — the verdict comes from a script
+that asks the Jev as well and only ever adds to what the author said:
 
-> Esta spec mexe em <dado · regra de faturamento · migration>. A norma recomenda um segundo humano
-> com prazo de 24h, e quem decide se a espera vale é você.
+1. With `spec.md` saved (the card's `planning/<n>-<slug>/spec.md`; for an epic, the one in the epic's
+   folder), decide **your own** classification of the four, yes/no each.
+2. Run, **exactly in this mold, with no environment-variable prefix, no `cd`, and a 60 s timeout on
+   the Bash call**: `node "<Base directory for this skill>/sensivel.mjs" --spec <path>
+   --autor dado=<sim|nao>,faturamento=<sim|nao>,deploy=<sim|nao>,migration=<sim|nao>`.
+3. Exit code 2 earns **at most one** new run, and only when the message is about the arguments (it
+   names `--spec` or `--autor`): fix them and run again. A second exit code 2, or one whose message
+   is not about the arguments (unreadable or unwritable `sensibilidade.json`, unreadable or empty
+   `spec.md`) → the spec counts as **sensitive**, with the fixed line
+   `Spec sensível: sim — Jev indisponível (as quatro)` and the script's message; the independent
+   reviewer runs, the message is shown to the human, and in dispatched mode the session closes with
+   `PARADA` naming it. `node` missing, timeout, any other exit code, or stdout that is not one JSON
+   line → sensitive, with the same fixed line, saying what failed.
+4. Copy `linha` **verbatim** into the reply, followed by `(sha <first 12 of sha256>, cliente
+   <cliente or "nenhum">)`. In dispatched mode this line goes in the final answer.
+5. The rule, for whoever reads the skill: sensitive when any one holds — the author said yes, the Jev
+   said yes, the Jev said no with confidence below the script's threshold, or the Jev did not answer.
+   The Jev only adds the requirement, never lifts it. Without a key or without the send opt-in, every
+   spec is sensitive — fail-closed, an accepted consequence.
+6. **Run again only** on the one argument retry of step 3 or when `spec.md` changed. The verdict is
+   the union the script returns: a sensitive spec never goes back to not sensitive. Never delete or
+   edit `sensibilidade.json`.
+
+**Sensitive (`sensivel: true`) → the second-reviewer call.** Whether a second human reads the spec
+changes what clearing this gate means — so it is its own call, before the spec goes up: one
+`AskUserQuestion` call, header `2º revisor`, question and options in pt-BR. A workspace whose
+`CLAUDE.md` declares there is no second human skips this call and says so in one line:
+
+> Esta spec foi classificada como sensível (<`linha` sem o prefixo "Spec sensível: sim — ">). A norma
+> recomenda um segundo humano com prazo de 24h, e quem decide se a espera vale é você.
 >
 > - **Esperar o segundo revisor** — a spec fica parada até <data+24h>; o card não sai de
 >   🎯 Especificação e nada é implementado em cima dela nesse intervalo.
 > - **Seguir sem segundo revisor** — a spec vai ao gate agora e a implementação pode começar hoje.
 >   O contrapeso passa a ser a verificação pós-deploy, que vira obrigatória e bloqueante.
 
-**Independent AI reviewer.** When the spec is sensitive (data, faturamento, migration) and the workspace
-declares no second human — or the human chose *Seguir sem segundo revisor* — the counterweight cannot
-depend on the declaration: dispatch an independent AI agent (fresh context; it receives only the path
+**Independent AI reviewer.** Required whenever `sensivel: true`: it runs in both answers of the
+*2º revisor* call, or directly when the workspace declares no second human — the counterweight cannot
+depend on the declaration. Dispatch an independent AI agent (fresh context; it receives only the path
 of `spec.md`, never this conversation) to attack the spec, with every finding carrying `file:line`.
 Bring its findings to the human together with the spec, before the gate below.
+
+**Not sensitive (`sensivel: false`).** Show the `linha` of step 4 and one sentence: neither the
+*2º revisor* call nor the independent reviewer is required (running the reviewer anyway, by the
+human's wish or the argument's, stays allowed). Go to **Then the spec itself.**
+
+**Rewrites until publication.** If `spec.md` changes after a round and before the `gm:spec` comment
+is published (reviewer findings applied, *Ajustar* of Phase 4 or Phase 5), run the classification
+again on the new file. If it now says `sensivel: true` and the reviewer has not run yet, the call and
+the reviewer run before the gate. If the reviewer already ran and `novos` is not empty, it runs again
+on the new version; with `novos` empty, it does not.
 
 How it runs: the draft is already saved (`spec.md`, Phase 2; for an epic, the file in the epic's
 `planning/` folder before it is posted), and the agent is read-only (an exploration/read-only agent

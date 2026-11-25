@@ -20,6 +20,10 @@
 // tabela quebrada ou a instalação desatualizada, elas provariam o modelo errado, ou nada, e
 // cobrariam do mesmo jeito.
 //
+// Telemetria (claude-brain#66): as sondas vivas abrem sessões reais do Claude Code, e essas gravam no
+// diário de telemetria se `BRAIN_TELEMETRIA=1` estiver no ambiente, de propósito: é uso real, e o env
+// da sonda segue o do shell. Nenhuma outra parte deste script carrega o jev.js nem o hook.
+//
 // Todo texto lido passa de CRLF para LF antes de qualquer comparação: um arquivo salvo com CRLF no
 // Windows não é frontmatter quebrado, e não pode virar FALHA.
 //

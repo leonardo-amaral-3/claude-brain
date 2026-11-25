@@ -6,13 +6,17 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { Indexer } from "./indexer.js";
 import type { GithubSyncer } from "./githubSync.js";
-import type { Buscador, Diagnostico } from "./search.js";
+import type { Buscador, Diagnostico, Filtros } from "./search.js";
 import { matchExpr, normalizar as normalize } from "./search.js";
 import type { Grafo, Entidade } from "./grafo.js";
 import { registrarDecisao, decisoesRelacionadas } from "./memoria.js";
+import { julgarContradicoes, formatarAviso } from "./contradicao.js";
+import { obterJulgarPar } from "./juizJev.js";
 import type { Lease } from "./lease.js";
+import { rotear, roteadorLigado, escolherFonteJev, type EscolherFonte } from "./roteador.js";
 
-const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"] as const;
+// Exportada para a suíte do roteador conferir a lista que o servidor manda ao Jev, sem cópia.
+export const SOURCES = ["planning", "docs", "diario", "memoria", "mapa", "notas", "code", "github", "decisao", "git"] as const;
 
 /**
  * Toda resposta de tool sai por aqui. O segundo parâmetro é o canal de diagnóstico: quando vem,
@@ -47,12 +51,21 @@ export function registerTools(
    * que apenas renova o lease, sem vigia e sem backfill (emenda 2026-09-09 da spec).
    */
   aoAssumirLideranca: () => void,
-  produto: string
+  produto: string,
+  /**
+   * O padrão é o de produção: `ligado` pergunta ao cliente do Jev a cada chamada (o uso
+   * `roteador`, que lê `BRAIN_JEV` na hora) e o escolhedor é o adaptador do cliente. Só o teste
+   * (`scripts/roteador.mjs`) passa outro.
+   */
+  roteador: { ligado: () => boolean; escolher: EscolherFonte } = {
+    ligado: () => roteadorLigado(),
+    escolher: escolherFonteJev,
+  }
 ): void {
   // Toda chamada vira uma linha em `uso` — é o que transforma "acho que o Claude
   // não usa o cérebro" em número. Ver: npm run uso
   const registerTool = (name: string, cfg: unknown, handler: (args: any) => Promise<any>): void => {
-    (server as any).registerTool(name, cfg, async (args: any) => {
+    (server as any).registerTool(name, cfg, async (args: any, extra?: any) => {
       const t0 = Date.now();
       let resp: any;
       try {
@@ -66,8 +79,12 @@ export function registerTools(
           // tool que não é `search_context`, e o `Query vazia` que retorna antes de buscar — vira
           // NULL, que é o que mantém essas linhas fora do denominador em `scripts/uso.mjs`.
           const sem: unknown = resp?._meta?.brain?.semantica;
+          // Sessão e tool_use_id ligam a linha ao transcript (painel Ganho). Ambos anuláveis.
+          const sessaoEnv = process.env.CLAUDE_CODE_SESSION_ID;
+          const sessao = typeof sessaoEnv === "string" && sessaoEnv !== "" ? sessaoEnv : null;
+          const tuid: unknown = extra?._meta?.["claudecode/toolUseId"];
           db.prepare(
-            "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO uso (ts, tool, args, ms, resp_chars, vazio, semantica, sessao, tool_use_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
           ).run(
             Date.now(),
             name,
@@ -75,7 +92,9 @@ export function registerTools(
             Date.now() - t0,
             txt.length,
             /^Nenhum resultado|^Query vazia|^Nenhuma/.test(txt) ? 1 : 0,
-            typeof sem === "boolean" ? (sem ? 1 : 0) : null
+            typeof sem === "boolean" ? (sem ? 1 : 0) : null,
+            sessao,
+            typeof tuid === "string" ? tuid : null
           );
         } catch {
           /* log de uso nunca pode derrubar a tool */
@@ -108,17 +127,22 @@ export function registerTools(
     },
     async (args) => {
       if (!args.query || !args.query.trim()) return text("Query vazia — informe ao menos um termo.");
-      const { resultados: rows, diag } = await buscador.buscar(
-        args.query,
-        {
-          source: args.source,
-          repo: args.repo,
-          feature: args.feature,
-          doc_type: args.doc_type,
-          incluirArquivadas: args.incluir_arquivadas,
-        },
-        args.limit ?? 8
-      );
+      // Objeto novo, nunca `args`: o wrapper grava `args` em `uso` depois do handler, e o `colher`
+      // lê dali o `source` do caso. Se o roteador escrevesse o filtro dele em `args`, ele vazaria
+      // para a telemetria e para o golden como se o chamador o tivesse pedido.
+      const filtros: Filtros = {
+        source: args.source,
+        repo: args.repo,
+        feature: args.feature,
+        doc_type: args.doc_type,
+        incluirArquivadas: args.incluir_arquivadas,
+      };
+      const { resultados: rows, diag, roteado } = await rotear(args.query, filtros, args.limit ?? 8, {
+        ligado: roteador.ligado(),
+        fontes: SOURCES,
+        escolher: roteador.escolher,
+        buscar: (q, f, l) => buscador.buscar(q, f, l),
+      });
       if (rows.length === 0) {
         // O `diag` vai junto de propósito: os casos negativos do golden set são, por
         // definição, os que voltam vazios. Sem ele o eval veria `_meta.brain === undefined`, não
@@ -140,7 +164,12 @@ export function registerTools(
         })
         .join("\n\n");
       const rodape = diag.semantica ? "" : "\n(busca semântica indisponível nesta consulta — só léxico)";
-      return text(out + rodape + "\n\nUse read_doc(path) para ler o documento inteiro ou uma seção.", diag);
+      // Sem o aviso, quem chamou acharia que "só há isto" no índice sem saber que a busca foi
+      // restrita. Com `roteado === null` o texto é byte a byte o de antes.
+      const aviso = roteado
+        ? `\n(roteador: busca restrita a source="${roteado}" nesta consulta — para outra fonte, passe source)`
+        : "";
+      return text(out + rodape + aviso + "\n\nUse read_doc(path) para ler o documento inteiro ou uma seção.", diag);
     }
   );
 
@@ -556,13 +585,19 @@ export function registerTools(
       });
       indexer.scan();
       vigia.agendar("decisao");
-      const aviso = relacionadas.length
-        ? "\n\nJá havia registro sobre o mesmo assunto — confira se alguma contradiz esta e, se sim, " +
-          "chame lembrar de novo com supersede:<id>:\n" +
-          relacionadas
-            .map((d) => `  #${d.id} (${d.data}${d.escopo ? ", " + d.escopo : ""}, semelhança ${d.semelhanca.toFixed(2)}): ${d.fato}`)
-            .join("\n")
-        : "";
+      // O julgamento roda DEPOIS da gravação: a decisão nunca espera o Jev, e nada daqui pode virar
+      // erro da tool — a linha já está no banco, e um erro faria quem chamou gravar de novo.
+      // A vizinha que esta chamada já substitui sai dos pares (não da lista do aviso): marcá-la
+      // mandaria quem chamou gravar de novo com o mesmo `supersede`, e o `fato` dela iria ao Jev à toa.
+      let marcas: Map<number, number> | null = null;
+      try {
+        const aJulgar = relacionadas.filter((v) => v.id !== args.supersede);
+        const julgar = aJulgar.length ? await obterJulgarPar() : null;
+        marcas = await julgarContradicoes(args.fato, aJulgar, julgar);
+      } catch (err) {
+        console.error("[brain] contradicao: aviso sem marca:", (err as Error).message);
+      }
+      const aviso = formatarAviso(relacionadas, marcas);
       return text(`Registrado como #${r.id} em ${r.path}` + (args.supersede ? ` (substitui #${args.supersede})` : "") + aviso);
     }
   );

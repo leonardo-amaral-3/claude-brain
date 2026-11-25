@@ -34,7 +34,7 @@ export interface DecisaoRelacionada {
   semelhanca: number;
 }
 
-const LIMIAR_MESMO_ASSUNTO = 0.82;
+export const LIMIAR_MESMO_ASSUNTO = 0.82;
 
 function dirDecisoes(): string {
   const cfg = loadConfig();
@@ -58,9 +58,11 @@ function hoje(): string {
 }
 
 /**
- * Decisões anteriores que falam do mesmo assunto. NÃO afirma que há contradição — julgar isso
- * automaticamente seria chute com cara de certeza. Traz os candidatos com a semelhança medida
- * para quem está escrevendo decidir se substitui ou convive.
+ * Decisões anteriores que falam do mesmo assunto. Esta função NÃO afirma que há contradição —
+ * julgar isso aqui seria chute com cara de certeza. Traz os candidatos com a semelhança medida
+ * para quem está escrevendo decidir se substitui ou convive. Com o Jev ligado (#42),
+ * `contradicao.ts` anota as que ele julga contradição provável; é anotação para quem chama, não
+ * veredito: a tool nunca recusa nem preenche o `supersede`.
  */
 export async function decisoesRelacionadas(
   db: DatabaseSync,

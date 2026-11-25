@@ -84,8 +84,8 @@ As skills `gm-*` não conhecem as regras deste workspace; elas leem daqui. Decla
   (ex.: junction para uma que já tem) e cada serviço de teste com o comando que prova que está de
   pé. O `/gm-ship` e o `/gm-correcao` checam na entrada e param cedo com o motivo.
 - **Segundo humano**: há alguém, além de você, para revisar spec sensível (dado, faturamento,
-  migration)? `sim` / `não`. Com `não`, o `/gm-spec` dispara um revisor de IA independente antes
-  do G2.
+  deploy, migration)? `sim` / `não`. O `/gm-spec` dispara um revisor de IA independente em toda spec
+  sensível; com `não`, ele é o único olhar além do seu antes do G2.
 - **Ambiente de ensaio**: existe uma cópia de produção onde migration e tratamento de dado rodam
   antes de valer? `não`, ou o comando que o `/gm-release` roda contra ela e onde lê o resultado.
   Sem esta linha, trem sensível para e pergunta — nunca assume que ensaiou.

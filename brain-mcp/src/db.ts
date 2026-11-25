@@ -146,7 +146,9 @@ export function openDb(path: string): DatabaseSync {
       valor TEXT NOT NULL
     );
   `);
-  migrarUsoSemantica(db);
+  migrarColuna(db, "uso", "semantica", "INTEGER");
+  migrarColuna(db, "uso", "sessao", "TEXT");
+  migrarColuna(db, "uso", "tool_use_id", "TEXT");
   return db;
 }
 
@@ -157,16 +159,20 @@ export function openDb(path: string): DatabaseSync {
  * `CREATE TABLE IF NOT EXISTS`. Coluna nova não é: um banco vivo com mais de mil linhas em `uso`
  * nunca ganharia a `semantica` sozinho, por mais vezes que o CREATE rodasse.
  *
- * `semantica` é INTEGER **anulável de propósito**, e os três valores querem dizer coisas
- * diferentes: `1` a metade semântica respondeu, `0` a busca saiu só com léxico, `NULL` a linha é
- * anterior à migração ou é de uma tool que não é `search_context`. É esse NULL que mantém as
- * linhas velhas fora do denominador da fração de meia-busca — ver `scripts/uso.mjs`, que conta
- * com `COUNT(semantica)` justamente para descartá-las.
+ * Colunas de `uso` que entram por aqui, todas **anuláveis de propósito**:
+ * - `semantica` (INTEGER): `1` a metade semântica respondeu, `0` a busca saiu só com léxico, `NULL`
+ *   a linha é anterior à migração ou é de uma tool que não é `search_context`. É esse NULL que
+ *   mantém as linhas velhas fora do denominador da fração de meia-busca — ver `scripts/uso.mjs`,
+ *   que conta com `COUNT(semantica)` justamente para descartá-las.
+ * - `sessao` (TEXT): o `CLAUDE_CODE_SESSION_ID` do ambiente do servidor no INSERT. `NULL` é linha
+ *   anterior à migração, servidor com `dist/` velho, ou variável ausente.
+ * - `tool_use_id` (TEXT): o `_meta["claudecode/toolUseId"]` da requisição. `NULL` é o mesmo que
+ *   acima, ou o cliente que não mandou `_meta`.
  */
-function migrarUsoSemantica(db: DatabaseSync): void {
-  if (temColuna(db, "uso", "semantica")) return;
+function migrarColuna(db: DatabaseSync, tabela: string, coluna: string, tipo: string): void {
+  if (temColuna(db, tabela, coluna)) return;
   try {
-    db.exec("ALTER TABLE uso ADD COLUMN semantica INTEGER");
+    db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
   } catch (err) {
     // Oito servidores abrem este mesmo arquivo. O `busy_timeout = 30000` acima serializa o ALTER,
     // mas quem chega depois encontra a coluna já criada e leva `duplicate column name` — que do
@@ -174,7 +180,7 @@ function migrarUsoSemantica(db: DatabaseSync): void {
     // engolido, e mesmo ele só se o PRAGMA confirmar que a coluna de fato está lá; qualquer outro
     // sobe. Mesmo espírito do retry de `ligarWal`: tolerar a disputa, nunca tolerar o defeito.
     const msg = String((err as { message?: string })?.message ?? err);
-    if (!/duplicate column name/i.test(msg) || !temColuna(db, "uso", "semantica")) throw err;
+    if (!/duplicate column name/i.test(msg) || !temColuna(db, tabela, coluna)) throw err;
   }
 }
 
