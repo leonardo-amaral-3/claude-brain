@@ -13,7 +13,7 @@
 // Estado: ${CLAUDE_CONFIG_DIR:-~/.claude}/gm-frente/<owner>-<repo>-<n>/estado.json (troca atômica).
 import { spawn, spawnSync } from "node:child_process";
 import {
-  closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
+  closeSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
@@ -969,10 +969,21 @@ class Condutor {
     if (pasta) {
       mkdirSync(join(this.dir, "spec"), { recursive: true });
       const destino = join(this.dir, "spec", pasta);
+      const origem = join(wt, "planning", pasta);
       rmSync(destino, { recursive: true, force: true });
-      renameSync(join(wt, "planning", pasta), destino);
+      // Copiar, e não mover: num repo que guarda a spec, o /gm-spec pode ter commitado a pasta numa
+      // branch do card. Mover apagaria arquivo rastreado, a worktree ficaria suja, o `remove` recusaria
+      // e a branch ficaria presa nela (#74, validação do #79). Só a pasta que o git não rastreia sai daqui.
+      cpSync(origem, destino, { recursive: true });
+      if (git(wt, "ls-files", "--", join("planning", pasta)).stdout.trim() === "") rmSync(origem, { recursive: true, force: true });
       this.est.spec = join(destino, "spec.md");
       this.salvar();
+    }
+    // O /gm-spec pode ter deixado a worktree numa branch (a do card, onde commitou a spec). Destacar no
+    // mesmo commit não mexe em arquivo e solta a branch, para a worktree da unidade poder usá-la.
+    if (git(wt, "symbolic-ref", "-q", "HEAD").status === 0) {
+      const d = git(wt, "checkout", "-q", "--detach");
+      if (d.status !== 0) log(`worktree ${wt} não destacou (${d.stderr.trim()}); a branch pode seguir presa nela`);
     }
     const r = git(checkout, "worktree", "remove", wt);
     if (r.status !== 0) log(`worktree ${wt} não saiu (${r.stderr.trim()}); fica`);

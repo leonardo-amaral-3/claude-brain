@@ -804,6 +804,17 @@ console.log("estação 3: spec ausente → /gm-spec numa worktree destacada, a p
   afirmar(u.resultado === "parada" && /branch da unidade não declarada/.test(u.motivo), `sem Feature branch na spec nem branch remota, a unidade para depois da spec (${u.motivo})`);
 }
 {
+  // Validação do #79 no #74: o /gm-spec commitou a spec numa branch do card, dentro da worktree -spec.
+  // A worktree tem de sair limpa e soltar a branch, e a unidade segue nela, sem "already used by worktree".
+  const mu = mundo({ issues: { "6": {} }, claude: { duracaoMs: 200, cards: { "6": { pasta: "6-novo", tasks: [{ nome: "1-a.md" }] } }, comportamento: { spec: { acao: "commitar", branch: "feat/6-novo" } } } });
+  iniciarFrente(mu, 6, []);
+  const est = await esperarCondutor(mu, 6);
+  const u = unidade(est, 6);
+  afirmar(!existsSync(join(mu.ws, `${REPO}-6-spec`)), `/gm-spec que commita numa branch: a worktree -spec sai (${u.motivo})`);
+  afirmar(!/already used by worktree/.test(u.motivo || "") && u.estacao !== "spec", `a branch do card fica livre e a unidade passa da spec (${u.estacao}: ${u.motivo})`);
+  afirmar(existsSync(join(mu.estadoDir(6), "spec", "6-novo", "spec.md")), "a spec commitada também é copiada para a pasta de estado");
+}
+{
   const mu = mundo({ issues: { "6": {} }, claude: { cards: { "6": { pasta: "6-novo" } }, comportamento: { spec: { acao: "parada", motivo: "spec precisa do humano" } } } });
   iniciarFrente(mu, 6, []);
   const est = await esperarCondutor(mu, 6);
