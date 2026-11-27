@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: Fonte opcional `skills/_comum/opcionais.md` e `## Ambiente na entrada` carimbado
 

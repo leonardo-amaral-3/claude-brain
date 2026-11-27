@@ -104,5 +104,54 @@ function regiao(linhas, cabecalho) {
   }
 }
 
+// Cenário 3 — bloco opcional: só as skills que já têm o cabeçalho o recebem, e sem "todos ou nenhum".
+{
+  console.log("cenário 3: bloco opcional carimbado só onde há o cabeçalho");
+  const dir = copiaTemporaria();
+  try {
+    const cab = "## Ambiente na entrada";
+    const fonte = join(dir, "skills", "_comum", "opcionais.md");
+    writeFileSync(fonte, readFileSync(fonte, "utf8").replace(/\n*$/, "\n\nLinha nova do bloco opcional.\n"));
+    const antes = Object.fromEntries(nomesSkills(dir).map((n) => [n, ler(dir, n)]));
+    const comCab = nomesSkills(dir).filter((n) => antes[n].split("\n").includes(cab));
+    afirmar(comCab.length >= 2 && comCab.includes("gm-ship") && comCab.includes("gm-correcao"),
+      `o cabeçalho está em ${comCab.join(", ")}`);
+
+    const c = rodar(dir, "--check");
+    afirmar(c.codigo === 1 && /gm-ship · Ambiente na entrada · divergente/.test(c.saida), `--check acusa o opcional divergente (saiu ${c.codigo})`);
+    const r = rodar(dir);
+    afirmar(r.codigo === 0, `carimbo sai 0 (saiu ${r.codigo})`);
+    for (const n of nomesSkills(dir)) {
+      const texto = ler(dir, n);
+      if (comCab.includes(n)) {
+        afirmar(texto.includes("Linha nova do bloco opcional.") && ocorrencias(texto, cab) === 1, `${n} recebeu o opcional uma vez`);
+      } else {
+        afirmar(texto === antes[n] && !texto.includes("Linha nova do bloco opcional."), `${n} sem o cabeçalho ficou intacta`);
+      }
+    }
+    afirmar(rodar(dir, "--check").codigo === 0, "--check sai 0 depois do carimbo");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Cenário 4 — o mesmo cabeçalho nas duas fontes é erro de leitura (código 2), e nada é escrito.
+{
+  console.log("cenário 4: cabeçalho nas duas fontes → 2");
+  const dir = copiaTemporaria();
+  try {
+    const fonte = join(dir, "skills", "_comum", "convencoes.md");
+    writeFileSync(fonte, readFileSync(fonte, "utf8").replace(/\n*$/, "\n\n## Ambiente na entrada\n\nduplicado\n"));
+    const antes = Object.fromEntries(nomesSkills(dir).map((n) => [n, ler(dir, n)]));
+    for (const args of [[], ["--check"]]) {
+      const r = rodar(dir, ...args);
+      afirmar(r.codigo === 2 && /uma fonte só/.test(r.saida), `${args[0] ?? "carimbo"} sai 2 nomeando o cabeçalho (saiu ${r.codigo})`);
+    }
+    afirmar(nomesSkills(dir).every((n) => ler(dir, n) === antes[n]), "nenhuma skill foi escrita");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 console.log(falhas === 0 ? "todos os cenários passam" : `${falhas} afirmação(ões) falharam`);
 process.exit(falhas === 0 ? 0 : 1);

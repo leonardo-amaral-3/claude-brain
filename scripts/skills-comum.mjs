@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Carimba as seções de skills/_comum/convencoes.md em toda skills/gm-*/SKILL.md que já tenha os
-// cabeçalhos — todos ou nenhum. Sem flag: escreve o que mudou. `--check`: só compara.
+// cabeçalhos — todos ou nenhum — e as de skills/_comum/opcionais.md onde a skill tem o cabeçalho. Sem flag: escreve o que mudou. `--check`: só compara.
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,6 +89,14 @@ const textoFonte = lerUtf8(caminhoFonte);
 const secoesFonte = extrairSecoes(textoFonte, "skills/_comum/convencoes.md");
 if (secoesFonte.length === 0) erro("skills/_comum/convencoes.md: nenhuma seção `## ` encontrada");
 
+// Fonte opcional: cada seção vale só onde a skill já tem o cabeçalho (sem "todos ou nenhum").
+const secoesOpcionais = extrairSecoes(lerUtf8(join(root, "skills", "_comum", "opcionais.md")), "skills/_comum/opcionais.md");
+for (const o of secoesOpcionais) {
+  if (secoesFonte.some((s) => s.cabecalho === o.cabecalho)) {
+    erro(`cabeçalho "${o.cabecalho}" está em convencoes.md e em opcionais.md — um bloco tem uma fonte só`);
+  }
+}
+
 // --- alvos ---
 const skillsDir = join(root, "skills");
 const nomesSkills = readdirSync(skillsDir, { withFileTypes: true })
@@ -124,9 +132,13 @@ for (const nome of nomesSkills) {
 
   skillsComBlocos++;
   const substituicoes = [];
-  for (let k = 0; k < secoesFonte.length; k++) {
-    const secao = secoesFonte[k];
-    const h = posicoes[k];
+  // Comuns (todas presentes, por cima) e opcionais (só as que a skill já tem).
+  const alvos = secoesFonte.map((secao, k) => ({ secao, h: posicoes[k] }));
+  for (const secao of secoesOpcionais) {
+    const h = acharCabecalho(linhas, foraDeCerca, secao.cabecalho, origem);
+    if (h !== -1) alvos.push({ secao, h });
+  }
+  for (const { secao, h } of alvos) {
     const proximo = proximoCabecalhoForaDeCerca(linhas, foraDeCerca, h);
     const atual = regiaoAtual(linhas, h, proximo);
     const nova = [...secao.texto.split("\n"), ""];
