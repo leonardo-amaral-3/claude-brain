@@ -162,7 +162,7 @@ ws_monta() {
 }
 
 # Prepara o que as acoes precisam: o generico desmontado do instalado e (no push) o instalado esperado.
-WS_DESMONTADO=""; WS_ESPERADO=""; WS_RC_DESMONTA=0; WS_TEM_PRIV=0
+WS_DESMONTADO=""; WS_ESPERADO=""; WS_RC_DESMONTA=0; WS_TEM_PRIV=0; WS_SEM_MARCA=0
 if [ "$WS_ATIVO" -eq 1 ] && [ -f "$WS_REPO" ]; then
   [ -f "$WS_PRIV" ] && WS_TEM_PRIV=1
   if [ -f "$WS_VIVO" ]; then
@@ -181,6 +181,17 @@ if [ "$WS_ATIVO" -eq 1 ] && [ -f "$WS_REPO" ]; then
     else
       ws_monta "$WS_REPO" > "$WS_ESPERADO"
     fi
+  fi
+  # Instalado sem bloco privado e sem marcadora (o CLAUDE.md antigo, inteiro, ou editado a mao):
+  # nao ha como saber o que nele e privado. Diferente do repo, o pull recusa e o status avisa.
+  if [ -n "$WS_DESMONTADO" ] && [ "$WS_RC_DESMONTA" -eq 0 ] \
+     && ! grep -q '^<!-- privado:inicio ' "$WS_VIVO" && ! grep -qxF "$WS_MARCA" "$WS_VIVO" \
+     && ! cmp -s "$WS_REPO" "$WS_VIVO"; then
+    WS_SEM_MARCA=1
+  fi
+  if [ "$ACAO" = pull ] && [ "$WS_SEM_MARCA" -eq 1 ]; then
+    echo "erro: $WS_VIVO nao tem bloco privado nem linha marcadora; sem eles nao da para separar o que e privado. Nada foi escrito (rode push primeiro ou edite o repo)." >&2
+    exit 2
   fi
   # Delimitador torto no instalado: o pull nao tem como desmontar e nao escreve nada.
   if [ "$ACAO" = pull ] && [ "$WS_RC_DESMONTA" -eq 2 ]; then
@@ -218,6 +229,9 @@ if [ "$WS_ATIVO" -eq 1 ] && [ -f "$WS_REPO" ]; then
     difs+=("$WS_REPO::$WS_VIVO")
   elif [ "$WS_RC_DESMONTA" -eq 2 ]; then
     aviso "$WS_VIVO tem delimitador privado orfao ou repetido: o par entra na lista, mas nao da para desmontar."
+    difs+=("$WS_REPO::$WS_VIVO")
+  elif [ "$WS_SEM_MARCA" -eq 1 ]; then
+    aviso "$WS_VIVO nao tem bloco privado nem linha marcadora: o par entra na lista, mas o pull recusa (rode push)."
     difs+=("$WS_REPO::$WS_VIVO")
   else
     [ "$(soma "$WS_REPO")" = "$(soma "$WS_DESMONTADO")" ] || difs+=("$WS_REPO::$WS_VIVO")

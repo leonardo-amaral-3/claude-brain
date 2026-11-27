@@ -239,7 +239,7 @@ function WsMonta([string]$generico) {
 }
 
 $wsOk = $wsAtivo -and (Test-Path -LiteralPath $wsRepo)
-$wsTemVivo = $false; $wsDesmontado = ''; $wsEsperado = ''; $wsRcDesmonta = 0; $wsTemPriv = $false
+$wsTemVivo = $false; $wsDesmontado = ''; $wsEsperado = ''; $wsRcDesmonta = 0; $wsTemPriv = $false; $wsSemMarca = $false
 if ($wsOk) {
   $wsTemPriv = Test-Path -LiteralPath $wsPriv
   $wsTemVivo = Test-Path -LiteralPath $wsVivo
@@ -261,6 +261,18 @@ if ($wsOk) {
     } else {
       $wsEsperado = WsMonta $textoRepo
     }
+  }
+  # Instalado sem bloco privado e sem marcadora (o CLAUDE.md antigo, inteiro, ou editado a mao):
+  # nao ha como saber o que nele e privado. Diferente do repo, o pull recusa e o status avisa.
+  if ($wsTemVivo -and $wsRcDesmonta -eq 0 -and
+      ($textoVivo -cnotmatch '(?m)^<!-- privado:inicio ') -and
+      -not (@($textoVivo -split "`n") -ccontains $wsMarca) -and
+      ($textoVivo -cne [IO.File]::ReadAllText($wsRepo))) {
+    $wsSemMarca = $true
+  }
+  if ($Acao -eq 'pull' -and $wsSemMarca) {
+    [Console]::Error.WriteLine("erro: $wsVivo nao tem bloco privado nem linha marcadora; sem eles nao da para separar o que e privado. Nada foi escrito (rode push primeiro ou edite o repo).")
+    exit 2
   }
   # Delimitador torto no instalado: o pull nao tem como desmontar e nao escreve nada.
   if ($Acao -eq 'pull' -and $wsRcDesmonta -eq 2) {
@@ -323,6 +335,9 @@ if ($wsOk) {
     $wsDif = $true
   } elseif ($wsRcDesmonta -eq 2) {
     Aviso "$wsVivo tem delimitador privado orfao ou repetido: o par entra na lista, mas nao da para desmontar."
+    $wsDif = $true
+  } elseif ($wsSemMarca) {
+    Aviso "$wsVivo nao tem bloco privado nem linha marcadora: o par entra na lista, mas o pull recusa (rode push)."
     $wsDif = $true
   } elseif ((HashTexto $wsDesmontado) -ne (Hash $wsRepo)) {
     $wsDif = $true

@@ -16,6 +16,7 @@ conferência por leitura contra o `sync.sh`, que a `prova-sync.sh` executa de ve
 | `pull` nunca escreve o `CLAUDE.privado.md` | nenhum `>` ao `WS_PRIV` | nenhum `WriteAllText` ao `$wsPriv` | igual |
 | `pull` avisa que a edição do bloco instalado não volta | l. 195 | l. 275 | igual (mesma mensagem) |
 | Delimitador órfão, repetido ou fora de ordem no `pull`: código 2, nada escrito | l. 187 (`exit 2`, antes do laço) | l. 267 (`exit 2`, antes do laço) | igual |
+| Instalado sem bloco **e** sem marcadora (o `CLAUDE.md` de antes da F5), diferente do repo: `pull` sai com 2 sem escrever, `status` avisa e lista o par (achado do G4, caso 8b) | `WS_SEM_MARCA` | `$wsSemMarca` | igual (mesma mensagem) |
 | `status` compara só o genérico (repo x instalado desmontado) | l. ~218 | l. ~327 | igual |
 | Bloco privado defasado no `status`: aviso, não diferença | l. 197 | l. 277 | igual (mesma mensagem) |
 | Delimitador torto no `status`: avisa e lista o par | l. 220 | l. 325 | igual |

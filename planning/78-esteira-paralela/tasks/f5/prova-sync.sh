@@ -108,6 +108,21 @@ roda "$SYNC" pull
 caso "fim repetido tambem sai com 2" test "$RC" = 2
 cp "$T/vivo.bom" "$VIVO"
 
+echo "8b. instalado antigo, inteiro, sem bloco nem marcadora (o CLAUDE.md de antes da F5)"
+grep -v '^<!-- privado:' "$T/vivo.bom" > "$VIVO"
+roda "$SYNC" pull
+caso "pull sai com 2" test "$RC" = 2
+caso "diz por que recusou" grep -q 'nem linha marcadora' <<<"$SAIDA"
+caso "nada escrito no repo" test "$(soma "$GEN")" = "$GEN_SHA"
+caso "repo nao ganhou o conteudo privado" test "$(grep -c 'dado de mentira' "$GEN")" = 0
+roda "$SYNC" status
+caso "status rc 0" test "$RC" = 0
+caso "status avisa" grep -q 'nem linha marcadora' <<<"$SAIDA"
+caso "status lista o par" grep -q 'CLAUDE.md' <<<"$SAIDA"
+roda "$SYNC" push
+caso "push repoe o montado" test "$(grep -c '^<!-- privado:inicio ' "$VIVO")" = 1
+cp "$T/vivo.bom" "$VIVO"
+
 echo "9. generico sem marcadora"
 cp "$GEN" "$T/gen.bom"
 grep -vx "$MARCA" "$T/gen.bom" > "$GEN"
