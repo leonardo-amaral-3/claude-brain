@@ -14,6 +14,9 @@
 //
 // Uso:
 //   node sensivel.mjs --spec <caminho do spec.md> --autor dado=nao,faturamento=nao,deploy=nao,migration=nao
+//   node sensivel.mjs --consultar --spec <caminho do spec.md>
+// O segundo só lê: responde se a spec, como está agora, já foi classificada e saiu limpa (card #81, F3
+// do #78 — é a condição `sensivel` do merge na dev do /gm-ship). Não chama o Jev e não escreve nada.
 // Saída: uma linha JSON no stdout, código 0 com qualquer veredito; código 2 é erro de uso ou de
 // ambiente (a mensagem em pt-BR vai ao stderr); qualquer outro código é falha do script.
 import { createHash } from "node:crypto";
@@ -442,10 +445,64 @@ async function executar(argv) {
   };
 }
 
+// `--consultar --spec <caminho>`: só esses dois, em qualquer ordem, sem repetição.
+function lerArgumentosConsulta(argv) {
+  let spec;
+  let consultar = false;
+  for (let i = 0; i < argv.length; i++) {
+    const nome = argv[i];
+    if (nome === "--consultar") {
+      if (consultar) throw new ErroDeUso("--consultar repetido");
+      consultar = true;
+    } else if (nome === "--spec") {
+      const valor = argv[++i];
+      if (valor === undefined || valor.startsWith("--")) throw new ErroDeUso("--spec precisa de um valor");
+      if (spec !== undefined) throw new ErroDeUso("--spec repetido");
+      spec = valor;
+    } else {
+      throw new ErroDeUso(`argumento inesperado: ${nome}. Uso: --consultar --spec <spec.md>`);
+    }
+  }
+  if (spec === undefined) throw new ErroDeUso("falta --spec <caminho do spec.md>");
+  return { spec };
+}
+
+// Só lê o registro ao lado da spec e compara. `sensivel: false` exige as três coisas juntas: registro
+// legível, última rodada com o sha256 do spec.md de agora, e a união vazia nas quatro categorias. Tudo
+// o mais é `true` com o motivo; nada aqui dispensa uma spec. Único erro (código 2): argumento.
+function consultar(argv) {
+  const { spec } = lerArgumentosConsulta(argv);
+  const caminhoSpec = resolve(spec);
+  if (basename(caminhoSpec) !== "spec.md") throw new ErroDeUso("--spec deve apontar para um arquivo chamado spec.md");
+  let bytesDoSpec;
+  try {
+    bytesDoSpec = readFileSync(caminhoSpec);
+  } catch (erro) {
+    throw new ErroDeUso(`não consegui ler ${caminhoSpec}: ${erro.message}`);
+  }
+  const sha256 = createHash("sha256").update(bytesDoSpec).digest("hex");
+
+  const sensivel = (motivo, linha = `Spec sensível: sim — ${motivo}`) => ({ sensivel: true, motivo, linha });
+  let registro;
+  try {
+    registro = lerRegistro(join(dirname(caminhoSpec), REGISTRO));
+  } catch (erro) {
+    if (erro instanceof ErroDeUso) return sensivel("registro ilegível");
+    throw erro;
+  }
+  const ultima = registro.rodadas.at(-1);
+  if (ultima === undefined) return sensivel("sem registro");
+  if (ultima?.sha256 !== sha256) return sensivel("spec mudou depois da classificação");
+  const afetadas = CATEGORIAS.filter((c) => registro.uniao[c].length > 0);
+  if (afetadas.length > 0) return sensivel(`união não vazia: ${afetadas.join(", ")}`, montarLinha(registro.uniao));
+  return { sensivel: false, motivo: "classificada sem motivo", linha: montarLinha(registro.uniao) };
+}
+
 async function main() {
   let saida;
   try {
-    saida = await executar(process.argv.slice(2));
+    const argv = process.argv.slice(2);
+    saida = argv.includes("--consultar") ? consultar(argv) : await executar(argv);
   } catch (erro) {
     if (!(erro instanceof ErroDeUso)) throw erro; // falha do script: exceção não tratada, código 1
     process.stderr.write(`sensivel.mjs: ${erro.message}\n`, () => process.exit(2));
