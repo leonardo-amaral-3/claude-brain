@@ -89,6 +89,9 @@ As skills `gm-*` não conhecem as regras deste workspace; elas leem daqui. Decla
 - **Ambiente de ensaio**: existe uma cópia de produção onde migration e tratamento de dado rodam
   antes de valer? `não`, ou o comando que o `/gm-release` roda contra ela e onde lê o resultado.
   Sem esta linha, trem sensível para e pergunta — nunca assume que ensaiou.
+- **Paralelo**: quantas sessões filhas o `/gm-frente` mantém abertas ao mesmo tempo, somando todas as
+  fases e ondas (`- **Paralelo**: <n>`). Sem esta linha, 3. O condutor também lê daqui o `## Board`
+  e a `dev` de `## Branches`.
 - **Despacho**: se sessões headless (`claude -p`) rodam a esteira, lembre que a última linha da
   resposta é `PROXIMO: /gm-<skill> <argumento>` ou `PARADA: <motivo>`. E se uma sessão orquestradora
   despacha as outras, as instruções dela — como despachar, os freios, o que decide sozinha — ficam

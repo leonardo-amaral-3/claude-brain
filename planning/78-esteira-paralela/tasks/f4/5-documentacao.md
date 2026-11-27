@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 5: `docs/esteira-gm.md` com `## A frente`, `templates/CLAUDE.example.md` e `README.md`
 
