@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 6: `skills/gm-frente/SKILL.md` — a skill fina, com os blocos carimbados
 
