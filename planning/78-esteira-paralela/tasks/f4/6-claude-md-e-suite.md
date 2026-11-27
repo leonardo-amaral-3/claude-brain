@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 6: `CLAUDE.md` — norma em `docs/esteira-gm.md` e a suíte dos testes novos
 
