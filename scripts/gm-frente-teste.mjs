@@ -3,7 +3,7 @@
 // (padrão de gm-spec-sensivel-teste.mjs). Tudo em diretório temporário.
 // Uso: node scripts/gm-frente-teste.mjs
 // Sai 0 se todos os cenários passam, 1 se algum falha.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -405,6 +405,221 @@ console.log("falsos: claude e gh resolvem para os falsos pelo PATH do teste");
 }
 function fsPrs(mu) {
   rmSync(join(mu.falso, "prs"), { recursive: true, force: true });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ferramentas do condutor
+const ENTREGA = "O humano entregou a frente nesta sessão: as sessões filhas decidem pelo ## Modo despachado das skills.";
+function iniciarFrente(mu, n, extras = [], { entrega = ENTREGA } = {}) {
+  const arq = join(mu.w, `entrega-${n}.txt`);
+  if (entrega !== null) writeFileSync(arq, entrega);
+  const args = [FRENTE, "iniciar", "--card", `${OWNER}/${REPO}#${n}`, "--workspace", mu.ws, "--checkout", mu.checkout, "--base", "dev", "--entrega-arquivo", arq, ...extras];
+  const r = rodar("node", args, { env: mu.env });
+  let json = null;
+  try {
+    json = JSON.parse(r.stdout);
+  } catch {}
+  return { status: r.status, json, stderr: r.stderr };
+}
+const pidVivo = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+// Espera o condutor deste card terminar (o processo sumir) e devolve o estado.json.
+async function esperarCondutor(mu, n, ms = 60000) {
+  const dir = mu.estadoDir(n);
+  const est = await ate(() => {
+    try {
+      const e = lerJson(join(dir, "estado.json"));
+      return e.pid && !pidVivo(e.pid) ? e : null;
+    } catch {
+      return null;
+    }
+  }, ms, 150);
+  if (!est) throw new Error(`condutor do #${n} não terminou: ${existsSync(join(dir, "frente.log")) ? readFileSync(join(dir, "frente.log"), "utf8") : "(sem log)"}`);
+  return est;
+}
+const unidade = (est, card) => est.unidades.find((u) => u.card === card);
+
+// Épico #78: 79 promovida (Branch declarada), 80 promovida com Bloqueado, 81 sem gm:spec-ref, 82 fechada.
+function mundoEpico(extra = {}) {
+  const mu = mundo({
+    issues: {
+      "78": { labels: ["épico"], subs: [79, 80, 81, 82] },
+      "79": { parent: 78 },
+      "80": { parent: 78 },
+      "81": { parent: 78 },
+      "82": { parent: 78, state: "CLOSED" },
+    },
+    comentarios: {
+      "79": ["<!-- gm:spec-ref -->\n**Spec:** x\nBranch: feat/79-fase-um\n"],
+      "80": ["<!-- gm:spec-ref -->\n**Spec:** x\nBranch: feat/80-fase-dois\n"],
+      "82": ["<!-- gm:spec-ref -->\nBranch: feat/82-velha\n"],
+    },
+    bloqueado: { "80": "espera a 79" },
+    ...extra,
+  });
+  mkdirSync(join(mu.checkout, "planning", "78-epico"), { recursive: true });
+  writeFileSync(join(mu.checkout, "planning", "78-epico", "spec.md"), "# spec do épico\n");
+  writeFileSync(join(mu.checkout, "planning", "78-epico", "sensibilidade.json"), "{}\n");
+  return mu;
+}
+
+console.log("iniciar: argumentos, condutor vivo, versão");
+{
+  const mu = mundoEpico();
+  const semCard = rodar("node", [FRENTE, "iniciar", "--workspace", mu.ws, "--checkout", mu.checkout, "--base", "dev", "--entrega-arquivo", join(mu.w, "x")], { env: mu.env });
+  afirmar(semCard.status === 2 && /--card/.test(semCard.stderr), "sem --card → código 2, dizendo qual");
+  for (const f of ["workspace", "checkout", "base", "entrega-arquivo"]) {
+    const todos = { workspace: mu.ws, checkout: mu.checkout, base: "dev", "entrega-arquivo": join(mu.w, "e.txt") };
+    writeFileSync(join(mu.w, "e.txt"), "entrega");
+    const args = [FRENTE, "iniciar", "--card", `${OWNER}/${REPO}#78`];
+    for (const [k, v] of Object.entries(todos)) if (k !== f) args.push(`--${k}`, v);
+    const r = rodar("node", args, { env: mu.env });
+    afirmar(r.status === 2 && r.stderr.includes(`--${f}`), `sem --${f} → código 2`);
+  }
+  afirmar(iniciarFrente(mu, 78, [], { entrega: "  \n" }).status === 2, "arquivo de entrega vazio → código 2");
+  afirmar(rodar("node", [FRENTE, "iniciar", "--card", "isso-nao-e-card", "--workspace", mu.ws, "--checkout", mu.checkout, "--base", "dev", "--entrega-arquivo", join(mu.w, "e.txt")], { env: mu.env }).status === 2, "--card fora do formato <owner>/<repo>#<n> → 2");
+  afirmar(!existsSync(mu.estadoDir(78)), "nenhum dos erros deixou pasta de estado");
+
+  // condutor vivo: batimento recente → não lança outro, retomada: true
+  const dir = mu.estadoDir(78);
+  escreverJson(join(dir, "estado.json"), { versao: 1, card: `${OWNER}/${REPO}#78`, pid: 4242, batimento: Date.now() - 5000, terminal: false, unidades: [] });
+  const antes = readFileSync(join(dir, "estado.json"), "utf8");
+  const r = iniciarFrente(mu, 78);
+  afirmar(r.status === 0 && r.json.retomada === true && r.json.pid === 4242 && r.json.dir === dir, "condutor vivo (batimento de 5 s) → retomada: true, devolve o pid dele");
+  afirmar(readFileSync(join(dir, "estado.json"), "utf8") === antes && !existsSync(join(dir, "frente.log")), "…e não lança outro processo nem mexe no estado");
+
+  // versão desconhecida
+  escreverJson(join(dir, "estado.json"), { versao: 99, card: `${OWNER}/${REPO}#78`, pid: 1, batimento: 0, unidades: [] });
+  const v = iniciarFrente(mu, 78);
+  afirmar(v.status === 2 && /versão/.test(v.stderr), "versao desconhecida no estado.json → código 2");
+  const e = rodar("node", [FRENTE, "estado", "--dir", dir], { env: mu.env });
+  afirmar(e.status === 2, "estado de versão desconhecida → código 2 também");
+}
+
+console.log("estado: --esperar");
+{
+  const mu = mundoEpico();
+  const dir = mu.estadoDir(78);
+  const base = { versao: 1, card: `${OWNER}/${REPO}#78`, pid: 1, batimento: Date.now(), terminal: false, unidades: [{ card: 79, estacao: "ship", pr: null, resultado: null, motivo: null }] };
+  escreverJson(join(dir, "estado.json"), base);
+  let r = rodar("node", [FRENTE, "estado", "--dir", dir], { env: mu.env });
+  let j = JSON.parse(r.stdout);
+  afirmar(r.status === 0 && j.terminal === false && j.condutor === "vivo" && j.unidades[0].estacao === "ship", "estado: terminal, condutor vivo e as unidades (card, estação, pr, resultado, motivo)");
+  escreverJson(join(dir, "estado.json"), { ...base, batimento: 0 });
+  j = JSON.parse(rodar("node", [FRENTE, "estado", "--dir", dir], { env: mu.env }).stdout);
+  afirmar(j.condutor === "morto", "batimento velho → condutor morto");
+  escreverJson(join(dir, "estado.json"), { ...base, terminal: true });
+  const t0 = Date.now();
+  j = JSON.parse(rodar("node", [FRENTE, "estado", "--dir", dir, "--esperar", "30"], { env: mu.env }).stdout);
+  afirmar(j.terminal === true && Date.now() - t0 < 5000, "--esperar volta na hora quando já é terminal");
+  escreverJson(join(dir, "estado.json"), base);
+  const filho = spawn("node", [FRENTE, "estado", "--dir", dir, "--esperar", "30"], { env: mu.env });
+  let saida = "";
+  filho.stdout.on("data", (d) => (saida += d));
+  await dormir(600);
+  escreverJson(join(dir, "estado.json"), { ...base, unidades: [{ ...base.unidades[0], estacao: "concluida" }] });
+  await ate(() => saida.includes("\n"), 5000, 50);
+  afirmar(JSON.parse(saida).unidades[0].estacao === "concluida" && Date.now() - t0 < 25000, "--esperar acorda quando o estado.json muda, sem esperar os 30 s");
+  const t1 = Date.now();
+  escreverJson(join(dir, "estado.json"), base);
+  j = JSON.parse(rodar("node", [FRENTE, "estado", "--dir", dir, "--esperar", "1"], { env: mu.env }).stdout);
+  afirmar(j.terminal === false && Date.now() - t1 >= 900 && Date.now() - t1 < 8000, "--esperar sem mudança volta no fim do prazo");
+}
+
+console.log("unidades: épico com duas fases promovidas, uma Bloqueado, uma não promovida, uma fechada");
+{
+  const mu = mundoEpico();
+  const r = iniciarFrente(mu, 78, ["--paralelo", "2"]);
+  afirmar(r.status === 0 && r.json.retomada === false && Number.isInteger(r.json.pid) && r.json.dir === mu.estadoDir(78), "iniciar lança o condutor (retomada: false) e devolve {dir, pid}");
+  const est = await esperarCondutor(mu, 78);
+  afirmar(est.versao === 1 && est.card === `${OWNER}/${REPO}#78` && est.paralelo === 2 && est.base === "dev", "estado.json traz versao, card, paralelo e base");
+  afirmar(readFileSync(join(mu.estadoDir(78), "entrega.txt"), "utf8") === ENTREGA, "a entrega foi gravada em entrega.txt");
+  afirmar(existsSync(join(mu.estadoDir(78), "frente.log")), "o condutor escreve frente.log");
+  afirmar(est.unidades.length === 4, "uma entrada por sub-issue");
+  const u79 = unidade(est, 79);
+  afirmar(u79.resultado === null && u79.estacao === "nao-avaliada", "a promovida fica como unidade, ainda sem estação (nunca concluída aqui)");
+  afirmar(unidade(est, 80).resultado === "pulada" && unidade(est, 80).motivo === "Bloqueado: espera a 79", "com Bloqueado → pulada com o texto");
+  afirmar(unidade(est, 81).resultado === "pulada" && unidade(est, 81).motivo === "não promovida", "sem gm:spec-ref → pulada: não promovida");
+  afirmar(unidade(est, 82).resultado === "pulada" && unidade(est, 82).motivo === "fechada", "fechada → pulada: fechada");
+  afirmar(est.terminal === false, "com unidade sem decisão, o estado não é terminal");
+  afirmar(!existsSync(join(mu.checkout, ".git", "gm-frente", "79.lock")) && !existsSync(join(mu.checkout, ".git", "gm-frente", "80.lock")), "as travas são soltas no fim (e a pulada por Bloqueado nunca tomou trava)");
+}
+
+console.log("unidades: branch e worktree da unidade");
+{
+  const mu = mundoEpico();
+  iniciarFrente(mu, 78);
+  const est = await esperarCondutor(mu, 78);
+  const u = unidade(est, 79);
+  const wt = join(mu.ws, `${REPO}-79-fase-um`);
+  afirmar(u.branch === "feat/79-fase-um" && u.worktree === wt, "branch do gm:spec-ref; worktree <workspace>/<repo>-<n>-<slug>");
+  afirmar(existsSync(wt) && git(wt, "branch", "--show-current").trim() === "feat/79-fase-um", "a worktree existe, na branch da unidade");
+  afirmar(git(mu.checkout, "ls-remote", "--heads", "origin", "feat/79-fase-um").includes("feat/79-fase-um"), "a branch nasceu na origin (createLinkedBranch do gh falso)");
+  afirmar(git(wt, "merge-base", "--is-ancestor", "origin/dev", "HEAD") === "" , "a branch nasce de origin/dev");
+  afirmar(existsSync(join(wt, "planning", "78-epico", "spec.md")) && existsSync(join(wt, "planning", "78-epico", "sensibilidade.json")), "a spec e a sensibilidade foram copiadas para a worktree");
+  const msg = git(wt, "log", "-1", "--format=%B");
+  afirmar(msg.startsWith("docs(planning): spec do #78") && msg.includes("Card: #79") && git(wt, "status", "--porcelain").trim() === "", "commit docs(planning): spec do #78 com Card: #79, árvore limpa");
+  afirmar(!existsSync(join(mu.ws, `${REPO}-80-fase-dois`)), "unidade pulada não ganha worktree");
+  const chamadas = readFileSync(join(mu.falso, "gh-chamadas.log"), "utf8");
+  afirmar(chamadas.includes("createLinkedBranch"), "a branch foi criada pela mutação createLinkedBranch");
+
+  // segunda rodada: a worktree existe, a branch existe → reaproveita sem recriar nem recommitar
+  const cabeca = git(wt, "rev-parse", "HEAD");
+  const dir = mu.estadoDir(78);
+  escreverJson(join(dir, "estado.json"), { ...est, batimento: 0 });
+  iniciarFrente(mu, 78);
+  const est2 = await esperarCondutor(mu, 78);
+  afirmar(git(wt, "rev-parse", "HEAD") === cabeca && unidade(est2, 79).worktree === wt, "segunda rodada reaproveita a worktree, sem commit novo");
+
+  // a branch só na origin (worktree apagada): volta com `git worktree add` rastreando
+  git(mu.checkout, "worktree", "remove", "--force", wt);
+  git(mu.checkout, "branch", "-D", "feat/79-fase-um");
+  escreverJson(join(dir, "estado.json"), { ...est2, batimento: 0 });
+  iniciarFrente(mu, 78);
+  await esperarCondutor(mu, 78);
+  afirmar(git(wt, "branch", "--show-current").trim() === "feat/79-fase-um" && existsSync(join(wt, "planning", "78-epico", "spec.md")) && git(wt, "status", "--porcelain").trim() === "", "branch só na origin → worktree recriada, rastreando a origin, com a spec copiada de novo");
+}
+
+console.log("trava: um segundo condutor não conduz fase que já tem dono vivo");
+{
+  const mu = mundoEpico();
+  const dirOutro = join(mu.w, "estado-de-outro");
+  escreverJson(join(dirOutro, "estado.json"), { versao: 1, card: `${OWNER}/${REPO}#78`, pid: 1, batimento: Date.now(), terminal: false, unidades: [] });
+  const trava = join(mu.checkout, ".git", "gm-frente", "79.lock");
+  mkdirSync(trava, { recursive: true });
+  writeFileSync(join(trava, "dono"), dirOutro);
+  iniciarFrente(mu, 79);
+  const est = await esperarCondutor(mu, 79);
+  afirmar(unidade(est, 79).resultado === "pulada" && unidade(est, 79).motivo === `conduzida por ${dirOutro}`, "dono com batimento vivo → pulada: conduzida por <pasta>");
+  afirmar(!existsSync(join(mu.ws, `${REPO}-79-fase-um`)), "…e a unidade não ganhou worktree");
+  afirmar(existsSync(join(trava, "dono")) && readFileSync(join(trava, "dono"), "utf8") === dirOutro, "…e a trava do outro continua dele");
+
+  // dono morto (batimento velho): a trava é tomada
+  escreverJson(join(dirOutro, "estado.json"), { versao: 1, card: `${OWNER}/${REPO}#78`, pid: 1, batimento: Date.now() - 200000, terminal: false, unidades: [] });
+  escreverJson(join(mu.estadoDir(79), "estado.json"), { ...est, batimento: 0 });
+  iniciarFrente(mu, 79);
+  const est2 = await esperarCondutor(mu, 79);
+  afirmar(unidade(est2, 79).estacao === "nao-avaliada" && unidade(est2, 79).resultado === null, "dono morto (batimento de 200 s) → toma a trava e conduz");
+  afirmar(!existsSync(trava), "…e solta a trava no fim");
+}
+
+console.log("unidades: fase como alvo direto, e card sem épico");
+{
+  const mu = mundoEpico();
+  iniciarFrente(mu, 79);
+  const est = await esperarCondutor(mu, 79);
+  afirmar(est.unidades.length === 1 && unidade(est, 79).branch === "feat/79-fase-um", "alvo = a fase: uma unidade, com a branch do gm:spec-ref");
+  afirmar(existsSync(join(mu.ws, `${REPO}-79-fase-um`, "planning", "78-epico", "spec.md")), "a spec do PAI (78-*) é a que vai para a worktree");
+  const mu2 = mundo({ issues: { "5": {} } });
+  iniciarFrente(mu2, 5);
+  const e2 = await esperarCondutor(mu2, 5);
+  afirmar(e2.unidades.length === 1 && unidade(e2, 5).resultado === "parada" && unidade(e2, 5).motivo === "branch da unidade não declarada", "card sem branch declarada nem branch remota → parada: branch da unidade não declarada");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

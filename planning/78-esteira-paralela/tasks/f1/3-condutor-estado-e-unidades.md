@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `frente.mjs` — estado, `iniciar`/`estado`, unidades, trava e worktree da unidade
 
