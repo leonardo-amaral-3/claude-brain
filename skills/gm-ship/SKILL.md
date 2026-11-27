@@ -74,7 +74,7 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
    - `--merge` — the **second pass**: the PR already exists (opened by a first pass that stopped on
      `esperar-ci`). Skip everything up to `## Merge na dev` and enter there; the worktree is still
      standing, because it is where this pass runs.
- (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
+1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
 1b. **Base.** The PR's base is the `dev` that `## Branches` of the workspace `CLAUDE.md` names — never
    another card's branch. A different base is allowed only when the spec's `## Execution` carries a
    `Motivo da base:` line; in that case the line is copied into the PR body (`## Contexto para
@@ -90,7 +90,112 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
    → stop and ask. A workspace that declares no CI needs no *Typecheck do CI* item.
    - `local` → the full relevant suite runs here.
    - `CI` → only the local part runs here; the PR body names the CI checks that are the gate, and
-     "entregue" is still green CI (`## Merge na dev
+     "entregue" is still green CI (`## Report`). With no human, the CI is not waited on.
+   - No *Portão de teste* item → the rule before it existed: the full relevant suite (tests +
+     typecheck of the touched packages) runs here; say in one line that the workspace declares no
+     gate.
+
+   Red → stop and show; a PR never opens on red. **Verde não encerra a checagem** — leia o
+   resultado contra as decisões da spec; se a suíte ou uma medição derruba alguma, vale a regra do
+   `## Open the PR` abaixo.
+
+## G4 — revisão de IA
+
+Runs after the gate of precondition 4 is green and before the PR body is written. The workspace has no
+human reviewer beyond the author, so this is the review the PR gets before it can land.
+
+1. **Reviewer.** One independent agent (the `Agent` tool, a fresh one — never the session that wrote the
+   code), read-only. It receives **only**: the path of `spec.md`, the card's `gm:spec-ref` comment when
+   the card is an epic phase, and the range `origin/<base>...HEAD`. It returns findings, each with
+   `arquivo:linha`. It is told not to edit, not to run the suite, and not to be given the session's
+   own reading of the diff.
+2. **Treatment.** The session handles every finding, one of two ways: **corrige** (a commit, then the
+   gate of precondition 4 again) or **refuta** with the reason written down. A finding left without
+   either is not handled; a refutation without a reason is not a refutation.
+3. **Record.** After `gh pr create`, one comment on the PR, create-or-update, whose first line is
+   `<!-- gm:g4 -->`:
+
+   ```markdown
+   <!-- gm:g4 -->
+   Head revisado: <sha>
+   Head final: <sha>
+   Portão local: verde em <sha> (<comandos> → <resultado>)
+
+   | achado | arquivo:linha | tratamento |
+   |---|---|---|
+   | <o que o revisor apontou> | <arquivo:linha> | corrigido em <sha> \| refutado: <porquê> |
+   ```
+
+   `Head revisado` is the head the reviewer saw; `Head final` is the head the PR carries when the
+   comment is written (they differ when a finding was fixed). No findings → the table has only its
+   header and the comment says so. `merge-dev.mjs` reads this comment: the `tratamento` cell has to
+   start with `corrigido em <sha>` or `refutado: <porquê>`, and `Head final` has to equal the PR head.
+
+## Open the PR
+
+1. `git push -u origin <feature-branch>`.
+
+**Antes de escrever o corpo: alguma decisão da spec caiu?** A pergunta vale da precondição 4 até o
+`gh pr create`, e o gatilho é mecânico: ao escrever `## Critérios de aceite` no passo 2, confira cada
+critério contra o que a suíte e as **medições desta sessão** mostraram — critério que só passa
+reinterpretando a spec é decisão caída. Suíte verde não encerra a checagem: o caso que originou esta
+regra foi uma medição, não um teste vermelho.
+
+Se caiu: **não abra a PR.** PR contra spec sabidamente errada nasce mentindo para o revisor humano e
+para a revisão de CI do G4, que revisa lendo o `gm:spec`. Pare e mande o humano para
+`/gm-implement $ARGUMENTS`, nomeando **emenda pós-tasks**: a mecânica inteira — nota datada, task
+N+1, os dois freios — está na seção `## Emenda pós-tasks` daquela skill, e só lá. A branch já
+empurrada no passo 1 não atrapalha (branch sem PR não aparece no board nem dispara revisão); você
+volta para cá pela precondição 3 quando a task estiver `✅`.
+
+**Não confunda com a precondição 2:** aquela é task **pendente**; esta é tudo `✅` e a spec errada.
+
+2. Body (scratchpad file; the literal `**Card:** #<n>` on the FIRST line is machine-read by the CI review — never use `Closes`, the card's lifecycle belongs to the board; the branch created by gm-implement is already linked to the issue, so this PR attaches to the card's Development field automatically):
+
+   ```markdown
+   **Card:** #<n>
+
+   ## Resumo
+   [2–6 linhas do que foi implementado]
+
+   ## Critérios de aceite
+   - [x] <critério 1 — como foi atendido, em meia linha>
+   - [x] <critério 2 …>
+
+   ## Validação em dev
+   [checklist derivado dos critérios. Cada item começa por `[comando]` ou `[humano]`:
+    `[comando]` leva o comando em crase e o resultado esperado e roda pela sessão, sem pessoa;
+    `[humano]` diz o passo e quem valida — só esses vão ao humano]
+   - [ ] [comando] `node scripts/x.mjs` → código 0
+   - [ ] [humano] <o passo, e quem valida>
+
+   ## Contexto para revisão
+   A especificação está no card #<n> (comentário `gm:spec`; cards antigos: `gm:prd` + `gm:tech-spec`).
+   <!-- card de fase de um épico: o gm:spec está no PAI, e o card em voo tem um comentário
+        `gm:spec-ref` que dá o link + o recorte. Copie AQUI as duas linhas dele — a seção
+        "esta fase cobre" e a tabela "deliberadamente fora" — porque um revisor que só recebe
+        "a spec está no card" encontra card vazio e revisa o diff no escuro. O que está fora de
+        escopo de propósito é o que torna a detecção de escopo extra mecânica em vez de instintiva. -->
+   <!-- houve emenda pós-tasks? uma linha por emenda:
+        "Emenda AAAA-MM-DD: <a decisão que caiu, em meia linha> — nota completa no gm:spec"
+        para o revisor humano ver que uma decisão do G2 caiu DEPOIS do planejamento, sem ter de
+        diffar o comentário do card. -->
+
+   ## Tasks
+   - [x] 1 — <título>
+   ```
+
+3. Team-visible, and the PR body is an artifact, not a formality: repo, title and the **whole** body go in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → create it. *Ajustar* → rewrite the part the human named (a criterion described loosely, a validation step nobody could follow) and present it again. *Rejeitar* → nothing is created; the branch stays pushed, which the board does not show, and the card does not move. Title: short, imperative, close to the card title.
+4. `gh pr create --repo <owner>/<repo> --base <base> --title "..." --body-file <file>`
+5. Write the `gm:g4` comment of `## G4 — revisão de IA` on the new PR.
+
+## Board
+
+Move the card to 👀 Revisão on the team board (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Revisao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`). Missing `project` scope → `! gh auth refresh -s project`.
+
+The first pass goes on to `## Merge na dev` right after the board move.
+
+## Merge na dev
 
 Entered straight from `## Board` by the first pass, and directly by `--merge`. The code goes into `dev`;
 nothing goes to production — `main` only moves through `/gm-release`.
@@ -126,218 +231,15 @@ nothing goes to production — `main` only moves through `/gm-release`.
      option id is the one the workspace `CLAUDE.md` lists for that Status), one comment on the card saying the PR landed in `dev`, and
      `## Fechar a worktree`. Last line: `PARADA: PR #<pr> na dev; o card espera o trem do /gm-release`.
 
-## Report`). With no human, the CI is not waited on.
-   - No *Portão de teste* item → the rule before it existed: the full relevant suite (tests +
-     typecheck of the touched packages) runs here; say in one line that the workspace declares no
-     gate.
-
-   Red → stop and show; a PR never opens on red. **Verde não encerra a checagem** — leia o
-   resultado contra as decisões da spec; se a suíte ou uma medição derruba alguma, vale a regra do
-   `## Open the PR` abaixo.
-
-## G4 — revisão de IA
-
-Runs after the gate of precondition 4 is green and before the PR body is written. The workspace has no
-human reviewer beyond the author, so this is the review the PR gets before it can land.
-
-1. **Reviewer.** One independent agent (the `Agent` tool, a fresh one — never the session that wrote the
-   code), read-only. It receives **only**: the path of `spec.md`, the card's `gm:spec-ref` comment when
-   the card is an epic phase, and the range `origin/<base>...HEAD`. It returns findings, each with
-   `arquivo:linha`. It is told not to edit, not to run the suite, and not to be given the session's
-   own reading of the diff.
-2. **Treatment.** The session handles every finding, one of two ways: **corrige** (a commit, then the
-   gate of precondition 4 again) or **refuta** with the reason written down. A finding left without
-   either is not handled; a refutation without a reason is not a refutation.
-3. **Record.** After `gh pr create`, one comment on the PR, create-or-update, whose first line is
-   `<!-- gm:g4 -->`:
-
-   ```markdown
-   <!-- gm:g4 -->
-   Head revisado: <sha>
-   Head final: <sha>
-   Portão local: verde em <sha> (<comandos> → <resultado>)
-
-   | achado | arquivo:linha | tratamento |
-   |---|---|---|
-   | <o que o revisor apontou> | <arquivo:linha> | corrigido em <sha> \| refutado: <porquê> |
-   ```
-
-   `Head revisado` is the head the reviewer saw; `Head final` is the head the PR carries when the
-   comment is written (they differ when a finding was fixed). No findings → the table has only its
-   header and the comment says so. `merge-dev.mjs` reads this comment: the `tratamento` cell has to
-   start with `corrigido em <sha>` or `refutado: <porquê>`, and `Head final` has to equal the PR head.
-
-## Open the PR
-
-1. `git push -u origin <feature-branch>`.
-
-**Antes de escrever o corpo: alguma decisão da spec caiu?** A pergunta vale da precondição 4 até o
-`gh pr create`, e o gatilho é mecânico: ao escrever `## Critérios de aceite` no passo 2, confira cada
-critério contra o que a suíte e as **medições desta sessão** mostraram — critério que só passa
-reinterpretando a spec é decisão caída. Suíte verde não encerra a checagem: o caso que originou esta
-regra foi uma medição, não um teste vermelho.
-
-Se caiu: **não abra a PR.** PR contra spec sabidamente errada nasce mentindo para o revisor humano e
-para a revisão de CI do G4, que revisa lendo o `gm:spec`. Pare e mande o humano para
-`/gm-implement $ARGUMENTS`, nomeando **emenda pós-tasks**: a mecânica inteira — nota datada, task
-N+1, os dois freios — está na seção `## Emenda pós-tasks` daquela skill, e só lá. A branch já
-empurrada no passo 1 não atrapalha (branch sem PR não aparece no board nem dispara revisão); você
-volta para cá pela precondição 3 quando a task estiver `✅`.
-
-**Não confunda com a precondição 2:** aquela é task **pendente**; esta é tudo `✅` e a spec errada.
-
-2. Body (scratchpad file; the literal `**Card:** #<n>` on the FIRST line is machine-read by the CI review — never use `Closes`, the card's lifecycle belongs to the board; the branch created by gm-implement is already linked to the issue, so this PR attaches to the card's Development field automatically):
-
-   ```markdown
-   **Card:** #<n>
-
-   ## Resumo
-   [2–6 linhas do que foi implementado]
-
-   ## Critérios de aceite
-   - [x] <critério 1 — como foi atendido, em meia linha>
-   - [x] <critério 2 …>
-
-   ## Validação em dev
-   [checklist derivado dos critérios. Cada item começa por `[comando]` ou `[humano]`:
-    `[comando]` leva o comando em crase e o resultado esperado e roda pela sessão, sem pessoa;
-    `[humano]` diz o passo e quem valida — só esses vão ao humano]
-   - [ ] [comando] `node scripts/x.mjs` → código 0
-   - [ ] [humano] <o passo, e quem valida>
-
-   ## Contexto para revisão
-   A especificação está no card #<n> (comentário `gm:spec`; cards antigos: `gm:prd` + `gm:tech-spec`).
-   <!-- card de fase de um épico: o gm:spec está no PAI, e o card em voo tem um comentário
-        `gm:spec-ref` que dá o link + o recorte. Copie AQUI as duas linhas dele — a seção
-        "esta fase cobre" e a tabela "deliberadamente fora" — porque um revisor que só recebe
-        "a spec está no card" encontra card vazio e revisa o diff no escuro. O que está fora de
-        escopo de propósito é o que torna a detecção de escopo extra mecânica em vez de instintiva. -->
-   <!-- houve emenda pós-tasks? uma linha por emenda:
-        "Emenda AAAA-MM-DD: <a decisão que caiu, em meia linha> — nota completa no gm:spec"
-        para o revisor humano ver que uma decisão do G2 caiu DEPOIS do planejamento, sem ter de
-        diffar o comentário do card. -->
-
-   ## Tasks
-   - [x] 1 — <título>
-   ```
-
-3. Team-visible, and the PR body is an artifact, not a formality: repo, title and the **whole** body go in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → create it. *Ajustar* → rewrite the part the human named (a criterion described loosely, a validation step nobody could follow) and present it again. *Rejeitar* → nothing is created; the branch stays pushed, which the board does not show, and the card does not move. Title: short, imperative, close to the card title.
-4. `gh pr create --repo <owner>/<repo> --base <base> --title "..." --body-file <file>`
-5. Write the `gm:g4` comment of `## G4 — revisão de IA` on the new PR.
-
-## Board
-
-Move the card to 👀 Revisão on the team board (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Revisao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`). Missing `project` scope → `! gh auth refresh -s project`.
-
-## Report`). With no human, the CI is not waited on.
-   - No *Portão de teste* item → the rule before it existed: the full relevant suite (tests +
-     typecheck of the touched packages) runs here; say in one line that the workspace declares no
-     gate.
-
-   Red → stop and show; a PR never opens on red. **Verde não encerra a checagem** — leia o
-   resultado contra as decisões da spec; se a suíte ou uma medição derruba alguma, vale a regra do
-   `## Open the PR` abaixo.
-
-## G4 — revisão de IA
-
-Runs after the gate of precondition 4 is green and before the PR body is written. The workspace has no
-human reviewer beyond the author, so this is the review the PR gets before it can land.
-
-1. **Reviewer.** One independent agent (the `Agent` tool, a fresh one — never the session that wrote the
-   code), read-only. It receives **only**: the path of `spec.md`, the card's `gm:spec-ref` comment when
-   the card is an epic phase, and the range `origin/<base>...HEAD`. It returns findings, each with
-   `arquivo:linha`. It is told not to edit, not to run the suite, and not to be given the session's
-   own reading of the diff.
-2. **Treatment.** The session handles every finding, one of two ways: **corrige** (a commit, then the
-   gate of precondition 4 again) or **refuta** with the reason written down. A finding left without
-   either is not handled; a refutation without a reason is not a refutation.
-3. **Record.** After `gh pr create`, one comment on the PR, create-or-update, whose first line is
-   `<!-- gm:g4 -->`:
-
-   ```markdown
-   <!-- gm:g4 -->
-   Head revisado: <sha>
-   Head final: <sha>
-   Portão local: verde em <sha> (<comandos> → <resultado>)
-
-   | achado | arquivo:linha | tratamento |
-   |---|---|---|
-   | <o que o revisor apontou> | <arquivo:linha> | corrigido em <sha> \| refutado: <porquê> |
-   ```
-
-   `Head revisado` is the head the reviewer saw; `Head final` is the head the PR carries when the
-   comment is written (they differ when a finding was fixed). No findings → the table has only its
-   header and the comment says so. `merge-dev.mjs` reads this comment: the `tratamento` cell has to
-   start with `corrigido em <sha>` or `refutado: <porquê>`, and `Head final` has to equal the PR head.
-
-## Open the PR
-
-1. `git push -u origin <feature-branch>`.
-
-**Antes de escrever o corpo: alguma decisão da spec caiu?** A pergunta vale da precondição 4 até o
-`gh pr create`, e o gatilho é mecânico: ao escrever `## Critérios de aceite` no passo 2, confira cada
-critério contra o que a suíte e as **medições desta sessão** mostraram — critério que só passa
-reinterpretando a spec é decisão caída. Suíte verde não encerra a checagem: o caso que originou esta
-regra foi uma medição, não um teste vermelho.
-
-Se caiu: **não abra a PR.** PR contra spec sabidamente errada nasce mentindo para o revisor humano e
-para a revisão de CI do G4, que revisa lendo o `gm:spec`. Pare e mande o humano para
-`/gm-implement $ARGUMENTS`, nomeando **emenda pós-tasks**: a mecânica inteira — nota datada, task
-N+1, os dois freios — está na seção `## Emenda pós-tasks` daquela skill, e só lá. A branch já
-empurrada no passo 1 não atrapalha (branch sem PR não aparece no board nem dispara revisão); você
-volta para cá pela precondição 3 quando a task estiver `✅`.
-
-**Não confunda com a precondição 2:** aquela é task **pendente**; esta é tudo `✅` e a spec errada.
-
-2. Body (scratchpad file; the literal `**Card:** #<n>` on the FIRST line is machine-read by the CI review — never use `Closes`, the card's lifecycle belongs to the board; the branch created by gm-implement is already linked to the issue, so this PR attaches to the card's Development field automatically):
-
-   ```markdown
-   **Card:** #<n>
-
-   ## Resumo
-   [2–6 linhas do que foi implementado]
-
-   ## Critérios de aceite
-   - [x] <critério 1 — como foi atendido, em meia linha>
-   - [x] <critério 2 …>
-
-   ## Validação em dev
-   [checklist derivado dos critérios. Cada item começa por `[comando]` ou `[humano]`:
-    `[comando]` leva o comando em crase e o resultado esperado e roda pela sessão, sem pessoa;
-    `[humano]` diz o passo e quem valida — só esses vão ao humano]
-   - [ ] [comando] `node scripts/x.mjs` → código 0
-   - [ ] [humano] <o passo, e quem valida>
-
-   ## Contexto para revisão
-   A especificação está no card #<n> (comentário `gm:spec`; cards antigos: `gm:prd` + `gm:tech-spec`).
-   <!-- card de fase de um épico: o gm:spec está no PAI, e o card em voo tem um comentário
-        `gm:spec-ref` que dá o link + o recorte. Copie AQUI as duas linhas dele — a seção
-        "esta fase cobre" e a tabela "deliberadamente fora" — porque um revisor que só recebe
-        "a spec está no card" encontra card vazio e revisa o diff no escuro. O que está fora de
-        escopo de propósito é o que torna a detecção de escopo extra mecânica em vez de instintiva. -->
-   <!-- houve emenda pós-tasks? uma linha por emenda:
-        "Emenda AAAA-MM-DD: <a decisão que caiu, em meia linha> — nota completa no gm:spec"
-        para o revisor humano ver que uma decisão do G2 caiu DEPOIS do planejamento, sem ter de
-        diffar o comentário do card. -->
-
-   ## Tasks
-   - [x] 1 — <título>
-   ```
-
-3. Team-visible, and the PR body is an artifact, not a formality: repo, title and the **whole** body go in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → create it. *Ajustar* → rewrite the part the human named (a criterion described loosely, a validation step nobody could follow) and present it again. *Rejeitar* → nothing is created; the branch stays pushed, which the board does not show, and the card does not move. Title: short, imperative, close to the card title.
-4. `gh pr create --repo <owner>/<repo> --base <base> --title "..." --body-file <file>`
-5. Write the `gm:g4` comment of `## G4 — revisão de IA` on the new PR.
-
-## Board
-
-Move the card to 👀 Revisão on the team board (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Revisao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`). Missing `project` scope → `! gh auth refresh -s project`.
-
 ## Fechar a worktree
 
+Runs **only after the merge** of `## Merge na dev`. Without a merge — `esperar-ci`, `parar`, the
+dispatched-mode stop — the worktree stays standing: it is where the `--merge` pass and `/gm-correcao`
+run.
+
 The card's branch had a worktree of its own at `<workspace>/<repo>-<n>-<slug>` (`gm-implement`,
-`## Guarantee the branch`). With the PR open and the card in 👀 Revisão, this card has no more code
-to write in this session, so the folder goes — the branch does not, it is pushed and it carries the
-PR:
+`## Guarantee the branch`). With the PR merged into `dev` and the card in 🧪 Validação em Dev, this
+card has no more code to write, so the folder goes — the branch does not, it carries the merged PR:
 
 ```
 cd <checkout-principal>          # nunca remova a worktree de dentro dela

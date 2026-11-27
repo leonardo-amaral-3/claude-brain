@@ -243,6 +243,14 @@ a person. It runs after the train PR is open and before the merge.
 
    A card with only `comando` items and every one passing needs no question. A card held or reverted
    here leaves the train: its `no_corte` entry is dropped from the PR body, with the reason.
+
+   **Reverter da `dev` recuts the train.** The revert lands in `dev` *after* `<sha-do-corte>`, so the
+   open train still carries the reverted code. The new cut is the `origin/dev` sha that has the revert;
+   it descends from the old one, so `git push origin <novo-corte>:refs/heads/release/v<AAAA.MM.DD>` is a
+   fast-forward (never `--force`) and the same PR now carries it. From there, `<sha-do-corte>` means the
+   new cut everywhere below — the merge lock of Phase 5 and the check of Phase 7 included — and Phase 1
+   and this phase run again on it, for the cards the new cut brings. Keep the list of reverted cards:
+   Phase 7 needs it.
 4. No human in the session → `PARADA` with the full list of `humano` items; the `comando` results are
    already on the PR.
 
@@ -338,7 +346,8 @@ Use calver (`v<AAAA.MM.DD>`) from the real date — read it with `date +%Y.%m.%d
 The cards to close are the ones the code says shipped, not the ones the message remembers:
 `node <skill-dir>/trem.mjs cards --repo <owner>/<repo> --project <project> --owner <owner> --main` after
 the merge of Phase 5 — its `no_corte` is every card whose PRs are all in `origin/main`. Minus the cards
-held in Phase 4b, which are in `fora` anyway.
+reverted in Phase 4b, **subtracted by hand from the list kept there**: a revert does not remove the
+merge commit from the history, so `trem.mjs --main` still lists a reverted card in `no_corte`.
 
 For each of them:
 
