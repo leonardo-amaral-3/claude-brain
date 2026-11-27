@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: `gm-spec` — `Motivo da base:`, `Branch:` no `gm:spec-ref` e fases promovidas juntas
 
