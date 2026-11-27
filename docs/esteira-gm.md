@@ -33,17 +33,22 @@ relato bruto
      │  🔨 Implementação    branch certo, testes ANTES de apresentar,
      │                      commit só depois de Executar escolhido
      ▼
-/gm-ship ────── suíte completa, PR com o contrato de aceite + checklist
-     │  👀 Revisão          de validação em dev
+/gm-ship ────── suíte completa, G4 (revisão de IA), PR com o contrato de
+     │  👀 Revisão          aceite + checklist de validação em dev e, com as
+     │                      condições do `merge-dev.mjs`, o merge na dev
      ▼
 /gm-correcao ── cada achado do review: corrigido, refutado ou promovido
      │  👀                  a card — com resposta em cada comentário inline
      ▼
-        🧪 Validação em Dev (humano)
+        🧪 Validação em Dev (itens [comando] e [humano])
      ▼
-/gm-release ─── o trem: fila validada → PR dev→main → tag calver →
-        🚂 → ✅            notas de release → verificação pós-deploy
+/gm-release ─── o trem: fila no corte → G5 por trem → PR do corte → main →
+        🚂 → ✅            tag calver → notas → verificação pós-deploy
 ```
+
+**`/gm-frente <owner>/<repo>#<n>`** conduz tudo isto sozinha para um card ou épico entregue de
+uma vez, em ondas e fases paralelas (`## A frente`, abaixo). Cada estação continua sendo a skill de
+sempre: a frente só as abre, na ordem certa, e lê a última linha de cada uma.
 
 ## As rotas
 
@@ -126,14 +131,38 @@ improviso silencioso. E se a decisão cair depois da última task, com a PR aind
 que a **emenda pós-tasks** nasce: nota datada aprovada pelo humano, uma task nova, e o `/gm-ship`
 retomado.
 
+Com `--task <arquivo>` (o jeito que a frente chama), executa **só** aquela task, numa branch que a
+frente já criou: recusa rodar com dependência que não está `✅` e recusa o commit quando o diff sai
+do `Toca:` da task (as duas conferências são do `ondas.mjs --conferir`). O `✅` da task entra no
+próprio commit, em todos os modos; no modo task a sessão não dá push nem marca o checkbox do
+`gm:tasks` — quem faz é o condutor, uma escrita por vez.
+
 **`/gm-ship [pasta-da-feature]`** — fecha o loop: confere que toda task está completa, roda a suíte
-inteira, faz push, abre o PR carregando o contrato de critérios de aceite e o checklist de
-validação em dev, referencia o card e move para 👀 Revisão.
+inteira, passa pelo **G4**, faz push, abre o PR carregando o contrato de critérios de aceite e o
+checklist de validação em dev, referencia o card e move para 👀 Revisão. A PR nasce com base na
+`dev`; outra base só com a linha `Motivo da base:` no `## Execution` da spec, copiada no corpo da PR.
+
+O **G4** é um agente independente, só de leitura, que recebe apenas a spec, o `gm:spec-ref` da fase
+e o intervalo `origin/<base>...HEAD`, e devolve achados com `arquivo:linha`. A sessão corrige
+(commit e portão de novo) ou refuta, com o porquê, cada um; o resultado vai para o comentário
+`<!-- gm:g4 -->` da PR, com o head revisado, o head final e o portão local. Os itens do
+`## Validação em dev` da PR começam por `[comando]` (rodado pela sessão) ou `[humano]`.
+
+**Merge na dev.** Com o G4 tratado, o `merge-dev.mjs` lê (só lê) seis condições: base certa, PR
+mergeável, branch atualizada com a `dev`, CI verde — ou, quando o `CLAUDE.md` declara que não há CI,
+o portão local verde no head atual —, `gm:g4` sem achado pendente e **spec não sensível**
+(`sensivel.mjs --consultar`, sem rede). Tudo verde, a skill faz `gh pr merge --merge
+--match-head-commit <head>`, o card vai para 🧪 Validação em Dev e a worktree é removida. Spec
+sensível, ou qualquer condição vermelha, para com a condição dita. Branch desatualizada → a skill
+junta a `dev`, roda o portão de novo e volta ao script (no máximo duas vezes); CI ainda rodando →
+fecha com `PROXIMO: /gm-ship <pasta> --card <n> --merge`, que é a passada que o condutor abre depois
+de esperar o CI. A `main` nunca é tocada aqui.
 
 **`/gm-correcao [pr]`** — pega o parecer do review de CI e transforma cada achado em decisão
 registrada: verificado contra a spec, e então corrigido, refutado ou promovido a card — com
 resposta em cada comentário inline. Roda depois do review e antes de entregar o PR ao validador
-humano.
+humano. Todo push numa PR aberta refaz o portão local e o G4 sobre o intervalo novo, atualiza o
+`gm:g4`, e a linha `PROXIMO` volta para `/gm-ship <pasta> --card <n> --merge`.
 
 `/gm-ship` e `/gm-correcao` abrem com **`## Ambiente na entrada`**: disco livre, dependências
 instaladas e os serviços que o `CLAUDE.md` declara, parando cedo com o motivo antes do primeiro
@@ -144,8 +173,17 @@ a suíte inteira local, como antes.
 
 **`/gm-release`** — corta o trem: lê a fila validada (🚂 Release, mais os cards fechados em 🧪 Validação em Dev), reconcilia contra o que está
 mesmo mergeado em `dev`, classifica o trem como trivial ou sensível (migrations, tratamento de
-dados), abre o PR dev→main, tagueia com calver, publica notas de release duplas (técnica e para o
-cliente) e roda a verificação pós-deploy **bloqueante** quando o trem é sensível.
+dados), tagueia com calver, publica notas de release duplas (técnica e para o cliente) e roda a
+verificação pós-deploy **bloqueante** quando o trem é sensível.
+
+O trem é **o que estava na `dev` no corte**: `trem.mjs cards` separa os cards cujas PRs são todas
+ancestrais do sha do corte, e a PR para a `main` sai de `release/v<AAAA.MM.DD>` nesse sha, não da
+`dev` — o que entrar na `dev` depois fica para o próximo trem, e o que sobe é o que foi validado.
+O **G5 é por trem**: os itens `[comando]` do `## Validação em dev` de cada PR rodam pela sessão,
+numa worktree destacada no corte, com comando, saída e código colados na PR do trem; só os
+`[humano]` vão ao humano, um card por pergunta. Depois do merge, todo card do trem vai para ✅
+Produção com `Release` preenchido e a issue fechada (épico com todas as fases fechadas, idem), card
+segurado sai do trem com o porquê, e a skill confere e registra `main..corte = 0`.
 
 **`/gm-hotfix [#issue | descrição]`** — o trilho expedite para S1 de verdade. Prova o critério de
 S1 e o limite de um por vez, abre card mínimo com repro + risco + query de verificação, cria
@@ -166,13 +204,68 @@ para consertar uma nota que ficou pela metade.
 **`/defuddle <url>`** — lê uma página web já limpa de navegação e anúncio, gastando bem menos
 token que o `WebFetch`. Precisa de `npm install -g defuddle`.
 
+## A frente
+
+**`/gm-frente <owner>/<repo>#<n> [texto da entrega]`** conduz um card, ou um épico inteiro, pela
+esteira sem que ninguém digite o próximo comando: spec, tasks, implementação, PR e merge na dev.
+Para quem lê de fora, o desenho cabe em cinco ideias.
+
+**O condutor é um script; as estações são sessões.** A skill é fina: lança
+`skills/gm-frente/frente.mjs` como um processo à parte (destacado, como um CI) e o acompanha com
+chamadas de até 9 minutos. É o condutor que abre cada estação como `claude -p "/gm-<skill> …"` e lê a
+última linha da saída, `PROXIMO:` ou `PARADA:` (`## Convenções de saída`). Subagente e workflow
+salvo não servem: não rodam skill `gm-*`. Por isso a sessão do `/gm-frente` nunca espera CI nem
+agenda retorno; quem espera o CI e as sessões é o condutor.
+
+**A próxima estação vem dos artefatos, não do texto da `PROXIMO`.** A cada volta o condutor lê o
+card, os comentários `gm:*`, as tasks na worktree e a PR, e a primeira linha que casa vale: PR
+mergeada → unidade concluída; PR aberta → espera o CI e abre `/gm-ship --merge`; sem spec →
+`/gm-spec`; spec e sem tasks → `/gm-plan-tasks`; task `❌` → as ondas; todas `✅` e sem PR →
+`/gm-ship`. Sessão que fecha em `PARADA` deixa **aquela unidade** parada e as outras seguem.
+
+**Unidade é um card, ou cada fase promovida de um épico.** Fase sem `Bloqueado` e com `gm:spec-ref`
+anda ao mesmo tempo que as outras, cada uma na sua worktree (`<workspace>/<repo>-<n>-<slug>`); as
+demais entram como `puladas`, com o porquê. Uma trava por unidade no `git-common-dir` impede duas
+frentes sobre a mesma fase. Até `Paralelo` sessões filhas correm juntas (item do `CLAUDE.md`,
+padrão 3), e no máximo **um `/gm-ship` por repo de cada vez**, para que dois merges na `dev` não
+testem cada um sem o outro.
+
+**Ondas.** O `/gm-plan-tasks` escreve, nas linhas 2 a 4 de cada task, `Onda:`, `Depende de:` e
+`Toca:`; `ondas.mjs --validar` confere o plano (ids únicos, dependência em onda menor, nenhuma
+colisão de caminhos dentro da onda). Onda de uma task roda na worktree da unidade. Onda de duas ou
+mais abre uma worktree e uma branch por task (`<branch>-t<id>`), todas ao mesmo tempo, e o condutor
+as junta com `git merge --no-ff`: o `Toca:` é o que garante junção limpa, e conflito para a
+unidade com os arquivos. Junção feita, o condutor remove a worktree (sem `--force`) e a branch
+(`-d`), dá o push e marca os checkboxes do `gm:tasks`, um por vez. Task antiga, sem os três campos,
+roda em sequência na worktree da unidade, uma sessão por task.
+
+**Estado e retomada.** Tudo vive em `${CLAUDE_CONFIG_DIR:-~/.claude}/gm-frente/<owner>-<repo>-<n>/`:
+`estado.json` (de máquina, `versao: 1`, troca atômica), `entrega.txt`, e por sessão `prompt-*.txt`,
+`saida-*.json` e `erro-*.txt`. “Condutor vivo” é um batimento de menos de 90 s, não um `pid`, que o
+sistema reaproveita. Condutor morto → `iniciar` de novo: sessão com `pid` vivo é esperada, task `✅`
+não é reaberta, unidade `parada` continua parada (a menos de `--reabrir`). A sessão filha é julgada
+pelo JSON que escreveu, nunca pelo código de saída, porque a filha adotada na retomada não tem pai
+para ler o código; passou de `--limite-min` (120), leva `SIGTERM` e a unidade para.
+
+**O que cada sessão filha recebe.** Um prompt gerado num molde fixo: a skill e o argumento da
+gramática (`<pasta> --card <n> --branch <b> --task <arquivo>`), o card e a spec, onde trabalhar, o
+aviso de que outras sessões correm em worktrees irmãs, e a **entrega** em palavras, copiada literal.
+Freios, trailer do commit e suíte **não** estão ali: vêm do `## Modo despachado` das skills e do
+`CLAUDE.md` do repo. Daí que rodar um card não exija arquivo de despacho nenhum, só o texto da
+entrega.
+
+**Onde a frente termina.** Na `dev`, com a PR mergeada e o card em 🧪 Validação em Dev. Ela não faz
+merge na `main`, tag nem release: isso é o `/gm-release`, que fica inteiro fora do modo despachado.
+Spec sensível também termina em `PARADA` (`spec sensível; o merge … espera o humano`), porque o
+merge sozinho na dev só vale para spec não sensível.
+
 ## Qual modelo roda cada estação
 
 Cada skill declara no próprio frontmatter o modelo em que roda (`model:`), escolhido pelo que a
 estação entrega: **Opus** onde sai documento que outros executam ao pé da letra ou onde se julga um
 artefato ou uma ação sem volta, **Sonnet** onde se lê ou se executa o que já foi decidido.
 
-Esta tabela é a fonte da verdade, e `node scripts/prova-modelo.mjs` confere que os doze `SKILL.md` —
+Esta tabela é a fonte da verdade, e `node scripts/prova-modelo.mjs` confere que os treze `SKILL.md` —
 no repo e na instalação — dizem o mesmo que ela. Mudou uma linha aqui? Mude o frontmatter junto, rode
 `./sync.sh push` e depois `node scripts/prova-modelo.mjs --viva`.
 
@@ -183,6 +276,7 @@ no repo e na instalação — dizem o mesmo que ela. Mudou uma linha aqui? Mude 
 | `gm-card` | `claude-opus-5-5` | escreve os critérios de aceite que o resto da esteira herda |
 | `gm-prd` | `claude-opus-5-5` | documento de produto que a spec vai seguir ao pé da letra |
 | `gm-spec` | `claude-opus-5-5` | o contrato que o implementador executa literalmente |
+| `gm-frente` | `inherit` | skill fina que lança o condutor e relata; nenhuma estação roda nela, cada filha usa o modelo da própria skill |
 | `gm-tech-spec` | `inherit` | deprecated: só manda usar `/gm-spec`, e não vale trocar de modelo para isso |
 | `gm-plan-tasks` | `claude-opus-5-5` | cada task é o prompt inteiro de um agente novo; o recorte é julgamento |
 | `gm-implement` | `claude-sonnet-5-5` | executa uma task já decidida; é a estação que mais roda |
@@ -313,13 +407,19 @@ humano, nunca vale, diga o argumento o que disser. O argumento pode acrescentar 
 transforma um **para** em **decide** — salvo a linha do segundo revisor, e só nomeando-a.
 
 **As três colunas.** *Decide*: aprovar artefato do próprio card (depois da crítica que a skill
-exige), escolher entre os caminhos que a skill oferece, commit e push na branch do card. *Para*:
+exige), escolher entre os caminhos que a skill oferece, commit e push na branch do card, o **merge na
+dev da PR do próprio card** (só quando o `merge-dev.mjs` devolve `pode: true`; spec sensível ou
+condição falhando para, dizendo qual), a base `dev` da PR (outra só com `Motivo da base:` na spec) e
+remover, sem `--force`, a worktree e a branch de task que a frente criou depois de juntá-la. *Para*:
 o segundo revisor de spec sensível — salvo quando o argumento autoriza seguir sem ele, por nome (o
 de IA roda igual), e é a única parada que o argumento pode abrir; no workspace que declara não ter
 segundo humano a pergunta nem existe —, alvo ambíguo, escolha de produto que nada
 registrado responde, desvio da spec, teste vermelho ou ambiente quebrado, e tudo que leva a
-produção — merge, `main`, tag, release, deploy, instalação viva, apagar; `gm-release` e `gm-hotfix`
-ficam inteiras aqui. *Não faz*: esperar CI, agendar retorno, rodar em segundo plano, devolver
+produção — merge **na `main`**, tag, release, deploy, instalação viva, apagar; `gm-release` e
+`gm-hotfix` ficam inteiras aqui. A `PARADA` de spec sensível (“o merge na dev espera o humano”) não
+tem linha **para** própria: é um gate que espera humano, e o classificador a põe em `gate-aberto`.
+*Não faz*: esperar CI, agendar retorno, rodar em segundo plano (o condutor do `/gm-frente` é um
+processo à parte, e é ele quem espera o CI e as sessões), devolver
 comando `/gm-*` para alguém digitar (vai na linha `PROXIMO:`) e perguntar o que o card, a spec ou o
 cofre já respondem.
 

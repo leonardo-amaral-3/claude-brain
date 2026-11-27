@@ -95,15 +95,28 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
      --json number,title,mergedAt,body --jq '.[] | select(.mergedAt > "<data-da-última-tag-ou-corte>")'
    ```
 
-3. **Reconcile and report the three sets, explicitly:**
+   **The cut and the train, by script.** Right after the `git fetch origin`, the cut is
+   `git rev-parse origin/dev` — write that sha in the message; everything below is measured against it,
+   not against a `dev` that keeps moving. The train is then
+
+   ```
+   node <skill-dir>/trem.mjs cards --repo <owner>/<repo> --project <project> --owner <owner> --corte <sha-do-corte>
+   ```
+
+   (`<skill-dir>` is this skill's folder; run it from the module repo). Its `no_corte` is the train:
+   the cards in 🧪 Validação em Dev or 🚂 Release, open or closed, whose merged PRs (`**Card:**` on the
+   first line) are **all** ancestors of the cut. `fora` lists the others, each with the `motivo`. Code
+   `2` → stop with its message; a partial read never becomes a smaller train.
+
+3. **Reconcile and report the three sets, explicitly** (the first two come from `trem.mjs`; the
+   carona set — code in the diff with no validated card — is still read by hand, as below):
    - cards **validated** (in 🚂 Release, or closed while in 🧪 Validação em Dev — `/gm-ship` and
      `/gm-correcao` close a validated card without moving it) **and** in the diff → the intended train;
    - validated cards **without** code in the diff → not ready, take them off the train;
    - code in the diff **without** a validated card → *carona*: unvalidated work riding along. The
      **full** list goes in the message first — card by card, or commit by commit when there is no
      card, saying what each one touches — and then the decision is taken **one carona at a time**:
-     one `AskUserQuestion` call per item, header `Carona <k>/<N>` (`Carona 2/5` — the tool caps
-     `header` at 12 characters, so keep the counter numeric), question and options in pt-BR:
+     one `AskUserQuestion` call per item, header `Carona <k>/<N>` (`Carona 2/5`), question and options in pt-BR:
 
      > Isto entrou no payload sem ninguém ter conferido em ambiente nenhum que funciona: não passou
      > por 🧪 Validação em Dev e mesmo assim já está na `dev`. É `<PR/commit>` — <o que é> — e toca
@@ -116,10 +129,8 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
      > - **Reverter da `dev`** — a carona sai do payload (`git revert` na `dev`) e o resto do trem
      >   parte hoje. O trabalho revertido volta para quem o escreveu; não se perde.
 
-     This is what rule 4 of `## Como perguntar e como aprovar` exists for: N caronas never get cut
-     down to fit one menu of four. The list stays whole in the message, the loop gets longer instead
-     of wider, and `multiSelect` is out by rule 2 — a batch would settle the fifth carona while
-     nobody had yet looked at the first.
+     Rules 2 and 4 of `## Como perguntar e como aprovar` apply: the list stays whole in the message
+     and the loop gets longer instead of wider.
 
    With production far behind `dev`, the third set is the normal case, not the exception. Never omit it.
 
@@ -141,7 +152,7 @@ For a sensitive train, list every migration by name and say what each does — a
 
 ## Phase 3 — Ensaio (sensitive trains only)
 
-A **release environment** is a copy of production where the accumulated migrations and the data treatment run before they count, with acceptance queries comparing faturamento before and after; only what passes gets promoted. The workspace `CLAUDE.md` says whether one exists and how to run the payload against it (`## Convenções da esteira`, item *Ambiente de ensaio*). **Declared:** run it as declared, put the result under `### Ensaio` in the release notes, and a red result holds the train. **Not declared, or declared `não`:** do not pretend it happened. Stop: name every migration and data treatment in the payload in the message — what each one does, against which table, how much data — and then one `AskUserQuestion` call, header `Ensaio` (the tool caps `header` at 12 characters), question and options in pt-BR:
+A **release environment** is a copy of production where the accumulated migrations and the data treatment run before they count, with acceptance queries comparing faturamento before and after; only what passes gets promoted. The workspace `CLAUDE.md` says whether one exists and how to run the payload against it (`## Convenções da esteira`, item *Ambiente de ensaio*). **Declared:** run it as declared, put the result under `### Ensaio` in the release notes, and a red result holds the train. **Not declared, or declared `não`:** do not pretend it happened. Stop: name every migration and data treatment in the payload in the message — what each one does, against which table, how much data — and then one `AskUserQuestion` call, header `Ensaio`, question and options in pt-BR:
 
 > Este trem carrega <as migrations/tratamentos, pelo nome>, e este workspace não declara — ou declara
 > que não há — um ambiente de ensaio, a cópia de produção onde isto rodaria antes de valer. Não há
@@ -169,8 +180,13 @@ call, never as pressure inside it.
 
 ## Phase 4 — Open the train PR
 
+The train PR does **not** come from `dev`: `dev` keeps receiving merges while the PR is open, and what
+ships has to be what was validated. Create `release/v<AAAA.MM.DD>` at the cut sha and open the PR from it;
+whatever enters `dev` after the cut waits for the next train.
+
 ```
-gh pr create --repo <owner>/<repo> --base main --head dev --title "release v<AAAA.MM.DD>" --body-file <file>
+git push origin <sha-do-corte>:refs/heads/release/v<AAAA.MM.DD>
+gh pr create --repo <owner>/<repo> --base main --head release/v<AAAA.MM.DD> --title "release v<AAAA.MM.DD>" --body-file <file>
 ```
 
 ```markdown
@@ -195,9 +211,52 @@ gh pr create --repo <owner>/<repo> --base main --head dev --title "release v<AAA
 
 The body is the artifact, and it is the only place where what ships today is written down: it goes **whole** in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → open the PR with that body, exactly as shown. *Ajustar* → fix what the human named (a carona missing from the list, a migration described as harmless when it is not) and present it again. *Rejeitar* → no PR, and the train does not leave the station today. Check CI green (`gh pr checks`) before proposing the merge — and remember that a red check does not physically block the merge in these repos, so a green CI is **your** responsibility to confirm. With no human in the session, CI pending or red is never waited out and never merged over: the PR stays open and the session closes with `PARADA: CI pendente na PR do trem`.
 
+## Phase 4b — G5 por trem
+
+Each card's `## Validação em dev` was written as a checklist whose items start with `[comando]` or
+`[humano]`. At the train, the session runs what a command can run and puts to the human only what needs
+a person. It runs after the train PR is open and before the merge.
+
+1. For every card of the train, and every PR of it (`prs` in the `trem.mjs cards` output):
+   `node <skill-dir>/trem.mjs itens --repo <owner>/<repo> --pr <n>` → `{tipo, texto, comando, esperado}`.
+   A PR whose body has no such section yields no items; say so, per card.
+2. **`comando` items run in the session**, in a detached worktree at the cut sha, so the check sees the
+   code that ships and not the working copy: `git worktree add --detach
+   <workspace>/<repo>-trem-<AAAA.MM.DD> <sha-do-corte>`, each `comando` run from inside it, then
+   `git worktree remove` and `git worktree prune` — never `--force`; a refusal is read, not overcome. The
+   **command, its output and its exit code** are pasted as a comment on the train PR, item by item. An
+   outcome different from `esperado` puts the card in the carona menu of Phase 1 (**segurar o trem** or
+   **reverter da dev**), one `AskUserQuestion` call for that card; the result is never smoothed over.
+3. **`humano` items go to the person.** The **whole** list goes in the message first — card by card, each
+   item with who validates it — and then one `AskUserQuestion` call per card, header `G5 <k>/<N>`
+   (`G5 3/12`), question and options in pt-BR:
+
+   > O card #<n> (<título>) tem <m> item(ns) que só uma pessoa confere: <os itens>. Os comandos dele já
+   > rodaram e passaram.
+   >
+   > - **Validado** — o card segue no trem de hoje.
+   > - **Segurar o trem** — nada sobe hoje, nem os outros cards: eles esperam este item.
+   > - **Reverter da dev** — o card sai do trem (`git revert` na `dev`) e o resto parte hoje.
+
+   A card with only `comando` items and every one passing needs no question. A card held or reverted
+   here leaves the train: its `no_corte` entry is dropped from the PR body, with the reason.
+
+   **Reverter da `dev` recuts the train.** The revert lands in `dev` *after* `<sha-do-corte>`, so the
+   open train still carries the reverted code. The new cut is the `origin/dev` sha that has the revert;
+   it descends from the old one, so `git push origin <novo-corte>:refs/heads/release/v<AAAA.MM.DD>` is a
+   fast-forward (never `--force`) and the same PR now carries it. From there, `<sha-do-corte>` means the
+   new cut everywhere below — the merge lock of Phase 5 and the check of Phase 7 included — and Phase 1
+   and this phase run again on it, for the cards the new cut brings. Keep the list of reverted cards and
+   subtract it in that re-run too: `trem.mjs cards` still lists a reverted card in `no_corte`, because
+   the revert does not remove its merge commit from the history — Phase 7 subtracts it the same way.
+   When the new cut brings cards the approved body did not list, the train grew: the body goes back to
+   the *artefato* approval of Phase 4 before the merge, never merged on the old approval.
+4. No human in the session → `PARADA` with the full list of `humano` items; the `comando` results are
+   already on the PR.
+
 ## Phase 5 — Merge, deploy, verify
 
-1. The merge is this skill's point of no return, so it goes to the human by the *ação irreversível* set from `## Como perguntar e como aprovar`: header `Merge` (12-character cap), options in pt-BR, and the physical consequence written into each `description` — never a bare verb.
+1. The merge is this skill's point of no return, so it goes to the human by the *ação irreversível* set from `## Como perguntar e como aprovar`: header `Merge`, options in pt-BR, and the physical consequence written into each `description` — never a bare verb.
 
    > - **Mergear e subir** — o faturamento passa a rodar este código em minutos: o merge em `main`
    >   dispara o `deploy.yml` sozinho e as migrations rodam no boot do contêiner. **Não existe passo
@@ -208,9 +267,12 @@ The body is the artifact, and it is the only place where what ships today is wri
    >   trem parte outro dia.
 
    Only *Mergear e subir* continues to step 2.
-2. Follow it: `gh run list --repo <owner>/<repo> --branch main --limit 3` and the deploy job's logs.
-3. **Smoke, always:** the API answers, the web loads, migrations applied (compare the latest `prisma/migrations` folder against `_prisma_migrations` in the prod database).
-4. **Blocking verification, for every sensitive card:** run the `## Verificação pós-deploy` query from its spec against production and paste the output as a comment on the card.
+2. Merge the train PR **locked to the cut**:
+   `gh pr merge <pr> --repo <owner>/<repo> --merge --match-head-commit <sha-do-corte>` — if the PR head is
+   not the sha that was validated, the merge refuses instead of shipping something nobody checked.
+3. Follow it: `gh run list --repo <owner>/<repo> --branch main --limit 3` and the deploy job's logs.
+4. **Smoke, always:** the API answers, the web loads, migrations applied (compare the latest `prisma/migrations` folder against `_prisma_migrations` in the prod database).
+5. **Blocking verification, for every sensitive card:** run the `## Verificação pós-deploy` query from its spec against production and paste the output as a comment on the card.
    - Red → **stop the closing ritual**: no tag, no notes, no card moved to ✅ Produção. The code is
      already in production by now, so the question is not whether to act but which way out — what the
      query returned goes in the message, against what the spec expected, and then one
@@ -281,7 +343,13 @@ Use calver (`v<AAAA.MM.DD>`) from the real date — read it with `date +%Y.%m.%d
 
 ## Phase 7 — Close the board
 
-For each card in the train:
+The cards to close are the ones the code says shipped, not the ones the message remembers:
+`node <skill-dir>/trem.mjs cards --repo <owner>/<repo> --project <project> --owner <owner> --main` after
+the merge of Phase 5 — its `no_corte` is every card whose PRs are all in `origin/main`. Minus the cards
+reverted in Phase 4b, **subtracted by hand from the list kept there**: a revert does not remove the
+merge commit from the history, so `trem.mjs --main` still lists a reverted card in `no_corte`.
+
+For each of them:
 
 ```
 gh project item-edit --project-id <project-id> --id <item-id> \
@@ -292,7 +360,24 @@ gh issue close <n> --repo <owner>/<repo> --reason completed \
   --comment "Subiu em produção na v<AAAA.MM.DD> — <link da release>. Verificação: <resultado>."
 ```
 
-Cards held back stay in 🚂 Release with a comment saying why and what they are waiting for. A card parked without a stated reason is exactly the metadata rot that made 39 cards unreadable.
+An **epic** whose sub-issues are now all closed is closed too and goes to ✅ Produção, with the same
+`Release`; one with a sub-issue still open stays where it is.
+
+Cards held back leave the train, stay in 🚂 Release, and get a comment saying why and what they are waiting for. A card parked without a stated reason is exactly the metadata rot that made 39 cards unreadable. A held card does not count against the check below.
+
+**The check, recorded.** After closing, measure what the train actually carried and write it in the closing
+comment of the train PR:
+
+```
+git fetch origin
+git rev-list --count origin/main..<sha-do-corte>      # tem de ser 0: tudo o que foi validado subiu
+git rev-list --count origin/main..origin/dev          # o que vai no próximo trem
+```
+
+Record them as `main..corte = 0` and `main..dev = <n>`. A first number other than `0` → `PARADA` with the
+commits (`git log origin/main..<sha-do-corte>`): the train did not carry what was validated, and the
+board must not say it did. The goal of the phase is **0 cards of the train outside ✅ Produção** and all
+their issues closed; re-run `trem.mjs cards --main` and confirm `fora` holds only the held cards.
 
 ## Phase 8 — Notify the requesters
 
@@ -335,7 +420,8 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
    `PARADA: <what the CLAUDE.md must declare>`.
 4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
    schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
-   was done and close with `PROXIMO` or `PARADA`.
+   was done and close with `PROXIMO` or `PARADA`. (The `/gm-frente` conductor is a separate process,
+   and it is the one that waits for CI and for the sessions.)
 
 ## Modo despachado
 
@@ -362,8 +448,11 @@ naming it.
 | Escolha de produto que card, spec, argumento e decisões registradas não respondem | qualquer | **para** |
 | Desvio da spec, decisão que caiu, emenda | `gm-implement`, `gm-ship`, `gm-correcao` | **para** |
 | Teste vermelho, ambiente quebrado, `CLAUDE.md` que não declara o que a skill exige | qualquer | **para**, com a saída que prova |
-| Merge, `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
-| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** |
+| Merge na dev da PR do próprio card | `gm-ship` · `Merge dev` | **decide** quando o `merge-dev.mjs` devolve `pode: true`; spec sensível ou condição falhando: para, dizendo qual |
+| Base da PR em branch de outro card | `gm-implement`, `gm-ship` | **decide**: base `dev`; outra só com `Motivo da base:` na spec |
+| Remover worktree e branch de task que a frente criou, depois de juntá-la | `gm-frente` | **decide**: `git worktree remove` sem `--force`, `git branch -d` |
+| Merge na `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
+| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** — o condutor do `/gm-frente` é processo à parte, e é ele quem espera o CI e as sessões |
 | Perguntar o que o card, a spec, o argumento ou o cofre já respondem | qualquer | **não pergunta** — lê |
 | Devolver comando `/gm-*` para alguém digitar | qualquer | **não faz** — vai na linha `PROXIMO:` |
 

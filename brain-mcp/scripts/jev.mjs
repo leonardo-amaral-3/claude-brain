@@ -151,9 +151,9 @@ function filho(argumentos, env, entrada) {
 
 // ---- T4: roteiro e variacoes do falso ------------------------------------------------------
 {
-  const { writeFileSync, mkdtempSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
   const pasta = mkdtempSync(join(tmpdir(), "jev-teste-"));
+  // apagada na saida, tambem quando um confere falha: process.exit nao roda finally
+  process.on("exit", () => rmSync(pasta, { recursive: true, force: true }));
   const roteiro = join(pasta, "roteiro.json");
   const escreve = (conteudo) => writeFileSync(roteiro, typeof conteudo === "string" ? conteudo : JSON.stringify(conteudo));
   const em = (falso) => ({ uso: "contexto", env: { BRAIN_JEV: "contexto", BRAIN_JEV_FALSO: falso } });

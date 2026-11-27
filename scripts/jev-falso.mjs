@@ -19,6 +19,7 @@ const PALAVRAS_CHAVE = [
   { palavra: "produto", id: "escolha-de-produto", probabilidade: 0.9 },
   { palavra: "desvio", id: "desvio-de-spec", probabilidade: 0.9 },
   { palavra: "vermelho", id: "teste-vermelho", probabilidade: 0.95 },
+  { palavra: "spec sensível", id: "gate-aberto", probabilidade: 0.9 }, // antes de "merge": a PARADA do merge na dev
   { palavra: "merge", id: "producao", probabilidade: 0.97 },
   { palavra: "gate", id: "gate-aberto", probabilidade: 0.9 },
 ];

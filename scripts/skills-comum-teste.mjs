@@ -104,5 +104,85 @@ function regiao(linhas, cabecalho) {
   }
 }
 
+// Cenário 3 — bloco opcional: só as skills que já têm o cabeçalho o recebem, e sem "todos ou nenhum".
+{
+  console.log("cenário 3: bloco opcional carimbado só onde há o cabeçalho");
+  const dir = copiaTemporaria();
+  try {
+    const cab = "## Ambiente na entrada";
+    const fonte = join(dir, "skills", "_comum", "opcionais.md");
+    writeFileSync(fonte, readFileSync(fonte, "utf8").replace(/\n*$/, "\n\nLinha nova do bloco opcional.\n"));
+    const antes = Object.fromEntries(nomesSkills(dir).map((n) => [n, ler(dir, n)]));
+    const comCab = nomesSkills(dir).filter((n) => antes[n].split("\n").includes(cab));
+    afirmar(comCab.length >= 2 && comCab.includes("gm-ship") && comCab.includes("gm-correcao"),
+      `o cabeçalho está em ${comCab.join(", ")}`);
+
+    const c = rodar(dir, "--check");
+    afirmar(c.codigo === 1 && /gm-ship · Ambiente na entrada · divergente/.test(c.saida), `--check acusa o opcional divergente (saiu ${c.codigo})`);
+    const r = rodar(dir);
+    afirmar(r.codigo === 0, `carimbo sai 0 (saiu ${r.codigo})`);
+    for (const n of nomesSkills(dir)) {
+      const texto = ler(dir, n);
+      if (comCab.includes(n)) {
+        afirmar(texto.includes("Linha nova do bloco opcional.") && ocorrencias(texto, cab) === 1, `${n} recebeu o opcional uma vez`);
+      } else {
+        afirmar(texto === antes[n] && !texto.includes("Linha nova do bloco opcional."), `${n} sem o cabeçalho ficou intacta`);
+      }
+    }
+    afirmar(rodar(dir, "--check").codigo === 0, "--check sai 0 depois do carimbo");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Cenário 4 — o mesmo cabeçalho nas duas fontes é erro de leitura (código 2), e nada é escrito.
+{
+  console.log("cenário 4: cabeçalho nas duas fontes → 2");
+  const dir = copiaTemporaria();
+  try {
+    const fonte = join(dir, "skills", "_comum", "convencoes.md");
+    writeFileSync(fonte, readFileSync(fonte, "utf8").replace(/\n*$/, "\n\n## Ambiente na entrada\n\nduplicado\n"));
+    const antes = Object.fromEntries(nomesSkills(dir).map((n) => [n, ler(dir, n)]));
+    for (const args of [[], ["--check"]]) {
+      const r = rodar(dir, ...args);
+      afirmar(r.codigo === 2 && /uma fonte só/.test(r.saida), `${args[0] ?? "carimbo"} sai 2 nomeando o cabeçalho (saiu ${r.codigo})`);
+    }
+    afirmar(nomesSkills(dir).every((n) => ler(dir, n) === antes[n]), "nenhuma skill foi escrita");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Cenário 5 — trecho de 9 palavras de uma fonte repetido à mão fora dos blocos → --check sai 1.
+{
+  console.log("cenário 5: trecho duplicado fora do bloco → 1");
+  const dir = copiaTemporaria();
+  try {
+    afirmar(rodar(dir, "--check").codigo === 0, "ponto de partida: --check sai 0");
+    const fontes = [
+      ["convencoes.md", "No batching, no `multiSelect`. Each answer arrives with the previous ones already settled"],
+      ["opcionais.md", "Before the first test, build or commit — a broken environment found halfway costs the minutes"],
+    ];
+    for (const [arquivo, frase] of fontes) {
+      const original = ler(dir, "gm-explore");
+      escrever(dir, "gm-explore", original.replace(/\n*$/, `\n\n## Notas\n\nlinha anterior\n${frase}\n`));
+      const c = rodar(dir, "--check");
+      const linha = ler(dir, "gm-explore").split("\n").findIndex((l) => l === frase) + 1;
+      afirmar(c.codigo === 1, `trecho de ${arquivo} repetido → --check sai 1 (saiu ${c.codigo})`);
+      afirmar(c.saida.includes(`skills/gm-explore/SKILL.md:${linha} `) && c.saida.includes(arquivo),
+        `acusa skill:linha (${linha}) e a fonte ${arquivo}`);
+      escrever(dir, "gm-explore", original);
+    }
+    // 8 palavras seguidas não acusam; a formatação (crases, negrito, caixa) não esconde a repetição.
+    const original = ler(dir, "gm-explore");
+    escrever(dir, "gm-explore", original.replace(/\n*$/, "\n\n## Notas\n\nNo batching, no multiSelect. Each answer arrives with\n"));
+    afirmar(rodar(dir, "--check").codigo === 0, "8 palavras seguidas não acusam");
+    escrever(dir, "gm-explore", original.replace(/\n*$/, "\n\n## Notas\n\n**NO BATCHING**, `no multiSelect`. _Each_ answer arrives with the previous ones already\n"));
+    afirmar(rodar(dir, "--check").codigo === 1, "caixa, crases e negrito não escondem o trecho");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 console.log(falhas === 0 ? "todos os cenários passam" : `${falhas} afirmação(ões) falharam`);
 process.exit(falhas === 0 ? 0 : 1);

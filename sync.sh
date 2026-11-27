@@ -10,6 +10,12 @@
 # A instalacao e uma so e as worktrees sao varias. O push anota em ~/.claude/brain-sync-origem.txt
 # de qual pasta e branch ele veio, e pergunta antes de sobrescrever a instalacao de outra origem.
 #
+# O CLAUDE.md do workspace (workspaces/pessoal/CLAUDE.md, so quando a pasta acima do repo se chama
+# `pessoal`) e MONTADO, nao copiado: o repo guarda so a parte generica, com uma linha marcadora, e o
+# `push` instala generico + CLAUDE.privado.md (local, nunca versionado, na pasta do workspace, ao
+# lado do CLAUDE.md instalado) no lugar da marcadora. O `pull` faz o inverso e nunca escreve o
+# privado; o `status` compara so a parte generica.
+#
 # Nunca entra na sincronia: brain.config.json, ~/.claude/brain-workspaces.json, o proprio
 # brain-sync-origem.txt (pessoais de cada maquina) e a pasta data/ (o indice, que se reconstroi).
 set -euo pipefail
@@ -112,6 +118,99 @@ relativos() {
 
 soma() { [ -f "$1" ] && (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1 || echo ''; }
 
+# ------------------------------------------------- CLAUDE.md do workspace: generico no repo, privado local
+# O repo e publico; o CLAUDE.md instalado tem coordenadas do repo privado. @import nao serve (e
+# ignorado em silencio em subpasta e worktree), entao o push monta e o pull desmonta.
+WS_ATIVO=0
+WS_DIR="$(dirname "$REPO")"
+[ "$(basename "$WS_DIR")" = pessoal ] && WS_ATIVO=1
+WS_REPO="$REPO/workspaces/pessoal/CLAUDE.md"
+WS_VIVO="$WS_DIR/CLAUDE.md"
+WS_PRIV="$WS_DIR/CLAUDE.privado.md"
+WS_MARCA='<!-- privado: CLAUDE.privado.md entra aqui -->'
+WS_INI='<!-- privado:inicio CLAUDE.privado.md (edite o arquivo local e rode sync push, nao aqui) -->'
+WS_FIM='<!-- privado:fim -->'
+WS_TMP="$(mktemp -d)"
+trap 'rm -rf "$WS_TMP"' EXIT
+aviso() { echo "aviso: $*" >&2; }
+
+# Instalado -> generico: troca o bloco inicio..fim pela marcadora. Sem bloco, devolve como esta.
+# Codigo 2 quando o bloco esta torto (orfao, repetido, fim antes do inicio).
+ws_desmonta() {
+  local f="$1" ini fim
+  ini="$(grep -c '^<!-- privado:inicio ' "$f" || true)"
+  fim="$(grep -cx '<!-- privado:fim -->' "$f" || true)"
+  if [ "$ini" -eq 0 ] && [ "$fim" -eq 0 ]; then cat "$f"; return 0; fi
+  [ "$ini" -eq 1 ] && [ "$fim" -eq 1 ] || return 2
+  awk -v m="$WS_MARCA" '
+    /^<!-- privado:inicio /     { if (s || d) bad = 1; s = 1; print m; next }
+    $0 == "<!-- privado:fim -->" { if (!s || d) bad = 1; d = 1; s = 0; next }
+    !s                          { print }
+    END                         { exit bad ? 2 : 0 }' "$f"
+}
+
+# O miolo do bloco privado instalado (entre os delimitadores, sem eles).
+ws_miolo() {
+  awk '$0 == "<!-- privado:fim -->" { s = 0 } s { print } /^<!-- privado:inicio / { s = 1 }' "$1"
+}
+
+# Generico + privado -> instalado: a marcadora vira inicio, o conteudo do privado e fim.
+ws_monta() {
+  awk -v m="$WS_MARCA" -v i="$WS_INI" -v f="$WS_FIM" -v priv="$WS_PRIV" '
+    $0 == m && !feito { print i; while ((getline l < priv) > 0) print l; print f; feito = 1; next }
+    { print }' "$1"
+}
+
+# Prepara o que as acoes precisam: o generico desmontado do instalado e (no push) o instalado esperado.
+WS_DESMONTADO=""; WS_ESPERADO=""; WS_RC_DESMONTA=0; WS_TEM_PRIV=0; WS_SEM_MARCA=0
+if [ "$WS_ATIVO" -eq 1 ] && [ -f "$WS_REPO" ]; then
+  [ -f "$WS_PRIV" ] && WS_TEM_PRIV=1
+  if [ -f "$WS_VIVO" ]; then
+    WS_DESMONTADO="$WS_TMP/desmontado.md"
+    ws_desmonta "$WS_VIVO" > "$WS_DESMONTADO" || WS_RC_DESMONTA=$?
+  fi
+  if [ "$ACAO" = push ]; then
+    WS_ESPERADO="$WS_TMP/esperado.md"
+    nmarca="$(grep -cx "$WS_MARCA" "$WS_REPO" || true)"
+    if [ "$WS_TEM_PRIV" -eq 0 ]; then
+      aviso "nao achei $WS_PRIV: o CLAUDE.md instalado leva so a parte generica."
+      cp "$WS_REPO" "$WS_ESPERADO"
+    elif [ "$nmarca" -ne 1 ]; then
+      aviso "workspaces/pessoal/CLAUDE.md tem $nmarca linhas marcadoras (esperada: 1): instalando o generico sem o privado."
+      cp "$WS_REPO" "$WS_ESPERADO"
+    else
+      ws_monta "$WS_REPO" > "$WS_ESPERADO"
+    fi
+  fi
+  # Instalado sem bloco privado e sem marcadora (o CLAUDE.md antigo, inteiro, ou editado a mao):
+  # nao ha como saber o que nele e privado. Diferente do repo, o pull recusa e o status avisa.
+  if [ -n "$WS_DESMONTADO" ] && [ "$WS_RC_DESMONTA" -eq 0 ] \
+     && ! grep -q '^<!-- privado:inicio ' "$WS_VIVO" && ! grep -qxF "$WS_MARCA" "$WS_VIVO" \
+     && ! cmp -s "$WS_REPO" "$WS_VIVO"; then
+    WS_SEM_MARCA=1
+  fi
+  if [ "$ACAO" = pull ] && [ "$WS_SEM_MARCA" -eq 1 ]; then
+    echo "erro: $WS_VIVO nao tem bloco privado nem linha marcadora; sem eles nao da para separar o que e privado. Nada foi escrito (rode push primeiro ou edite o repo)." >&2
+    exit 2
+  fi
+  # Delimitador torto no instalado: o pull nao tem como desmontar e nao escreve nada.
+  if [ "$ACAO" = pull ] && [ "$WS_RC_DESMONTA" -eq 2 ]; then
+    echo "erro: $WS_VIVO tem delimitador privado:inicio/privado:fim orfao ou repetido; nada foi escrito." >&2
+    exit 2
+  fi
+  # Bloco privado instalado diferente do arquivo local: o pull/status avisam, o push resolve.
+  if [ "$ACAO" != push ] && [ -f "$WS_VIVO" ] && [ "$WS_RC_DESMONTA" -eq 0 ] && grep -q '^<!-- privado:inicio ' "$WS_VIVO"; then
+    ws_miolo "$WS_VIVO" > "$WS_TMP/miolo.md"
+    if [ "$WS_TEM_PRIV" -eq 0 ] || ! awk 1 "$WS_PRIV" | cmp -s - "$WS_TMP/miolo.md"; then
+      if [ "$ACAO" = pull ]; then
+        aviso "o bloco privado instalado difere de $WS_PRIV; essa edicao nao volta a lugar nenhum (o pull nunca escreve o privado)."
+      else
+        aviso "o bloco privado instalado esta defasado em relacao a $WS_PRIV (nao conta como diferenca; rode push)."
+      fi
+    fi
+  fi
+fi
+
 difs=()
 for par in "${pares[@]}"; do
   origem="${par%%::*}"; resto="${par#*::}"
@@ -122,6 +221,22 @@ for par in "${pares[@]}"; do
     difs+=("$origem/$rel::$vivo/$rel")
   done < <( { relativos "$origem" "$lista"; relativos "$vivo" "$lista"; } | sort -u )
 done
+
+if [ "$WS_ATIVO" -eq 1 ] && [ -f "$WS_REPO" ]; then
+  if [ "$ACAO" = push ]; then
+    [ "$(soma "$WS_ESPERADO")" = "$(soma "$WS_VIVO")" ] || difs+=("$WS_REPO::$WS_VIVO")
+  elif [ -z "$WS_DESMONTADO" ]; then
+    difs+=("$WS_REPO::$WS_VIVO")
+  elif [ "$WS_RC_DESMONTA" -eq 2 ]; then
+    aviso "$WS_VIVO tem delimitador privado orfao ou repetido: o par entra na lista, mas nao da para desmontar."
+    difs+=("$WS_REPO::$WS_VIVO")
+  elif [ "$WS_SEM_MARCA" -eq 1 ]; then
+    aviso "$WS_VIVO nao tem bloco privado nem linha marcadora: o par entra na lista, mas o pull recusa (rode push)."
+    difs+=("$WS_REPO::$WS_VIVO")
+  else
+    [ "$(soma "$WS_REPO")" = "$(soma "$WS_DESMONTADO")" ] || difs+=("$WS_REPO::$WS_VIVO")
+  fi
+fi
 
 if [ "$ACAO" = status ]; then
   if [ ${#difs[@]} -eq 0 ]; then echo 'Tudo igual entre repo e maquina.'; else
@@ -214,7 +329,11 @@ n=0
 for d in "${difs[@]}"; do
   a="${d%%::*}"; b="${d#*::}"
   if [ "$ACAO" = pull ]; then de="$b"; para="$a"; else de="$a"; para="$b"; fi
-  [ -f "$de" ] || { echo "  ? $(basename "$de"): nao existe na origem, pulado"; continue; }
+  if [ "$WS_ATIVO" -eq 1 ] && [ "$a" = "$WS_REPO" ]; then
+    # o par do workspace nao e copia: push instala o montado, pull devolve o desmontado
+    if [ "$ACAO" = pull ]; then de="$WS_DESMONTADO"; else de="$WS_ESPERADO"; fi
+  fi
+  [ -n "$de" ] && [ -f "$de" ] || { echo "  ? $(basename "$a"): nao existe na origem, pulado"; continue; }
   mkdir -p "$(dirname "$para")"
   cp "$de" "$para"
   echo "  + $para"

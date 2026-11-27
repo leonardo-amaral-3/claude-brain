@@ -1,0 +1,59 @@
+{
+  "rodadas": [
+    {
+      "data": "2026-11-27T14:32:18.862Z",
+      "sha256": "9a63a7044bb8dd6d2d874cd90361d9c99c99a88ceb2e8747fbcd003e5d5fc4c8",
+      "autor": {
+        "dado": "nao",
+        "faturamento": "nao",
+        "deploy": "nao",
+        "migration": "nao"
+      },
+      "cliente": "<CLAUDE_HOME>/hooks/jev.js",
+      "categorias": {
+        "dado": {
+          "motivos": [
+            "confianca-baixa"
+          ],
+          "jev": {
+            "estado": "ok",
+            "resposta": "nao",
+            "confianca": 0.87
+          }
+        },
+        "faturamento": {
+          "motivos": [],
+          "jev": {
+            "estado": "ok",
+            "resposta": "nao",
+            "confianca": 0.98
+          }
+        },
+        "deploy": {
+          "motivos": [],
+          "jev": {
+            "estado": "ok",
+            "resposta": "nao",
+            "confianca": 0.97
+          }
+        },
+        "migration": {
+          "motivos": [],
+          "jev": {
+            "estado": "ok",
+            "resposta": "nao",
+            "confianca": 0.97
+          }
+        }
+      }
+    }
+  ],
+  "uniao": {
+    "dado": [
+      "confianca-baixa"
+    ],
+    "faturamento": [],
+    "deploy": [],
+    "migration": []
+  }
+}

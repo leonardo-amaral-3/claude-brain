@@ -57,8 +57,8 @@ esta seção, nunca a skill. (São as coordenadas do board do mantenedor; quem c
 
 ## A esteira
 
-A mesma rota completa e os mesmos 5 gates da norma
-(`../../notoria/planning/fluxo-gm-desenvolvimento.md`), com os **mesmos deltas do workspace
+A mesma rota completa e os mesmos 5 gates, descritos em `docs/esteira-gm.md` › `## O caminho` (a
+norma antiga, que ficava fora deste repo, não existe mais nesta máquina), com os **mesmos deltas do workspace
 `pessoal`** — G2 sem segundo humano, release sem trem semanal, G4 só com revisão de IA — e mais
 **três** que são deste repo:
 
@@ -77,11 +77,19 @@ A mesma rota completa e os mesmos 5 gates da norma
    `brain-mcp/README.md`, `## Qualidade da busca`.
 3. **Toda mudança em `skills/` fecha com os blocos comuns provados.** Os três blocos `## Como
    perguntar e como aprovar`, `## Convenções de saída` e `## Modo despachado` são carimbados de `skills/_comum/convencoes.md` por
-   `node scripts/skills-comum.mjs`; a suíte relevante para a precondição 4 do `/gm-ship` é
+   `node scripts/skills-comum.mjs` (e os blocos que só valem para algumas skills, de
+   `skills/_comum/opcionais.md`, onde a skill já tem o cabeçalho); a suíte relevante para a precondição 4 do `/gm-ship` é
    `node scripts/skills-comum.mjs --check`. Código `1` é **vermelho**: a PR não abre. Mudou um bloco?
    Edite a fonte e rode o script sem `--check`; nunca a cópia. Mudou `skills/gm-triage/`? A suíte
    soma `node scripts/gm-triage-jev-teste.mjs`. Mudou `skills/gm-spec/sensivel.mjs`? A suíte inclui
    também `node scripts/gm-spec-sensivel-teste.mjs`; código `1` é **vermelho**.
+
+   Os testes da esteira em paralelo entram pelo que a mudança toca, todos com código `1`
+   **vermelho** e nenhum chama `claude` nem `gh` de verdade: mudou `scripts/skills-comum.mjs` ou
+   `skills/_comum/` → `node scripts/skills-comum-teste.mjs`; mudou `skills/gm-frente/` →
+   `node scripts/gm-frente-teste.mjs`; mudou `skills/gm-ship/merge-dev.mjs` ou
+   `skills/gm-spec/sensivel.mjs` → `node scripts/gm-ship-merge-teste.mjs`; mudou
+   `skills/gm-release/trem.mjs` → `node scripts/gm-release-trem-teste.mjs`.
 
    Mudou a tabela do `## Modo despachado` em `skills/_comum/convencoes.md`, o `hooks/jev.js`, ou um
    dos `scripts/classificar-parada.mjs`, `scripts/classificar-parada-teste.mjs` e
@@ -119,7 +127,7 @@ principal — a regra e o porquê estão em `docs/esteira-gm.md`, `## Uma worktr
   que o código não conta. Leia antes de abrir `brain-mcp/src/` (ou busque com `source: "mapa"`)
 - `brain-mcp/` — o servidor MCP (`src/`) e os `scripts/`: smoke, concorrência, eval e a colheita do
   golden set, uso e o replay de prompts contra o hook de contexto
-- `skills/` — uma pasta por skill — e `skills/_comum/convencoes.md`, a fonte dos blocos comuns,
+- `skills/` — uma pasta por skill — e `skills/_comum/convencoes.md` e `skills/_comum/opcionais.md`, as fontes dos blocos comuns,
   carimbada por `scripts/skills-comum.mjs`; `hooks/` — os três hooks (`SessionStart`,
   `UserPromptSubmit`, `SessionEnd`), o enriquecedor do diário que o `SessionEnd` dispara e o
   `brain-config.js` comum

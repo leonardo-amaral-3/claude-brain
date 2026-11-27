@@ -243,9 +243,10 @@ Uma estação por vez, cada uma com um portão explícito. Detalhe completo em
 | `/gm-spec` | 🎯 a especificação única — requisitos + técnica, com crítica adversarial e aprovação humana |
 | `/gm-plan-tasks` | 🎯 spec vira 6-8 tasks independentes, cada uma um prompt completo |
 | `/gm-implement` | 🔨 executa **uma** task: branch certo, testes antes de apresentar, commit só após aprovação |
-| `/gm-ship` | 👀 fecha o loop: suíte completa, PR com o contrato de aceite, card para revisão |
+| `/gm-ship` | 👀 fecha o loop: suíte completa, G4 de IA, PR com o contrato de aceite e, com as condições verdes, merge na dev |
 | `/gm-correcao` | 👀 parecer do review vira decisão registrada — corrigido, refutado ou promovido a card |
-| `/gm-release` | 🚂 o trem: fila validada → PR dev→main → tag calver → notas de release |
+| `/gm-release` | 🚂 o trem: fila no corte → G5 por trem → PR do corte → main → tag calver → notas de release |
+| `/gm-frente` | conduz um card ou épico pela esteira inteira, em ondas e fases paralelas, até a PR na dev (`<owner>/<repo>#<n>` + a entrega em palavras) |
 | `/gm-hotfix` | 🔴 trilho expedite para S1 real, com branch a partir de `main` |
 | `/gm-explore` | investigação read-only: "como isso funciona hoje?", com evidência `arquivo:linha` |
 

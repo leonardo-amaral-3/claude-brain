@@ -150,8 +150,8 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
 
 ## Corrigir
 
-0. **A worktree primeiro, antes de tocar em arquivo.** O `/gm-ship` apagou a worktree do card ao
-   abrir a PR, e o checkout principal não é lugar de card — corrigir ali fura a mesma regra que o
+0. **A worktree primeiro, antes de tocar em arquivo.** O `/gm-ship` só apaga a worktree do card depois
+   do merge, mas ela pode ter sido apagada por outro caminho, e o checkout principal não é lugar de card — corrigir ali fura a mesma regra que o
    `gm-implement` aplica. Recrie-a pela convenção, com `<n>` vindo do `**Card:** #<n>` da primeira
    linha da PR e `<slug>` do nome da branch:
 
@@ -170,6 +170,13 @@ Uma sugestão (não-bug) só vira commit se fechar critério de aceite; senão r
    ou quando o item não existe. Vermelho → parar e mostrar.
 3. Push na mesma branch. **Não** alternar draft→ready: isso redispara a revisão inteira e queima
    cota. A regra é **uma revisão por PR e um `/gm-correcao`**: não peça re-revisão (nem mencionando `@claude`).
+4. **Todo push numa PR aberta fecha com o G4 de novo.** Depois do push: o portão local (o do passo 2,
+   no head novo) e o `## G4 — revisão de IA` do `gm-ship` sobre o intervalo **novo** — o que o push
+   acrescentou, não a PR inteira —, com o mesmo agente independente e o mesmo tratamento (corrige ou
+   refuta, com o porquê). Depois o comentário `<!-- gm:g4 -->` da PR é **atualizado**: `Head final` e
+   `Portão local` passam a ser os do head novo, e os achados novos entram na tabela. É isso que mantém
+   a condição `g4` do `merge-dev.mjs` verdadeira depois de uma correção; sem a atualização o merge para
+   por `Head final` velho. Um achado do G4 que pede outro commit repete o passo.
 
 ## Responder na PR
 
@@ -208,13 +215,20 @@ E um comentário-resumo, sticky por `<!-- gm:correcao -->` (create-or-update pel
   nota datada — a spec nunca pode virar ficção histórica.
 - Grave com `mcp__brain__lembrar` **na hora** todo achado refutado e todo desvio: por que não
   procedia, ou o que a spec passou a dizer. Achado refutado sem registro volta na próxima revisão.
-- **A worktree sai como entrou.** Commits empurrados e inlines respondidos, saia dela e rode
+- **A worktree fica de pé.** A passada seguinte, `/gm-ship <pasta> --card <n> --merge`, roda nela, e é
+  ela que a apaga depois do merge (`## Fechar a worktree` do `gm-ship`). Se esta sessão a recriou no
+  passo 0 e o card **não** vai ao merge (humano pediu para parar), saia dela e rode
   `git worktree remove <workspace>/<repo>-<n>-<slug>` mais `git worktree prune`. Recusa por arquivo
   não commitado é para ser lida, nunca vencida com `--force` — é correção que não subiu.
 
 ## Report
 
 Tabela dos achados com a decisão de cada um, os commits, o resultado da suíte, e os cards abertos.
+
+Fechamento: com o parecer tratado, o push feito e o `gm:g4` atualizado, a última linha é
+`PROXIMO: /gm-ship <pasta> --card <n> --merge` — a passada que confere as condições e faz o merge na
+`dev` (`merge-dev.mjs`). Parecer que deixou algo para o humano (desvio, achado que virou card sem
+decisão) → `PARADA` com o que falta.
 
 Depois diga o que falta: PR pronta para a validação humana → merge em `dev` → o card vai para
 🧪 Validação em Dev, onde uma **pessoa nomeada** roda o checklist da PR (SLA 7 dias). Validado em dev → este Report não fecha o card, porque nada roda no momento da validação: quem recebe o "validado" da pessoa fecha (`gh issue close <n> --repo <owner>/<repo> --reason completed`). O card **fica em 🧪 Validação em Dev** (não espera 🚂 Release, ✅ Produção nem `/gm-release`), mas o workflow *Item closed* do board, se ligado, pode movê-lo ao fechar: releia o Status depois e, se mudou, devolva com `updateProjectV2ItemFieldValue` (id da opção Status no `CLAUDE.md` do workspace). Se algum achado
@@ -247,7 +261,8 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
    `PARADA: <what the CLAUDE.md must declare>`.
 4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
    schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
-   was done and close with `PROXIMO` or `PARADA`.
+   was done and close with `PROXIMO` or `PARADA`. (The `/gm-frente` conductor is a separate process,
+   and it is the one that waits for CI and for the sessions.)
 
 ## Modo despachado
 
@@ -274,8 +289,11 @@ naming it.
 | Escolha de produto que card, spec, argumento e decisões registradas não respondem | qualquer | **para** |
 | Desvio da spec, decisão que caiu, emenda | `gm-implement`, `gm-ship`, `gm-correcao` | **para** |
 | Teste vermelho, ambiente quebrado, `CLAUDE.md` que não declara o que a skill exige | qualquer | **para**, com a saída que prova |
-| Merge, `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
-| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** |
+| Merge na dev da PR do próprio card | `gm-ship` · `Merge dev` | **decide** quando o `merge-dev.mjs` devolve `pode: true`; spec sensível ou condição falhando: para, dizendo qual |
+| Base da PR em branch de outro card | `gm-implement`, `gm-ship` | **decide**: base `dev`; outra só com `Motivo da base:` na spec |
+| Remover worktree e branch de task que a frente criou, depois de juntá-la | `gm-frente` | **decide**: `git worktree remove` sem `--force`, `git branch -d` |
+| Merge na `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
+| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** — o condutor do `/gm-frente` é processo à parte, e é ele quem espera o CI e as sessões |
 | Perguntar o que o card, a spec, o argumento ou o cofre já respondem | qualquer | **não pergunta** — lê |
 | Devolver comando `/gm-*` para alguém digitar | qualquer | **não faz** — vai na linha `PROXIMO:` |
 
