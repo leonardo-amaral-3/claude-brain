@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `merge-dev.mjs` e o seu teste
 
