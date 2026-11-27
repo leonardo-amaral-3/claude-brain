@@ -16,8 +16,10 @@ import {
   closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const { lerPasta, validarOndas } = await import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "ondas.mjs")).href);
 
 const VERSAO = 1;
 const BATIMENTO_VIVO_MS = 90_000;
@@ -490,9 +492,22 @@ class Condutor {
     log(`condutor ${est.card} (pid ${process.pid}, paralelo ${est.paralelo})`);
     try {
       gitOk(est.checkout, "fetch", "-q", "origin");
-      const ctx = this.lerContexto();
-      const spec = this.localizarSpec(ctx.epico ? this.card.n : ctx.pai ?? this.card.n);
-      if (spec) est.spec = spec.caminho || est.spec;
+      let ctx = this.lerContexto();
+      const specN = () => (ctx.epico ? this.card.n : ctx.pai ?? this.card.n);
+      let spec = this.localizarSpec(specN());
+      if (!spec) {
+        // Estação 3: sem spec achada. A sessão `/gm-spec` roda numa worktree destacada à parte.
+        if (!(await this.estacaoSpec())) return;
+        ctx = this.lerContexto();
+        spec = this.localizarSpec(specN());
+        if (!spec) return this.parar(this.unidadeRaiz(), "/gm-spec fechou em PROXIMO mas não deixou planning/<n>-*/spec.md");
+        if (ctx.epico) {
+          const raiz = this.unidadeRaiz();
+          raiz.resultado = "pulada";
+          raiz.motivo = "épico fatiado em fases";
+        }
+      }
+      if (spec.caminho) est.spec = spec.caminho;
       this.spec = spec;
       this.atualizarUnidades(this.descobrirUnidades(ctx));
 
@@ -536,11 +551,322 @@ class Condutor {
     }
   }
 
-  // Estações e ondas: tasks 4 e 5 da F1. Até lá a unidade fica num estado com nome próprio e nunca
-  // é marcada como concluída.
-  async avaliarUnidade(u) {
-    u.estacao = "nao-avaliada";
+  // ─ sessão filha ──────────────────────────────────────────────────────────
+  // Molde fixo: nada de freio, trailer nem suíte — isso mora no `## Modo despachado` das skills e no CLAUDE.md.
+  montarPrompt({ skill, arg, u, cwd, branchTxt, spec, task }) {
+    const fase = u.pai ? `, fase do épico #${u.pai}` : "";
+    const linhas = [
+      `/gm-${skill} ${arg}`,
+      "",
+      "Argumento do despacho (gerado pelo /gm-frente; o card é o da primeira linha):",
+      `- Card ${this.card.repoCompleto}#${u.card}${fase}. Spec: ${spec}.`,
+      `- Onde trabalhar: ${cwd}, branch ${branchTxt}, base ${this.est.base}.${task ? ` Task: ${task} — só ela.` : ""}`,
+      "- Outras sessões desta frente correm ao mesmo tempo em worktrees irmãs: não toque nelas nem no checkout principal.",
+      `- Não há humano nesta sessão. ${this.entrega}`,
+    ];
+    return linhas.join("\n") + "\n";
+  }
+
+  caminhoSpec(u) {
+    if (!this.spec) return "ainda não escrita (esta sessão a escreve)";
+    return this.spec.planejamento === "repo" ? join(u.worktree, "planning", this.spec.pasta, "spec.md") : this.spec.caminho;
+  }
+
+  // Abre uma sessão filha e espera o fim. Devolve {tipo: "PROXIMO"|"PARADA"|"erro", motivo, linha}.
+  // `via`: "ship" segura também o semáforo do /gm-ship (um por repo).
+  async sessao(u, { estacao, skill, arg, cwd, branchTxt, task, taskId, via }) {
+    const prefixo = `${u.card}-${estacao}${taskId ? `-t${taskId}` : ""}`;
+    const k = u.sessoes.filter((x) => x.id.startsWith(`${prefixo}-`) && /^\d+$/.test(x.id.slice(prefixo.length + 1))).length + 1;
+    const id = `${prefixo}-${k}`;
+    const prompt = this.montarPrompt({ skill, arg, u, cwd, branchTxt, spec: this.caminhoSpec(u), task });
+    writeFileSync(join(this.dir, `prompt-${id}.txt`), prompt);
+
+    if (via === "ship") await this.ship.adquirir();
+    await this.slots.adquirir();
+    try {
+      const saida = openSync(join(this.dir, `saida-${id}.json`), "w");
+      const erro = openSync(join(this.dir, `erro-${id}.txt`), "w");
+      const args = ["-p", prompt, "--permission-mode", "auto", "--permission-prompts", "none", "--add-dir", this.dir, "--output-format", "json"];
+      const filho = spawn("claude", args, { cwd, detached: true, stdio: ["ignore", saida, erro] });
+      closeSync(saida);
+      closeSync(erro);
+      const reg = { id, pid: filho.pid, estacao, task: taskId ?? null, inicio: agora(), fim: null };
+      u.sessoes.push(reg);
+      this.salvar();
+      log(`#${u.card} abriu ${id} (pid ${filho.pid}): /gm-${skill} ${arg}`);
+
+      const limiteMs = this.est.limiteMin * 60 * 1000;
+      let estourou = false;
+      let falhou = null;
+      const terminou = new Promise((resolver) => {
+        filho.on("exit", resolver);
+        filho.on("error", (e) => {
+          falhou = e;
+          resolver();
+        });
+      });
+      let segundo = null;
+      const timer = setTimeout(() => {
+        estourou = true;
+        matarGrupo(filho.pid, "SIGTERM");
+        segundo = setTimeout(() => matarGrupo(filho.pid, "SIGKILL"), 30_000);
+      }, limiteMs);
+      await terminou;
+      clearTimeout(timer);
+      if (segundo) clearTimeout(segundo);
+      reg.fim = agora();
+      this.salvar();
+      if (falhou) return { tipo: "erro", motivo: `não consegui abrir o claude (${falhou.code || falhou.message})` };
+      if (estourou) return { tipo: "erro", motivo: `sessão excedeu ${this.est.limiteMin} min` };
+      return this.julgar(id);
+    } finally {
+      this.slots.liberar();
+      if (via === "ship") this.ship.liberar();
+    }
+  }
+
+  // Julgamento pela saída, nunca pelo código de saída (uma sessão adotada na retomada não é filha deste condutor).
+  julgar(id) {
+    const arq = join(this.dir, `saida-${id}.json`);
+    const semLinha = (quê) => ({ tipo: "erro", motivo: `saída sem linha de despacho (${quê})` });
+    if (!existsSync(arq)) return semLinha("arquivo de saída ausente");
+    let j;
+    try {
+      j = JSON.parse(readFileSync(arq, "utf8"));
+    } catch {
+      return semLinha("JSON ilegível");
+    }
+    if (j.is_error) return semLinha(`is_error verdadeiro${j.subtype ? `: ${j.subtype}` : ""}`);
+    const ultima = String(j.result ?? "").split("\n").map((l) => l.trim()).filter(Boolean).pop() || "";
+    const m = /^(PROXIMO|PARADA): (.+)$/.exec(ultima);
+    if (!m) return semLinha(`última linha: «${ultima.slice(0, 80)}»`);
+    return { tipo: m[1], motivo: m[2], linha: ultima };
+  }
+
+  // Retomada: sessão sem `fim` no estado. Com `pid` vivo, espera (até o limite contado do `inicio`);
+  // terminada, julga pela saída; sem saída nenhuma, a sessão se perdeu e a avaliação segue pelos artefatos.
+  async adotar(u, filtro = () => true) {
+    for (const s of u.sessoes.filter((x) => !x.fim && filtro(x))) {
+      const limite = s.inicio + this.est.limiteMin * 60 * 1000;
+      let estourou = false;
+      while (pidVivo(s.pid)) {
+        if (agora() > limite) {
+          estourou = true;
+          matarGrupo(s.pid, "SIGTERM");
+          await dormir(1000);
+          if (pidVivo(s.pid)) matarGrupo(s.pid, "SIGKILL");
+          break;
+        }
+        await dormir(500);
+      }
+      s.fim = agora();
+      this.salvar();
+      if (estourou) return { tipo: "erro", motivo: `sessão excedeu ${this.est.limiteMin} min` };
+      if (existsSync(join(this.dir, `saida-${s.id}.json`)) && readFileSync(join(this.dir, `saida-${s.id}.json`), "utf8").trim()) return this.julgar(s.id);
+    }
+    return null;
+  }
+
+  // PROXIMO segue; PARADA e erro param a unidade, a não ser que a PR já esteja mergeada (o /gm-ship --merge
+  // fecha em PARADA depois do merge, e aí a unidade está concluída).
+  tratar(u, res) {
+    if (res.tipo === "PROXIMO") return false;
+    const pr = this.buscarPr(u);
+    if (pr?.state === "MERGED") {
+      this.concluir(u, pr);
+      return true;
+    }
+    this.parar(u, res.tipo === "PARADA" ? res.motivo : res.motivo);
+    return true;
+  }
+  concluir(u, pr) {
+    u.pr = pr.number;
+    u.estacao = "concluida";
+    u.resultado = "concluida";
+    u.motivo = null;
+    log(`unidade #${u.card} concluída (PR #${pr.number} mergeada)`);
     this.salvar();
+  }
+
+  buscarPr(u) {
+    const lista = ghJson("pr", "list", "--repo", this.card.repoCompleto, "--head", u.branch, "--state", "all", "--json", "number,state,url,mergedAt") || [];
+    const pr = lista.find((p) => p.state === "MERGED") || lista.find((p) => p.state === "OPEN") || null;
+    if (pr) u.pr = pr.number;
+    return pr;
+  }
+
+  // Espera de CI: quem espera é o condutor, nunca uma sessão filha.
+  async esperarCi(u, pr) {
+    const passo = Number(process.env.GM_FRENTE_CI_POLL_MS) || 60_000;
+    const teto = Number(process.env.GM_FRENTE_CI_MAX_MS) || 60 * 60_000;
+    const inicio = agora();
+    for (;;) {
+      const r = gh("pr", "checks", String(pr.number), "--repo", this.card.repoCompleto, "--json", "bucket");
+      let buckets = null;
+      try {
+        buckets = JSON.parse(r.stdout).map((b) => b.bucket);
+      } catch {}
+      if (buckets === null) {
+        log(`#${u.card} sem leitura dos checks da PR #${pr.number} (${(r.stderr || "").trim().slice(0, 80)}); abro o --merge mesmo assim`);
+        return;
+      }
+      if (!buckets.includes("pending")) return;
+      if (agora() - inicio > teto) {
+        log(`#${u.card} CI ainda pendente depois de ${Math.round(teto / 60000)} min; abro o --merge mesmo assim`);
+        return;
+      }
+      u.estacao = "espera-ci";
+      this.salvar();
+      await dormir(passo);
+    }
+  }
+
+  // ─ tasks da unidade ───────────────────────────────────────────────────────
+  pastaTasks(u) {
+    const base = this.spec.planejamento === "repo" ? join(u.worktree, "planning", this.spec.pasta) : dirname(this.spec.caminho);
+    const candidatas = u.fase ? [join(base, "tasks", u.fase), join(base, "tasks")] : [join(base, "tasks")];
+    const tem = (d) => existsSync(d) && readdirSync(d).some((n) => /^\d+[a-z]*-.*\.md$/.test(n));
+    return candidatas.find(tem) || candidatas[0];
+  }
+  argTask(u, arquivo) {
+    return this.spec.planejamento === "repo" ? relative(u.worktree, arquivo).split(sep).join("/") : arquivo;
+  }
+  pastaDePlanning() {
+    return this.spec.pasta;
+  }
+
+  // ─ a avaliação ────────────────────────────────────────────────────────────
+  // Estações, de cima para baixo a cada volta; a primeira que casa vale. Retomar é avaliar de novo.
+  async avaliarUnidade(u) {
+    const pasta = this.pastaDePlanning();
+    const guardas = { plan: 0, ship: 0, merge: 0 };
+    const sessaoDe = (estacao, skill, arg, extra = {}) =>
+      this.sessao(u, { estacao, skill, arg, cwd: u.worktree, branchTxt: u.branch, ...extra });
+    for (;;) {
+      const adotada = await this.adotar(u);
+      if (adotada && this.tratar(u, adotada)) return;
+
+      // 1 e 2: a PR da branch
+      const pr = this.buscarPr(u);
+      if (pr?.state === "MERGED") return this.concluir(u, pr);
+      if (pr?.state === "OPEN") {
+        if (++guardas.merge > 3) return this.parar(u, `a PR #${pr.number} não foi mergeada depois de 3 passadas do /gm-ship --merge`);
+        await this.esperarCi(u, pr);
+        u.estacao = "ship-merge";
+        this.salvar();
+        const res = await sessaoDe("ship-merge", "ship", `${pasta} --card ${u.card} --merge`, { via: "ship" });
+        if (this.tratar(u, res)) return;
+        continue;
+      }
+
+      // 4: spec e nenhuma task na worktree
+      const dirTasks = this.pastaTasks(u);
+      let tasks = existsSync(dirTasks) ? lerPasta(dirTasks) : [];
+      if (tasks.length === 0) {
+        if (++guardas.plan > 1) return this.parar(u, "o /gm-plan-tasks fechou em PROXIMO mas não escreveu nenhuma task");
+        u.estacao = "plan-tasks";
+        this.salvar();
+        const res = await sessaoDe("plan-tasks", "plan-tasks", `${pasta} --card ${u.card}`);
+        if (this.tratar(u, res)) return;
+        this.commitarTasks(u, dirTasks);
+        continue;
+      }
+
+      // 5: tasks com ❌ → as ondas
+      const plano = validarOndas(tasks);
+      if (!plano.ok) return this.parar(u, `plano de tasks inválido: ${plano.erros.join("; ")}`);
+      const pendente = (id) => tasks.find((t) => t.id === id)?.status === "pendente";
+      const onda = plano.ondas.find((o) => o.some(pendente));
+      if (onda) {
+        u.estacao = "implement";
+        this.salvar();
+        const ids = onda.filter(pendente);
+        if (await this.executarOnda(u, pasta, dirTasks, tasks, ids)) return;
+        continue;
+      }
+
+      // 6: tudo ✅, sem PR
+      if (++guardas.ship > 1) return this.parar(u, "o /gm-ship fechou em PROXIMO mas não há PR aberta da branch");
+      u.estacao = "ship";
+      this.salvar();
+      const res = await sessaoDe("ship", "ship", `${pasta} --card ${u.card}`, { via: "ship" });
+      if (this.tratar(u, res)) return;
+    }
+  }
+
+  // Devolve true quando a unidade parou.
+  async executarOnda(u, pasta, dirTasks, tasks, ids) {
+    if (ids.length > 1) return this.parar(u, "onda com várias tasks: ainda não implementada neste condutor"), true;
+    const t = tasks.find((x) => x.id === ids[0]);
+    const arquivo = this.argTask(u, t.arquivo);
+    const res = await this.sessao(u, {
+      estacao: "implement", skill: "implement", arg: `${pasta} --card ${u.card} --branch ${u.branch} --task ${arquivo}`,
+      cwd: u.worktree, branchTxt: u.branch, task: arquivo, taskId: t.id,
+    });
+    if (this.tratar(u, res)) return true;
+    if (!this.taskFechada(u, t.arquivo)) {
+      this.parar(u, `a task ${t.id} fechou em PROXIMO mas não está ✅ no último commit da branch`);
+      return true;
+    }
+    return false;
+  }
+
+  // O ✅ tem de estar no último commit (é o que a junção e a retomada conferem).
+  taskFechada(u, arquivoAbs, ref = "HEAD", cwd = u.worktree) {
+    const rel = relative(cwd, arquivoAbs).split(sep).join("/");
+    const r = git(cwd, "show", `${ref}:${rel}`);
+    return r.status === 0 && r.stdout.startsWith("✅");
+  }
+
+  commitarTasks(u, dirTasks) {
+    if (this.spec.planejamento !== "repo" || !existsSync(dirTasks)) return;
+    const rel = relative(u.worktree, dirTasks);
+    gitOk(u.worktree, "add", "--", rel);
+    if (git(u.worktree, "diff", "--cached", "--quiet", "--", rel).status === 0) return;
+    gitOk(u.worktree, "commit", "-q", "-m", `docs(planning): tasks do #${u.card}`, "-m", `Card: #${u.card}`);
+  }
+
+  // ─ estação 3: spec ─────────────────────────────────────────────────────────
+  unidadeRaiz() {
+    let r = this.est.unidades.find((x) => x.card === this.card.n);
+    if (!r) {
+      r = { card: this.card.n, pai: null, fase: null, specRef: null, branch: null, worktree: null, estacao: "spec", resultado: null, motivo: null, pr: null, sessoes: [] };
+      this.est.unidades.push(r);
+    }
+    return r;
+  }
+
+  // `/gm-spec #<n>` numa worktree destacada em origin/<base>; depois a pasta planning/<n>-*/ sai de lá
+  // para <pasta de estado>/spec/ e a worktree é removida, limpa. Devolve false quando a frente para.
+  async estacaoSpec() {
+    const { checkout, base, workspace } = this.est;
+    const raiz = this.unidadeRaiz();
+    raiz.estacao = "spec";
+    this.salvar();
+    const wt = join(workspace, `${this.card.repo}-${this.card.n}-spec`);
+    gitOk(checkout, "fetch", "-q", "origin");
+    const listada = gitOk(checkout, "worktree", "list", "--porcelain").split("\n").some((l) => l === `worktree ${wt}`);
+    if (listada && existsSync(wt)) gitOk(wt, "checkout", "-q", "--detach", `origin/${base}`);
+    else gitOk(checkout, "worktree", "add", "-q", "--detach", wt, `origin/${base}`);
+
+    const adotada = await this.adotar(raiz);
+    const res = adotada || (await this.sessao(raiz, { estacao: "spec", skill: "spec", arg: `#${this.card.n}`, cwd: wt, branchTxt: `origin/${base} (destacada)` }));
+    if (res.tipo !== "PROXIMO") {
+      this.parar(raiz, res.motivo);
+      return false;
+    }
+    const pasta = readdirSync(join(wt, "planning")).sort().find((n) => n.startsWith(`${this.card.n}-`) && existsSync(join(wt, "planning", n, "spec.md")));
+    if (pasta) {
+      mkdirSync(join(this.dir, "spec"), { recursive: true });
+      const destino = join(this.dir, "spec", pasta);
+      rmSync(destino, { recursive: true, force: true });
+      renameSync(join(wt, "planning", pasta), destino);
+      this.est.spec = join(destino, "spec.md");
+      this.salvar();
+    }
+    const r = git(checkout, "worktree", "remove", wt);
+    if (r.status !== 0) log(`worktree ${wt} não saiu (${r.stderr.trim()}); fica`);
+    return true;
   }
 
   fim() {
@@ -554,6 +880,24 @@ class Condutor {
     this.salvar();
     const resumo = est.unidades.map((u) => `#${u.card} ${u.resultado || u.estacao}${u.motivo ? ` (${u.motivo})` : ""}`).join("; ");
     log(`fim${todas ? "" : " (há unidades sem decisão)"}: ${resumo}`);
+  }
+}
+
+function pidVivo(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+function matarGrupo(pid, sinal) {
+  try {
+    process.kill(-pid, sinal);
+  } catch {
+    try {
+      process.kill(pid, sinal);
+    } catch {}
   }
 }
 

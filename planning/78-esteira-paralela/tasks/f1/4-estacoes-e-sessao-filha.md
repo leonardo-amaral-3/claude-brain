@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: `frente.mjs` — estações, sessão filha, prompt gerado e modo sequencial
 

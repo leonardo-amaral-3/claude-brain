@@ -461,6 +461,7 @@ function mundoEpico(extra = {}) {
       "82": ["<!-- gm:spec-ref -->\nBranch: feat/82-velha\n"],
     },
     bloqueado: { "80": "espera a 79" },
+    claude: { comportamento: { "plan-tasks": { acao: "parada", motivo: "teste de unidades" } } },
     ...extra,
   });
   mkdirSync(join(mu.checkout, "planning", "78-epico"), { recursive: true });
@@ -543,11 +544,11 @@ console.log("unidades: épico com duas fases promovidas, uma Bloqueado, uma não
   afirmar(existsSync(join(mu.estadoDir(78), "frente.log")), "o condutor escreve frente.log");
   afirmar(est.unidades.length === 4, "uma entrada por sub-issue");
   const u79 = unidade(est, 79);
-  afirmar(u79.resultado === null && u79.estacao === "nao-avaliada", "a promovida fica como unidade, ainda sem estação (nunca concluída aqui)");
+  afirmar(u79.resultado === "parada" && u79.estacao === "plan-tasks" && u79.motivo === "teste de unidades", "a promovida é conduzida: chega à estação plan-tasks (o falso para ali)");
   afirmar(unidade(est, 80).resultado === "pulada" && unidade(est, 80).motivo === "Bloqueado: espera a 79", "com Bloqueado → pulada com o texto");
   afirmar(unidade(est, 81).resultado === "pulada" && unidade(est, 81).motivo === "não promovida", "sem gm:spec-ref → pulada: não promovida");
   afirmar(unidade(est, 82).resultado === "pulada" && unidade(est, 82).motivo === "fechada", "fechada → pulada: fechada");
-  afirmar(est.terminal === false, "com unidade sem decisão, o estado não é terminal");
+  afirmar(est.terminal === true && typeof est.fim === "number", "todas as unidades decididas → terminal, com fim");
   afirmar(!existsSync(join(mu.checkout, ".git", "gm-frente", "79.lock")) && !existsSync(join(mu.checkout, ".git", "gm-frente", "80.lock")), "as travas são soltas no fim (e a pulada por Bloqueado nunca tomou trava)");
 }
 
@@ -573,7 +574,7 @@ console.log("unidades: branch e worktree da unidade");
   const cabeca = git(wt, "rev-parse", "HEAD");
   const dir = mu.estadoDir(78);
   escreverJson(join(dir, "estado.json"), { ...est, batimento: 0 });
-  iniciarFrente(mu, 78);
+  iniciarFrente(mu, 78, ["--reabrir"]);
   const est2 = await esperarCondutor(mu, 78);
   afirmar(git(wt, "rev-parse", "HEAD") === cabeca && unidade(est2, 79).worktree === wt, "segunda rodada reaproveita a worktree, sem commit novo");
 
@@ -581,7 +582,7 @@ console.log("unidades: branch e worktree da unidade");
   git(mu.checkout, "worktree", "remove", "--force", wt);
   git(mu.checkout, "branch", "-D", "feat/79-fase-um");
   escreverJson(join(dir, "estado.json"), { ...est2, batimento: 0 });
-  iniciarFrente(mu, 78);
+  iniciarFrente(mu, 78, ["--reabrir"]);
   await esperarCondutor(mu, 78);
   afirmar(git(wt, "branch", "--show-current").trim() === "feat/79-fase-um" && existsSync(join(wt, "planning", "78-epico", "spec.md")) && git(wt, "status", "--porcelain").trim() === "", "branch só na origin → worktree recriada, rastreando a origin, com a spec copiada de novo");
 }
@@ -605,7 +606,7 @@ console.log("trava: um segundo condutor não conduz fase que já tem dono vivo")
   escreverJson(join(mu.estadoDir(79), "estado.json"), { ...est, batimento: 0 });
   iniciarFrente(mu, 79);
   const est2 = await esperarCondutor(mu, 79);
-  afirmar(unidade(est2, 79).estacao === "nao-avaliada" && unidade(est2, 79).resultado === null, "dono morto (batimento de 200 s) → toma a trava e conduz");
+  afirmar(unidade(est2, 79).estacao === "plan-tasks" && unidade(est2, 79).motivo === "teste de unidades", "dono morto (batimento de 200 s) → toma a trava e conduz");
   afirmar(!existsSync(trava), "…e solta a trava no fim");
 }
 
@@ -620,6 +621,193 @@ console.log("unidades: fase como alvo direto, e card sem épico");
   iniciarFrente(mu2, 5);
   const e2 = await esperarCondutor(mu2, 5);
   afirmar(e2.unidades.length === 1 && unidade(e2, 5).resultado === "parada" && unidade(e2, 5).motivo === "branch da unidade não declarada", "card sem branch declarada nem branch remota → parada: branch da unidade não declarada");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Estações e sessão filha (task 4)
+const CARDS_EPICO = {
+  "79": { pasta: "78-epico", fase: "f1", tasks: [{ nome: "1-primeira.md" }, { nome: "2-segunda.md" }] },
+  "80": { pasta: "78-epico", fase: "f2", tasks: [{ nome: "1-uma.md" }, { nome: "2-outra.md" }] },
+};
+// Pareia início e fim das sessões do falso.
+function intervalos(mu) {
+  const por = new Map();
+  for (const r of mu.sessoes()) {
+    if (r.evento === "inicio") por.set(r.pid, { estacao: r.estacao, card: Number(r.card), task: r.task, cwd: r.cwd, ini: r.t, fim: null });
+    else if (por.has(r.pid)) por.get(r.pid).fim = r.t;
+  }
+  return [...por.values()];
+}
+const sobrepoe = (a, b) => a.ini < b.fim && b.ini < a.fim;
+
+// Epic #78 com 79 e 80 promovidas (tasks antigas), 81 com Bloqueado.
+function mundoDuasFases(claude = {}) {
+  const mu = mundoEpico({
+    issues: {
+      "78": { labels: ["épico"], subs: [79, 80, 81] },
+      "79": { parent: 78 },
+      "80": { parent: 78 },
+      "81": { parent: 78 },
+    },
+    comentarios: {
+      "79": ["<!-- gm:spec-ref -->\nBranch: feat/79-fase-um\n", "<!-- gm:tasks -->\n- [ ] 1 — primeira\n- [ ] 2 — segunda"],
+      "80": ["<!-- gm:spec-ref -->\nBranch: feat/80-fase-dois\n", "<!-- gm:tasks -->\n- [ ] 1 — uma\n- [ ] 2 — outra"],
+      "81": ["<!-- gm:spec-ref -->\nBranch: feat/81-tres\n"],
+    },
+    bloqueado: { "81": "espera a 80" },
+    claude: { duracaoMs: 700, cards: CARDS_EPICO, ...claude },
+  });
+  return mu;
+}
+
+console.log("épico: duas cadeias andam ao mesmo tempo, cada uma até a sua PR (R1.2, R1.3, R1.4)");
+{
+  const mu = mundoDuasFases();
+  const ini = iniciarFrente(mu, 78, ["--paralelo", "3"]);
+  const est = await esperarCondutor(mu, 78);
+  afirmar(ini.status === 0 && est.terminal === true, "a frente termina sozinha, terminal");
+  afirmar(unidade(est, 79).resultado === "concluida" && unidade(est, 80).resultado === "concluida", `as duas fases chegam a concluida (${unidade(est, 79).motivo || ""} ${unidade(est, 80).motivo || ""})`);
+  afirmar(unidade(est, 81).resultado === "pulada" && unidade(est, 81).motivo === "Bloqueado: espera a 80", "a terceira, com Bloqueado, fica pulada com o porquê");
+  const iv = intervalos(mu);
+  const de = (card) => iv.filter((x) => x.card === card);
+  afirmar(de(79).some((a) => de(80).some((b) => sobrepoe(a, b))), "as sessões das duas cadeias se sobrepõem no tempo");
+  const prs = mu.prs();
+  afirmar(prs.length === 2 && prs.every((p) => p.state === "MERGED") && new Set(prs.map((p) => p.headRefName)).size === 2, "duas PRs no gh falso, uma por branch, cada uma levada até o merge");
+  afirmar(unidade(est, 79).pr !== null && unidade(est, 79).pr !== unidade(est, 80).pr, "cada unidade guarda o número da sua PR");
+  const ships = iv.filter((x) => x.estacao === "ship" || x.estacao === "ship-merge");
+  afirmar(ships.length === 4 && !ships.some((a, i) => ships.some((b, j) => i < j && sobrepoe(a, b))), "nunca dois /gm-ship ao mesmo tempo no repo");
+  const ordem = (card) => de(card).filter((x) => x.estacao === "implement").sort((a, b) => a.ini - b.ini).map((x) => x.task);
+  afirmar(igual(ordem(79), ["1", "2"]) && igual(ordem(80), ["1", "2"]), "task antiga: uma por sessão, na ordem do número (R1.4)");
+  const impl = (card) => de(card).filter((x) => x.estacao === "implement");
+  afirmar(impl(79)[0].fim <= impl(79)[1].ini, "task antiga: os intervalos da mesma unidade não se sobrepõem (R1.4)");
+  const wt79 = unidade(est, 79).worktree;
+  afirmar(impl(79).every((x) => x.cwd === wt79) && impl(80).every((x) => x.cwd === unidade(est, 80).worktree), "task antiga roda na worktree da unidade, sem worktree -t<id> (R1.4)");
+  afirmar(!git(mu.checkout, "worktree", "list").includes("-t1") && !git(mu.checkout, "branch", "-a").includes("-t1"), "nenhuma worktree nem branch -t<id> existiu");
+  const log79 = git(wt79, "log", "--format=%s");
+  afirmar(log79.includes("docs(planning): tasks do #79") && log79.includes("feat: task 1 (#79)") && log79.includes("feat: task 2 (#79)"), "o condutor commita a pasta de tasks; as tasks entram como commits");
+  afirmar(git(wt79, "log", "--format=%B", "--grep=tasks do #79").includes("Card: #79"), "o commit das tasks leva o trailer Card: #79");
+  afirmar(existsSync(join(wt79, "planning", "78-epico", "tasks", "f1", "1-primeira.md")) && !existsSync(join(wt79, "planning", "78-epico", "tasks", "f2")), "as tasks da fase 79 ficam em tasks/f1 da worktree dela (e as da 80 em f2)");
+
+  // R1.3: o prompt gerado, no molde, só com isto
+  const prompts = readdirSync(mu.estadoDir(78)).filter((f) => f.startsWith("prompt-")).sort();
+  afirmar(prompts.length === 2 * (1 + 2 + 1 + 1), `um prompt por sessão aberta (${prompts.length})`);
+  const todos = prompts.map((f) => readFileSync(join(mu.estadoDir(78), f), "utf8"));
+  const molde = (t, esperado) => {
+    const l = t.split("\n");
+    return /^\/gm-[a-z-]+ /.test(l[0]) && l[1] === "" &&
+      l[2] === "Argumento do despacho (gerado pelo /gm-frente; o card é o da primeira linha):" &&
+      /^- Card own\/repo#\d+, fase do épico #78\. Spec: \/\S+\/planning\/78-epico\/spec\.md\.$/.test(l[3]) &&
+      /^- Onde trabalhar: \/\S+, branch feat\/\d+-\S+, base dev\.( Task: \S+ — só ela\.)?$/.test(l[4]) &&
+      l[5] === "- Outras sessões desta frente correm ao mesmo tempo em worktrees irmãs: não toque nelas nem no checkout principal." &&
+      l[6] === `- Não há humano nesta sessão. ${ENTREGA}` && l.length === 8 && l[7] === "" && esperado(l);
+  };
+  afirmar(todos.every((t) => molde(t, () => true)), "cada prompt segue o molde, linha a linha");
+  afirmar(todos.every((t) => !t.includes("Card: #") && !/yarn|npm run|node scripts|lint|typecheck|Co-Authored/i.test(t)), "nenhum prompt repete trailer, freio nem nome de suíte");
+  afirmar(todos.filter((t) => t.includes(" Task: ")).length === 4 && todos.filter((t) => /^\/gm-implement /.test(t)).length === 4, "só as sessões de /gm-implement trazem a Task:");
+  const primeiras = (re) => todos.map((t) => t.split("\n")[0]).filter((l) => re.test(l)).length;
+  afirmar(primeiras(/^\/gm-plan-tasks 78-epico --card (79|80)$/) === 2, "gramática: /gm-plan-tasks <pasta> --card <n>");
+  afirmar(primeiras(/^\/gm-implement 78-epico --card 79 --branch feat\/79-fase-um --task planning\/78-epico\/tasks\/f1\/[12]-[a-z]+\.md$/) === 2, "gramática: /gm-implement <pasta> --card <n> --branch <b> --task <arquivo relativo à raiz>");
+  afirmar(primeiras(/^\/gm-ship 78-epico --card (79|80)$/) === 2 && primeiras(/^\/gm-ship 78-epico --card (79|80) --merge$/) === 2, "gramática: /gm-ship <pasta> --card <n> [--merge]");
+  const extras = readdirSync(mu.estadoDir(78)).filter((f) => /\.sh$|^base|^cadeia|^comum/.test(f));
+  afirmar(extras.length === 0, "nenhum arquivo de despacho escrito à mão: a pasta de estado só tem o que o condutor gerou (R1.3)");
+}
+
+// Card solo #5, com a branch declarada no ## Execution da spec e as tasks do falso.
+function mundoSolo({ claude = {}, tasks = [{ nome: "1-a.md" }], prs = [], limite } = {}) {
+  const mu = mundo({ issues: { "5": {} }, comentarios: { "5": ["<!-- gm:tasks -->\n- [ ] 1 — a"] }, claude: { duracaoMs: 300, cards: { "5": { pasta: "5-solo", tasks } }, ...claude } });
+  mkdirSync(join(mu.checkout, "planning", "5-solo"), { recursive: true });
+  writeFileSync(join(mu.checkout, "planning", "5-solo", "spec.md"), "# spec\n\n## Execution\n- Feature branch: `feat/5-solo`\n");
+  for (const p of prs) escreverJson(join(mu.falso, "prs", `${p.number}.json`), { url: "u", mergedAt: null, baseRefName: "dev", headRefName: "feat/5-solo", ...p });
+  mu.iniciar = (extras = []) => iniciarFrente(mu, 5, limite ? ["--limite-min", String(limite), ...extras] : extras);
+  return mu;
+}
+
+console.log("épico: uma cadeia fecha em PARADA e a outra segue (R1.5)");
+{
+  const mu = mundoDuasFases({ comportamento: { "implement:79:1": { acao: "parada", motivo: "não deu para implementar" } } });
+  iniciarFrente(mu, 78);
+  const est = await esperarCondutor(mu, 78);
+  afirmar(unidade(est, 79).resultado === "parada" && unidade(est, 79).motivo === "não deu para implementar" && unidade(est, 79).estacao === "implement", "a unidade que fechou em PARADA para, com o motivo e a estação");
+  afirmar(unidade(est, 80).resultado === "concluida", "a outra unidade segue até concluir");
+  afirmar(intervalos(mu).filter((x) => x.card === 79 && x.estacao.startsWith("ship")).length === 0, "a unidade parada não abre mais nenhuma sessão");
+  afirmar(est.terminal === true, "terminal quando todas estão decididas, parada incluída");
+}
+
+console.log("sessão filha: saída sem linha de despacho, limite e precedência (R1.5)");
+{
+  const mu = mundoSolo({ claude: { comportamento: { "implement:5:1": { acao: "semlinha" } } } });
+  mu.iniciar();
+  const est = await esperarCondutor(mu, 5);
+  const u = unidade(est, 5);
+  afirmar(u.resultado === "parada" && /^saída sem linha de despacho \(última linha: «Terminei, mas esqueci a linha de despacho\.»\)$/.test(u.motivo), `saída sem linha → parada com o que veio no lugar (${u.motivo})`);
+  afirmar(u.sessoes.every((x) => typeof x.fim === "number" && typeof x.pid === "number" && x.id && x.estacao), "o estado registra id, pid, estação e fim de cada sessão");
+  afirmar(existsSync(join(mu.estadoDir(5), "saida-5-implement-t1-1.json")) && existsSync(join(mu.estadoDir(5), "erro-5-implement-t1-1.txt")) && existsSync(join(mu.estadoDir(5), "prompt-5-implement-t1-1.txt")), "arquivos prompt-/saida-/erro-<id>, id = <n>-<estacao>-t<task>-<k>");
+}
+{
+  const mu = mundoSolo({ claude: { comportamento: { "implement:5:1": { acao: "dormir" } } }, limite: 0.05 });
+  mu.iniciar();
+  const t0 = Date.now();
+  const est = await esperarCondutor(mu, 5);
+  const u = unidade(est, 5);
+  afirmar(u.resultado === "parada" && u.motivo === "sessão excedeu 0.05 min", `limite estourado → parada: sessão excedeu 0.05 min (${u.motivo})`);
+  afirmar(Date.now() - t0 < 30000 && !pidVivo(u.sessoes[u.sessoes.length - 1].pid), "o grupo da sessão levou SIGTERM e não sobrou processo");
+}
+{
+  // precedência: PR mergeada não reabre ship (nem plan-tasks, nem implement)
+  const mu = mundoSolo({ prs: [{ number: 101, state: "MERGED" }] });
+  mu.iniciar();
+  const est = await esperarCondutor(mu, 5);
+  const u = unidade(est, 5);
+  afirmar(u.resultado === "concluida" && u.pr === 101 && u.sessoes.length === 0, "PR mergeada → concluida, sem abrir nenhuma sessão");
+  afirmar(mu.sessoes().length === 0, "o claude falso nem foi chamado");
+}
+
+console.log("espera de CI: o condutor espera, depois abre o --merge");
+{
+  const mu = mundoSolo({ prs: [{ number: 101, state: "OPEN" }], tasks: [{ nome: "1-a.md" }] });
+  escreverJson(join(mu.falso, "checks", "101.json"), [{ bucket: "pass" }, { bucket: "pending" }]);
+  mu.iniciar();
+  await ate(() => lerJson(join(mu.estadoDir(5), "estado.json")).unidades.some((u) => u.estacao === "espera-ci"), 15000, 100);
+  await dormir(1000);
+  afirmar(mu.sessoes().length === 0, "com checks pendentes nenhuma sessão é aberta (nem o --merge)");
+  escreverJson(join(mu.falso, "checks", "101.json"), [{ bucket: "pass" }, { bucket: "skipping" }]);
+  const est = await esperarCondutor(mu, 5);
+  afirmar(unidade(est, 5).resultado === "concluida" && intervalos(mu).length === 1 && intervalos(mu)[0].estacao === "ship-merge", "sem pending → abre só o /gm-ship --merge, e a PR mergeada conclui a unidade");
+}
+{
+  const mu = mundoSolo({ prs: [{ number: 101, state: "OPEN" }] });
+  mu.iniciar();
+  const est = await esperarCondutor(mu, 5);
+  afirmar(unidade(est, 5).resultado === "concluida" && intervalos(mu)[0].estacao === "ship-merge", "'no checks reported' → abre o --merge mesmo assim");
+}
+{
+  // ship sem PR: a guarda impede o laço
+  const mu = mundoSolo({ claude: { comportamento: { "ship:5": { acao: "semlinha" } } } });
+  mu.iniciar();
+  const est = await esperarCondutor(mu, 5);
+  afirmar(unidade(est, 5).resultado === "parada" && /saída sem linha/.test(unidade(est, 5).motivo), "ship sem linha de despacho → parada");
+}
+
+console.log("estação 3: spec ausente → /gm-spec numa worktree destacada, a pasta vai para a pasta de estado");
+{
+  const mu = mundo({ issues: { "6": {} }, claude: { duracaoMs: 200, cards: { "6": { pasta: "6-novo", tasks: [{ nome: "1-a.md" }] } } } });
+  const antes = git(mu.checkout, "worktree", "list");
+  iniciarFrente(mu, 6, []);
+  const est = await esperarCondutor(mu, 6);
+  const sessoes = intervalos(mu);
+  afirmar(sessoes[0].estacao === "spec" && sessoes[0].cwd === join(mu.ws, `${REPO}-6-spec`), "a primeira sessão é o /gm-spec, na worktree <workspace>/<repo>-<n>-spec");
+  afirmar(existsSync(join(mu.estadoDir(6), "spec", "6-novo", "spec.md")) && est.spec === join(mu.estadoDir(6), "spec", "6-novo", "spec.md"), "a pasta planning/<n>-*/ foi movida para <estado>/spec/ e vira a spec da frente");
+  afirmar(!existsSync(join(mu.ws, `${REPO}-6-spec`)) && git(mu.checkout, "worktree", "list").split("\n").length >= antes.split("\n").length, "a worktree -spec foi removida, limpa (sem --force)");
+  const prompt = readFileSync(join(mu.estadoDir(6), "prompt-6-spec-1.txt"), "utf8");
+  afirmar(prompt.startsWith("/gm-spec #6\n") && /Spec: ainda não escrita/.test(prompt), "o prompt do /gm-spec avisa que a spec ainda não existe");
+  const u = unidade(est, 6);
+  afirmar(u.resultado === "parada" && /branch da unidade não declarada/.test(u.motivo), `sem Feature branch na spec nem branch remota, a unidade para depois da spec (${u.motivo})`);
+}
+{
+  const mu = mundo({ issues: { "6": {} }, claude: { cards: { "6": { pasta: "6-novo" } }, comportamento: { spec: { acao: "parada", motivo: "spec precisa do humano" } } } });
+  iniciarFrente(mu, 6, []);
+  const est = await esperarCondutor(mu, 6);
+  afirmar(unidade(est, 6).resultado === "parada" && unidade(est, 6).estacao === "spec" && unidade(est, 6).motivo === "spec precisa do humano" && est.terminal, "/gm-spec que fecha em PARADA para a frente com o motivo");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
