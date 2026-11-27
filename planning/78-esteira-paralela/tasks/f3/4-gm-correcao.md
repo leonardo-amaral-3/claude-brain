@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: `/gm-correcao`: G4 depois do push
 
