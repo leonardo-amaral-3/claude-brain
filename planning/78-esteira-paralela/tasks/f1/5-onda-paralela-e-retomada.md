@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 5: `frente.mjs` — onda paralela, junção, conflito e retomada
 

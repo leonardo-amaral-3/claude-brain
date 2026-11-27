@@ -811,6 +811,99 @@ console.log("estação 3: spec ausente → /gm-spec numa worktree destacada, a p
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Onda paralela, junção, conflito e retomada (task 5)
+const TASKS_ONDA = [
+  { nome: "1-a.md", onda: 1, dep: [], toca: ["src/a.txt"] },
+  { nome: "2-b.md", onda: 1, dep: [], toca: ["src/b.txt"] },
+  { nome: "3-c.md", onda: 2, dep: ["1", "2"], toca: ["src/c.txt"] },
+];
+function mundoOnda({ claude = {}, duracaoMs = 1000, limite } = {}) {
+  const mu = mundoSolo({ claude: { duracaoMs, ...claude }, tasks: TASKS_ONDA, limite });
+  escreverJson(join(mu.falso, "comentarios", "5.json"), [{ id: 9001, body: "<!-- gm:tasks -->\n### Tasks\n- [ ] 1 — a (onda 1)\n- [ ] 2 — b (onda 1)\n- [ ] 3 — c (onda 2)" }]);
+  mu.wtUnidade = join(mu.ws, `${REPO}-5-solo`);
+  mu.wtTask = (id) => `${mu.wtUnidade}-t${id}`;
+  return mu;
+}
+const listaWt = (mu) => git(mu.checkout, "worktree", "list", "--porcelain");
+
+console.log("onda paralela: duas tasks da mesma onda, cada uma na sua worktree, juntadas depois (R1.1)");
+{
+  const mu = mundoOnda();
+  mu.iniciar();
+  const vistas = await ate(() => existsSync(mu.wtTask(1)) && existsSync(mu.wtTask(2)) && mu.sessoes().filter((x) => x.evento === "inicio" && x.estacao === "implement").length >= 2, 20000, 50);
+  afirmar(Boolean(vistas), "durante a onda existem as duas worktrees -t1 e -t2");
+  afirmar(git(mu.wtTask(1), "branch", "--show-current").trim() === "feat/5-solo-t1" && git(mu.wtTask(2), "branch", "--show-current").trim() === "feat/5-solo-t2", "cada uma na sua branch local <branch>-t<id>");
+  const est = await esperarCondutor(mu, 5);
+  const iv = intervalos(mu);
+  const t = (id) => iv.find((x) => x.estacao === "implement" && x.task === id);
+  afirmar(sobrepoe(t("1"), t("2")) && t("1").cwd === mu.wtTask(1) && t("2").cwd === mu.wtTask(2), "as sessões das duas abrem antes de qualquer uma terminar, cada uma na worktree própria");
+  afirmar(t("3").cwd === mu.wtUnidade && t("3").ini >= Math.max(t("1").fim, t("2").fim), "a onda seguinte (uma task) roda na worktree da unidade, depois da junção");
+  afirmar(unidade(est, 5).resultado === "concluida", `a unidade chega ao fim (${unidade(est, 5).motivo || "concluida"})`);
+  const wt = mu.wtUnidade;
+  afirmar(existsSync(join(wt, "src", "a.txt")) && existsSync(join(wt, "src", "b.txt")) && existsSync(join(wt, "src", "c.txt")), "as duas tasks estão juntadas na branch da unidade");
+  const merges = git(wt, "log", "--merges", "--format=%s%n%b");
+  afirmar(merges.includes("merge: task 1 da onda 1") && merges.includes("merge: task 2 da onda 1") && merges.includes("Card: #5"), "junção por --no-ff com a mensagem pedida e o trailer Card: #5");
+  afirmar(!listaWt(mu).includes("-t1") && !listaWt(mu).includes("-t2") && git(mu.checkout, "branch", "--list", "*-t*").trim() === "", "worktrees e branches de task removidas");
+  afirmar(git(wt, "rev-parse", "HEAD").trim() === git(mu.checkout, "ls-remote", "origin", "feat/5-solo").split("\t")[0], "push feito: a origin está no HEAD da unidade");
+  const corpo = mu.comentarios(5)[0].body;
+  afirmar(corpo.includes("- [x] 1 — a") && corpo.includes("- [x] 2 — b") && corpo.includes("- [x] 3 — c"), "um checkbox marcado no gh falso por task juntada");
+  const patches = readFileSync(join(mu.falso, "gh-chamadas.log"), "utf8").split("\n").filter((l) => l.includes("PATCH")).length;
+  afirmar(patches === 3, `uma edição do comentário por task, não por onda (${patches})`);
+  afirmar(["1", "2", "3"].every((id) => readFileSync(join(wt, "planning", "5-solo", "tasks", `${id}-${{ 1: "a", 2: "b", 3: "c" }[id]}.md`), "utf8").startsWith("✅")), "as três tasks estão ✅ na branch da unidade");
+}
+
+console.log("onda paralela: conflito ao juntar (o falso mente no Toca:) para só aquela unidade (R1.5)");
+{
+  const mu = mundoOnda({ claude: { comportamento: { "implement:5:2": { acao: "fora", caminho: "src/a.txt" } } }, duracaoMs: 300 });
+  mu.iniciar();
+  const est = await esperarCondutor(mu, 5);
+  const u = unidade(est, 5);
+  afirmar(u.resultado === "parada" && u.motivo === "conflito ao juntar a task 2: src/a.txt", `conflito → parada com a task e os arquivos (${u.motivo})`);
+  afirmar(git(mu.wtUnidade, "status", "--porcelain").trim() === "" && git(mu.wtUnidade, "log", "--merges", "--format=%s").includes("merge: task 1 da onda 1") && !existsSync(join(mu.wtUnidade, "src", "b.txt")), "o merge foi abortado: árvore limpa, a task 1 já juntada, a 2 não");
+  afirmar(existsSync(mu.wtTask(2)) && git(mu.checkout, "branch", "--list", "*-t2").trim() !== "", "a worktree e a branch da task em conflito ficam para diagnóstico");
+  afirmar(!existsSync(mu.wtTask(1)), "a task já juntada foi limpa");
+  afirmar(mu.comentarios(5)[0].body.includes("- [x] 1 — a") && mu.comentarios(5)[0].body.includes("- [ ] 2 — b"), "só o checkbox da task juntada foi marcado");
+  afirmar(!intervalos(mu).some((x) => x.task === "3"), "a onda seguinte não abriu");
+}
+
+console.log("onda paralela: uma task fecha em PARADA, as outras ainda são juntadas (R1.5)");
+{
+  const mu = mundoOnda({ claude: { comportamento: { "implement:5:2": { acao: "parada", motivo: "task 2 travou" } } }, duracaoMs: 300 });
+  mu.iniciar();
+  const est = await esperarCondutor(mu, 5);
+  const u = unidade(est, 5);
+  afirmar(u.resultado === "parada" && u.motivo === "task 2 travou", "a unidade para depois, com o motivo da task");
+  afirmar(existsSync(join(mu.wtUnidade, "src", "a.txt")) && !existsSync(join(mu.wtUnidade, "src", "b.txt")), "a task 1, que fechou em PROXIMO, foi juntada; a 2 não");
+  afirmar(mu.comentarios(5)[0].body.includes("- [x] 1 — a") && git(mu.checkout, "ls-remote", "origin", "feat/5-solo").split("\t")[0] === git(mu.wtUnidade, "rev-parse", "HEAD").trim(), "…e empurrada e marcada");
+}
+
+console.log("retomada: matar o condutor no meio da onda e iniciar de novo (R1.5)");
+{
+  const mu = mundoOnda({ duracaoMs: 2500 });
+  const r1 = mu.iniciar();
+  await ate(() => mu.sessoes().filter((x) => x.evento === "inicio" && x.estacao === "implement").length >= 2, 20000, 50);
+  process.kill(r1.json.pid, "SIGKILL");
+  const dir = mu.estadoDir(5);
+  afirmar(await ate(() => !pidVivo(r1.json.pid), 5000, 50), "o condutor morreu no meio da onda");
+  const vivas = mu.sessoes().filter((x) => x.evento === "inicio").map((x) => x.pid).filter(pidVivo).length;
+  afirmar(vivas === 2, "as duas filhas (destacadas) seguem vivas");
+  const antes = lerJson(join(dir, "estado.json"));
+  afirmar(antes.unidades[0].sessoes.filter((x) => !x.fim).length === 2, "o estado guarda as duas sessões em voo, com pid");
+  const imediato = mu.iniciar();
+  afirmar(imediato.json.retomada === true, "com o batimento ainda fresco, iniciar diz retomada: true e não lança outro");
+  escreverJson(join(dir, "estado.json"), { ...antes, batimento: 0 });
+  const r2 = mu.iniciar();
+  afirmar(r2.json.retomada === false && r2.json.pid !== r1.json.pid, "batimento velho → o condutor novo é lançado");
+  const est = await esperarCondutor(mu, 5);
+  const u = unidade(est, 5);
+  afirmar(u.resultado === "concluida", `a unidade termina (${u.motivo || "concluida"})`);
+  const impl = mu.sessoes().filter((x) => x.evento === "inicio" && x.estacao === "implement");
+  afirmar(impl.length === 3 && igual(impl.map((x) => x.task).sort(), ["1", "2", "3"]), "cada task abriu uma sessão só: a viva foi esperada, não reaberta, e a ✅ não voltou");
+  afirmar(!listaWt(mu).includes("-t1") && !listaWt(mu).includes("-t2"), "as worktrees de task foram juntadas e removidas pelo condutor novo");
+  afirmar(mu.comentarios(5)[0].body.includes("- [x] 1 —") && mu.comentarios(5)[0].body.includes("- [x] 2 —") && mu.comentarios(5)[0].body.includes("- [x] 3 —"), "os três checkboxes marcados");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Seções seguintes (tasks 2 a 5 da F1): `falsos`, `iniciar`/`estado`/unidades/trava, estações,
 // prompt gerado, onda paralela, conflito, retomada. Entram aqui, antes do fecho abaixo.
 // ─────────────────────────────────────────────────────────────────────────────

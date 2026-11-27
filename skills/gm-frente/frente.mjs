@@ -743,7 +743,8 @@ class Condutor {
     const sessaoDe = (estacao, skill, arg, extra = {}) =>
       this.sessao(u, { estacao, skill, arg, cwd: u.worktree, branchTxt: u.branch, ...extra });
     for (;;) {
-      const adotada = await this.adotar(u);
+      // Sessões de task são adotadas por task, dentro da onda; as demais, aqui.
+      const adotada = await this.adotar(u, (x) => x.estacao !== "implement");
       if (adotada && this.tratar(u, adotada)) return;
 
       // 1 e 2: a PR da branch
@@ -781,7 +782,7 @@ class Condutor {
         u.estacao = "implement";
         this.salvar();
         const ids = onda.filter(pendente);
-        if (await this.executarOnda(u, pasta, dirTasks, tasks, ids)) return;
+        if (await this.executarOnda(u, pasta, tasks, ids, plano.ondas.indexOf(onda) + 1)) return;
         continue;
       }
 
@@ -794,21 +795,98 @@ class Condutor {
     }
   }
 
-  // Devolve true quando a unidade parou.
-  async executarOnda(u, pasta, dirTasks, tasks, ids) {
-    if (ids.length > 1) return this.parar(u, "onda com várias tasks: ainda não implementada neste condutor"), true;
-    const t = tasks.find((x) => x.id === ids[0]);
-    const arquivo = this.argTask(u, t.arquivo);
-    const res = await this.sessao(u, {
-      estacao: "implement", skill: "implement", arg: `${pasta} --card ${u.card} --branch ${u.branch} --task ${arquivo}`,
-      cwd: u.worktree, branchTxt: u.branch, task: arquivo, taskId: t.id,
+  // Uma task numa worktree: adota a sessão que ficou de uma rodada anterior, não reabre task que a branch já
+  // traz ✅, senão abre a sessão. Devolve {tipo, motivo}.
+  async rodarTask(u, pasta, t, { cwd, branch }) {
+    const arquivoNaWt = join(cwd, relative(u.worktree, t.arquivo));
+    const adotada = await this.adotar(u, (x) => x.task === t.id);
+    if (adotada) return adotada;
+    if (this.taskFechada(u, t.arquivo, branch === u.branch ? "HEAD" : branch)) {
+      return { tipo: "PROXIMO", motivo: "já fechada na branch" };
+    }
+    const arquivo = this.argTask({ worktree: cwd }, arquivoNaWt);
+    return this.sessao(u, {
+      estacao: "implement", skill: "implement", arg: `${pasta} --card ${u.card} --branch ${branch} --task ${arquivo}`,
+      cwd, branchTxt: branch, task: arquivo, taskId: t.id,
     });
-    if (this.tratar(u, res)) return true;
-    if (!this.taskFechada(u, t.arquivo)) {
-      this.parar(u, `a task ${t.id} fechou em PROXIMO mas não está ✅ no último commit da branch`);
+  }
+
+  // A onda: uma task roda na worktree da unidade; duas ou mais, cada uma na sua worktree e branch local
+  // (<branch>-t<id>), todas ao mesmo tempo, e depois são juntadas na ordem do número. Devolve true quando a unidade parou.
+  async executarOnda(u, pasta, tasks, ids, k) {
+    const alvos = ids.map((id) => tasks.find((x) => x.id === id));
+    const juntadas = [];
+    let motivoParada = null;
+
+    if (alvos.length === 1) {
+      const t = alvos[0];
+      const res = await this.rodarTask(u, pasta, t, { cwd: u.worktree, branch: u.branch });
+      if (res.tipo !== "PROXIMO") motivoParada = res.motivo;
+      else if (!this.taskFechada(u, t.arquivo)) motivoParada = `a task ${t.id} fechou em PROXIMO mas não está ✅ no último commit da branch`;
+      else juntadas.push(t);
+    } else {
+      const pasta_t = (t) => ({ branch: `${u.branch}-t${t.id}`, cwd: `${u.worktree}-t${t.id}` });
+      for (const t of alvos) {
+        const { branch, cwd } = pasta_t(t);
+        const listada = gitOk(this.est.checkout, "worktree", "list", "--porcelain").split("\n").includes(`worktree ${cwd}`);
+        if (listada && existsSync(cwd)) continue;
+        const existe = git(this.est.checkout, "rev-parse", "--verify", "-q", `refs/heads/${branch}`).status === 0;
+        if (existe) gitOk(this.est.checkout, "worktree", "add", "-q", cwd, branch);
+        else gitOk(this.est.checkout, "worktree", "add", "-q", "-b", branch, cwd, u.branch);
+      }
+      const resultados = await Promise.all(alvos.map((t) => this.rodarTask(u, pasta, t, pasta_t(t))));
+      for (let i = 0; i < alvos.length; i++) {
+        const t = alvos[i];
+        const { branch, cwd } = pasta_t(t);
+        const res = resultados[i];
+        if (res.tipo !== "PROXIMO") {
+          motivoParada ||= res.motivo;
+          continue;
+        }
+        if (!this.taskFechada(u, t.arquivo, branch)) {
+          motivoParada ||= `a task ${t.id} fechou em PROXIMO mas não está ✅ no último commit da branch dela`;
+          continue;
+        }
+        const m = git(u.worktree, "merge", "--no-ff", "--no-edit", "-m", `merge: task ${t.id} da onda ${k}`, "-m", `Card: #${u.card}`, branch);
+        if (m.status !== 0) {
+          const arquivos = git(u.worktree, "diff", "--name-only", "--diff-filter=U").stdout.trim().split("\n").filter(Boolean).join(", ");
+          git(u.worktree, "merge", "--abort");
+          motivoParada = `conflito ao juntar a task ${t.id}: ${arquivos || (m.stderr || m.stdout).trim().split("\n")[0]}`;
+          break;
+        }
+        juntadas.push(t);
+        const rm = git(this.est.checkout, "worktree", "remove", cwd);
+        if (rm.status !== 0) log(`worktree ${cwd} não saiu (${rm.stderr.trim()}); fica`);
+        else git(u.worktree, "branch", "-d", branch);
+      }
+    }
+
+    const erroPush = this.depoisDaOnda(u, juntadas);
+    if (motivoParada || erroPush) {
+      this.parar(u, motivoParada || erroPush);
       return true;
     }
     return false;
+  }
+
+  // Depois da onda: push da branch da unidade e o checkbox de cada task juntada, uma por vez, relendo o
+  // comentário antes de cada edição. O modo task não empurra nem marca: é o condutor.
+  depoisDaOnda(u, juntadas) {
+    if (juntadas.length === 0) return null;
+    const p = git(u.worktree, "push", "-q", "origin", u.branch);
+    if (p.status !== 0) return `git push da ${u.branch} falhou: ${(p.stderr || p.stdout).trim().split("\n")[0]}`;
+    for (const t of juntadas) this.marcarCheckbox(u, t.id);
+    return null;
+  }
+  marcarCheckbox(u, id) {
+    const c = this.comentarios(u.card).find((x) => x.body.includes("<!-- gm:tasks -->"));
+    if (!c) return log(`#${u.card}: sem comentário gm:tasks para marcar a task ${id}`);
+    const corpo = c.body.replace(new RegExp(`^- \\[ \\] ${id} `, "m"), `- [x] ${id} `);
+    if (corpo === c.body) return;
+    const arq = join(this.dir, `gm-tasks-${u.card}.md`);
+    writeFileSync(arq, corpo);
+    const r = gh("api", "-X", "PATCH", `repos/${this.card.repoCompleto}/issues/comments/${c.id}`, "-F", `body=@${arq}`);
+    if (r.status !== 0) log(`#${u.card}: não consegui marcar a task ${id} (${(r.stderr || "").trim()})`);
   }
 
   // O ✅ tem de estar no último commit (é o que a junção e a retomada conferem).
