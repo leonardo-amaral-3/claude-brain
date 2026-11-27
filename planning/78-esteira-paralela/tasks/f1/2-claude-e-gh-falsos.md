@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `scripts/claude-falso.mjs` e `scripts/gh-falso.mjs`
 
