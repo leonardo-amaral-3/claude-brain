@@ -249,8 +249,11 @@ a person. It runs after the train PR is open and before the merge.
    it descends from the old one, so `git push origin <novo-corte>:refs/heads/release/v<AAAA.MM.DD>` is a
    fast-forward (never `--force`) and the same PR now carries it. From there, `<sha-do-corte>` means the
    new cut everywhere below — the merge lock of Phase 5 and the check of Phase 7 included — and Phase 1
-   and this phase run again on it, for the cards the new cut brings. Keep the list of reverted cards:
-   Phase 7 needs it.
+   and this phase run again on it, for the cards the new cut brings. Keep the list of reverted cards and
+   subtract it in that re-run too: `trem.mjs cards` still lists a reverted card in `no_corte`, because
+   the revert does not remove its merge commit from the history — Phase 7 subtracts it the same way.
+   When the new cut brings cards the approved body did not list, the train grew: the body goes back to
+   the *artefato* approval of Phase 4 before the merge, never merged on the old approval.
 4. No human in the session → `PARADA` with the full list of `humano` items; the `comando` results are
    already on the PR.
 
