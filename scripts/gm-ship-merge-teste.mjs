@@ -211,6 +211,10 @@ try {
     afirmar(saida?.condicoes.g4 === false && saida.falhas.some((f) => f.includes("achado 2")), "achado com tratamento `pendente` → g4 false, nomeia o achado");
     ({ saida } = mudar((c) => doHead(c, { tabela: [["achado 1", "a.mjs:3", "refutado:"]] })));
     afirmar(saida?.condicoes.g4 === false, "`refutado:` sem o porquê não é tratamento");
+    ({ saida } = mudar((c) => doHead(c, { tabela: [["achado 1", "a.mjs:3", "corrigido em abc1234: reconstruído o arquivo"]] })));
+    afirmar(saida?.condicoes.g4 === true, "`corrigido em <sha>: <nota>` é tratamento (a célula começa por ele)");
+    ({ saida } = mudar((c) => doHead(c, { tabela: [["achado 1", "a.mjs:3", "corrigido em abc1234xyz"]] })));
+    afirmar(saida?.condicoes.g4 === false, "`corrigido em` com sha colado em lixo não é tratamento");
     ({ saida } = mudar((c) => doHead(c, { tabela: [["achado 1", "a.mjs:3", ""]] })));
     afirmar(saida?.condicoes.g4 === false, "tratamento vazio → g4 false");
     ({ saida } = mudar((c) => doHead(c, { headFinal: head })));

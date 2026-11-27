@@ -73,7 +73,8 @@ export function temMotivoDaBase(textoDaSpec) {
 
 // O último comentário `<!-- gm:g4 -->` da PR (create-or-update deixa um só, mas o último vence), lido nos
 // campos que a condição confere. Todo `achado` precisa de tratamento: `corrigido em <sha>` ou
-// `refutado: <porquê>` — qualquer outra coisa conta como sem tratamento.
+// `refutado: <porquê>` (o `corrigido` pode seguir com uma nota depois de `:`) — qualquer outra coisa
+// conta como sem tratamento.
 export function lerG4(comentarios) {
   const corpos = comentarios.map((c) => c?.body).filter((b) => typeof b === "string" && b.includes("<!-- gm:g4 -->"));
   if (corpos.length === 0) return null;
@@ -95,7 +96,7 @@ export function lerG4(comentarios) {
       if (/^achado$/i.test(celulas[0])) continue; // cabeçalho
     }
     const tratamento = celulas.slice(2).join("|").trim();
-    if (!/^(corrigido em\s+`?[0-9a-f]{7,40}`?|refutado:\s*\S.*)$/i.test(tratamento)) semTratamento.push(celulas[0]);
+    if (!/^(corrigido em\s+`?[0-9a-f]{7,40}`?(?![0-9a-z])(?:\s*[:;,.(—-].*)?|refutado:\s*\S.*)$/i.test(tratamento)) semTratamento.push(celulas[0]);
   }
   return { headFinal: campo("Head final"), portaoVerdeEm: portao, semTratamento };
 }
