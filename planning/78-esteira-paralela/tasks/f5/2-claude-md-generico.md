@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 2: `workspaces/pessoal/CLAUDE.md` — a parte genérica, com a linha marcadora
 

@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: Pasta de planning no primeiro commit e a emenda da F5 em commit próprio
 
