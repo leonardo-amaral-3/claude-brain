@@ -54,7 +54,7 @@ function lerOpcoes(argv) {
 }
 
 function parseCard(texto) {
-  const m = /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/.exec(String(texto || ""));
+  const m = /^([\w.-]+)\/([\w.-]+)#(\d+)$/.exec(String(texto || ""));
   return m ? { owner: m[1], repo: m[2], n: Number(m[3]), repoCompleto: `${m[1]}/${m[2]}` } : null;
 }
 
@@ -96,7 +96,8 @@ function carregarEstado(dir) {
 function salvarEstado(dir, est) {
   escreverAtomico(join(dir, "estado.json"), JSON.stringify(est, null, 2));
 }
-const vivo = (est) => Boolean(est) && agora() - Number(est.batimento || 0) < BATIMENTO_VIVO_MS;
+// Estado terminal é de condutor que já saiu, por fresco que esteja o último batimento.
+const vivo = (est) => Boolean(est) && !est.terminal && agora() - Number(est.batimento || 0) < BATIMENTO_VIVO_MS;
 
 // ── iniciar ─────────────────────────────────────────────────────────────────
 function iniciar(o) {
@@ -152,6 +153,8 @@ function iniciar(o) {
     terminal: false,
     unidades,
   };
+  // O estado vai para o disco antes do spawn: o filho o lê no construtor.
+  salvarEstado(dir, novo);
   const log_ = openSync(join(dir, "frente.log"), "a");
   const filho = spawn(process.execPath, [ESTE_ARQUIVO, "conduzir", "--dir", dir], {
     detached: true,
@@ -183,17 +186,26 @@ async function estadoCmd(o) {
     const s = Math.min(Number(o.esperar) || 0, 540);
     const passo = Number(process.env.GM_FRENTE_ESPERA_MS) || 5000;
     const arq = join(o.dir, "estado.json");
-    const assinatura = () => statSync(arq).mtimeMs + ":" + statSync(arq).size;
+    // O batimento reescreve o arquivo a cada 30 s: a assinatura é o conteúdo sem ele.
+    const assinatura = () => {
+      try {
+        const { batimento, ...resto } = JSON.parse(readFileSync(arq, "utf8"));
+        return JSON.stringify(resto);
+      } catch {
+        return null;
+      }
+    };
     const inicial = assinatura();
     const limite = agora() + s * 1000;
     while (!est.terminal && agora() < limite) {
       await dormir(Math.min(passo, Math.max(limite - agora(), 0)));
-      if (assinatura() !== inicial) {
-        est = resumo();
-        break;
-      }
+      if (assinatura() !== inicial) break;
     }
-    est = resumo();
+    try {
+      est = resumo();
+    } catch (e) {
+      return erroArg(e.message);
+    }
   }
   console.log(
     JSON.stringify({
@@ -340,7 +352,10 @@ class Condutor {
       const antiga = porCard.get(d.card);
       const base = antiga && antiga.resultado !== "pulada" ? antiga : { card: d.card, branch: null, worktree: null, estacao: null, resultado: null, motivo: null, pr: null, sessoes: [] };
       const u = { ...base, pai: d.pai, fase: d.fase, specRef: d.specRef };
-      if (d.pulada) {
+      // Card fechado ou com Bloqueado depois de concluída/parada não apaga o resultado.
+      if (d.pulada && (u.resultado === "concluida" || u.resultado === "parada")) {
+        // fica como estava
+      } else if (d.pulada) {
         u.resultado = "pulada";
         u.motivo = d.pulada;
         u.estacao = null;
@@ -379,6 +394,16 @@ class Condutor {
       try {
         dono = readFileSync(join(trava, "dono"), "utf8").trim();
       } catch {}
+      // Dono ainda não escrito (a janela entre o mkdir e o writeFile): trava recente é de alguém vivo.
+      if (!dono) {
+        let idade = Infinity;
+        try {
+          idade = agora() - statSync(trava).mtimeMs;
+        } catch {}
+        if (idade < BATIMENTO_VIVO_MS) return { ok: false, dono: "(trava sendo tomada)" };
+        rmSync(trava, { recursive: true, force: true });
+        continue;
+      }
       if (dono === this.dir) {
         this.travas.push(trava);
         return { ok: true };
@@ -401,7 +426,7 @@ class Condutor {
   branchDaUnidade(u, spec) {
     if (u.specRef) {
       const m = /^Branch:\s*`?(\S+?)`?\s*$/m.exec(u.specRef);
-      if (m) return m[1];
+      if (m && /^[\w.\/-]+$/.test(m[1])) return m[1]; // vai para dentro de GraphQL e de git: nada de aspas
     }
     const texto = spec?.caminho && existsSync(spec.caminho) ? readFileSync(spec.caminho, "utf8") : spec?.rel ? git(this.est.checkout, "show", `origin/${this.est.base}:${spec.rel}`).stdout : "";
     const m = /Feature branch:\s*`?((?:feat|fix)\/[^\s`]+)`?/.exec(texto || "");
@@ -420,6 +445,7 @@ class Condutor {
     const { checkout, base } = this.est;
     const wt = u.worktree;
     gitOk(checkout, "fetch", "-q", "origin");
+    git(checkout, "worktree", "prune"); // registrada com a pasta apagada: o `worktree add` recusaria
     const listada = gitOk(checkout, "worktree", "list", "--porcelain").split("\n").some((l) => l === `worktree ${wt}`);
     const remota = git(checkout, "rev-parse", "--verify", "-q", `refs/remotes/origin/${u.branch}`).status === 0;
     const local = git(checkout, "rev-parse", "--verify", "-q", `refs/heads/${u.branch}`).status === 0;
@@ -798,7 +824,7 @@ class Condutor {
   // Uma task numa worktree: adota a sessão que ficou de uma rodada anterior, não reabre task que a branch já
   // traz ✅, senão abre a sessão. Devolve {tipo, motivo}.
   async rodarTask(u, pasta, t, { cwd, branch }) {
-    const arquivoNaWt = join(cwd, relative(u.worktree, t.arquivo));
+    const arquivoNaWt = this.spec.planejamento === "repo" ? join(cwd, relative(u.worktree, t.arquivo)) : t.arquivo;
     const adotada = await this.adotar(u, (x) => x.task === t.id);
     if (adotada) return adotada;
     if (this.taskFechada(u, t.arquivo, branch === u.branch ? "HEAD" : branch)) {
@@ -826,6 +852,7 @@ class Condutor {
       else juntadas.push(t);
     } else {
       const pasta_t = (t) => ({ branch: `${u.branch}-t${t.id}`, cwd: `${u.worktree}-t${t.id}` });
+      git(this.est.checkout, "worktree", "prune");
       for (const t of alvos) {
         const { branch, cwd } = pasta_t(t);
         const listada = gitOk(this.est.checkout, "worktree", "list", "--porcelain").split("\n").includes(`worktree ${cwd}`);
@@ -890,7 +917,9 @@ class Condutor {
   }
 
   // O ✅ tem de estar no último commit (é o que a junção e a retomada conferem).
+  // Planning no workspace: o arquivo da task não está no git, e o ✅ é lido do disco.
   taskFechada(u, arquivoAbs, ref = "HEAD", cwd = u.worktree) {
+    if (this.spec.planejamento !== "repo") return existsSync(arquivoAbs) && readFileSync(arquivoAbs, "utf8").startsWith("✅");
     const rel = relative(cwd, arquivoAbs).split(sep).join("/");
     const r = git(cwd, "show", `${ref}:${rel}`);
     return r.status === 0 && r.stdout.startsWith("✅");
@@ -923,6 +952,7 @@ class Condutor {
     this.salvar();
     const wt = join(workspace, `${this.card.repo}-${this.card.n}-spec`);
     gitOk(checkout, "fetch", "-q", "origin");
+    git(checkout, "worktree", "prune");
     const listada = gitOk(checkout, "worktree", "list", "--porcelain").split("\n").some((l) => l === `worktree ${wt}`);
     if (listada && existsSync(wt)) gitOk(wt, "checkout", "-q", "--detach", `origin/${base}`);
     else gitOk(checkout, "worktree", "add", "-q", "--detach", wt, `origin/${base}`);
@@ -933,7 +963,9 @@ class Condutor {
       this.parar(raiz, res.motivo);
       return false;
     }
-    const pasta = readdirSync(join(wt, "planning")).sort().find((n) => n.startsWith(`${this.card.n}-`) && existsSync(join(wt, "planning", n, "spec.md")));
+    // Planning fora do repo (o /gm-spec escreveu em <workspace>/planning/): a worktree não tem planning/,
+    // e quem acha a spec depois é o localizarSpec.
+    const pasta = (existsSync(join(wt, "planning")) ? readdirSync(join(wt, "planning")) : []).sort().find((n) => n.startsWith(`${this.card.n}-`) && existsSync(join(wt, "planning", n, "spec.md")));
     if (pasta) {
       mkdirSync(join(this.dir, "spec"), { recursive: true });
       const destino = join(this.dir, "spec", pasta);

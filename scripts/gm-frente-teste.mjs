@@ -4,7 +4,7 @@
 // Uso: node scripts/gm-frente-teste.mjs
 // Sai 0 se todos os cenários passam, 1 se algum falha.
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -901,6 +901,89 @@ console.log("retomada: matar o condutor no meio da onda e iniciar de novo (R1.5)
   afirmar(impl.length === 3 && igual(impl.map((x) => x.task).sort(), ["1", "2", "3"]), "cada task abriu uma sessão só: a viva foi esperada, não reaberta, e a ✅ não voltou");
   afirmar(!listaWt(mu).includes("-t1") && !listaWt(mu).includes("-t2"), "as worktrees de task foram juntadas e removidas pelo condutor novo");
   afirmar(mu.comentarios(5)[0].body.includes("- [x] 1 —") && mu.comentarios(5)[0].body.includes("- [x] 2 —") && mu.comentarios(5)[0].body.includes("- [x] 3 —"), "os três checkboxes marcados");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Achados do G4 da F1
+console.log("G4: planning no workspace (fora do repo), da spec à PR");
+{
+  const mu = mundo({ issues: { "9": {} }, comentarios: { "9": ["<!-- gm:tasks -->\n- [ ] 1 — a"] }, claude: { duracaoMs: 200, cards: { "9": { pasta: "9-ws", tasks: [{ nome: "1-a.md" }, { nome: "2-b.md" }] } } } });
+  const pl = join(mu.ws, "planning");
+  escreverJson(join(mu.falso, "claude.json"), { ...lerJson(join(mu.falso, "claude.json")), planning: pl });
+  mkdirSync(join(pl, "9-ws"), { recursive: true });
+  writeFileSync(join(pl, "9-ws", "spec.md"), "# spec\n\n## Execution\n- Feature branch: `feat/9-ws`\n");
+  iniciarFrente(mu, 9);
+  const est = await esperarCondutor(mu, 9);
+  const u = unidade(est, 9);
+  afirmar(u.resultado === "concluida", `planning no workspace: a unidade chega a concluida (${u.motivo || "concluida"})`);
+  afirmar(["1-a.md", "2-b.md"].every((f) => readFileSync(join(pl, "9-ws", "tasks", f), "utf8").startsWith("✅")), "as tasks ✅ ficam no planning do workspace, lidas do disco");
+  const impl = readdirSync(mu.estadoDir(9)).filter((f) => f.startsWith("prompt-9-implement"));
+  afirmar(impl.length === 2 && impl.every((f) => readFileSync(join(mu.estadoDir(9), f), "utf8").split("\n")[0].includes(`--task ${join(pl, "9-ws", "tasks")}`)), "o --task vai com o caminho absoluto do workspace");
+}
+{
+  const mu = mundo({ issues: { "6": {} }, claude: { duracaoMs: 200, cards: { "6": { pasta: "6-novo" } } } });
+  const pl = join(mu.ws, "planning");
+  escreverJson(join(mu.falso, "claude.json"), { ...lerJson(join(mu.falso, "claude.json")), planning: pl });
+  iniciarFrente(mu, 6);
+  const est = await esperarCondutor(mu, 6);
+  const u = unidade(est, 6);
+  afirmar(!/ENOENT|erro do condutor/.test(u.motivo || "") && /branch da unidade não declarada/.test(u.motivo || ""), `estação 3 com o /gm-spec escrevendo no workspace: sem ENOENT, a spec é achada lá (${u.motivo})`);
+  afirmar(est.spec === join(pl, "6-novo", "spec.md") && !existsSync(join(mu.ws, `${REPO}-6-spec`)), "a spec da frente é a do workspace e a worktree -spec saiu");
+}
+
+console.log("G4: fase concluída e fechada depois não vira pulada numa rodada nova");
+{
+  const mu = mundoDuasFases();
+  iniciarFrente(mu, 78);
+  const est = await esperarCondutor(mu, 78);
+  afirmar(unidade(est, 79).resultado === "concluida", "a fase 79 concluiu na primeira rodada");
+  const issues = lerJson(join(mu.falso, "issues.json"));
+  issues["79"].state = "CLOSED";
+  escreverJson(join(mu.falso, "issues.json"), issues);
+  const r = iniciarFrente(mu, 78);
+  afirmar(r.json.retomada === false, "estado terminal com batimento fresco não é condutor vivo: a rodada nova é lançada");
+  const est2 = await esperarCondutor(mu, 78);
+  afirmar(unidade(est2, 79).resultado === "concluida" && unidade(est2, 79).pr === unidade(est, 79).pr, `fechada depois de concluída continua concluida, com a PR (${unidade(est2, 79).resultado} ${unidade(est2, 79).motivo || ""})`);
+}
+
+console.log("G4: worktree registrada com a pasta apagada é recriada");
+{
+  const mu = mundoSolo();
+  mu.iniciar();
+  await ate(() => {
+    try {
+      return lerJson(join(mu.estadoDir(5), "estado.json")).unidades.some((u) => u.worktree && existsSync(u.worktree));
+    } catch {
+      return false;
+    }
+  }, 20000, 50);
+  const est0 = await esperarCondutor(mu, 5);
+  const wt = unidade(est0, 5).worktree;
+  rmSync(wt, { recursive: true, force: true });
+  afirmar(listaWt(mu).includes(`worktree ${wt}`), "a worktree segue registrada no git, sem a pasta");
+  escreverJson(join(mu.estadoDir(5), "estado.json"), { ...est0, terminal: false, batimento: 0, unidades: est0.unidades.map((u) => ({ ...u, resultado: null, motivo: null })) });
+  fsPrs(mu);
+  mu.iniciar();
+  const est = await esperarCondutor(mu, 5);
+  afirmar(unidade(est, 5).resultado === "concluida" && existsSync(wt), `o prune deixa o worktree add recriar a pasta (${unidade(est, 5).motivo || "concluida"})`);
+}
+
+console.log("G4: trava sem dono escrito");
+{
+  const mu = mundoDuasFases();
+  const lock = join(mu.checkout, ".git", "gm-frente", "79.lock");
+  mkdirSync(lock, { recursive: true });
+  iniciarFrente(mu, 78);
+  const est = await esperarCondutor(mu, 78);
+  afirmar(unidade(est, 79).resultado === "pulada" && unidade(est, 79).motivo === "conduzida por (trava sendo tomada)", `trava recente sem dono → é de alguém, pulada (${unidade(est, 79).motivo})`);
+  afirmar(unidade(est, 80).resultado === "concluida", "a outra fase segue");
+  const velho = new Date(Date.now() - 200000);
+  rmSync(lock, { recursive: true, force: true });
+  mkdirSync(lock, { recursive: true });
+  utimesSync(lock, velho, velho);
+  iniciarFrente(mu, 78);
+  const est2 = await esperarCondutor(mu, 78);
+  afirmar(unidade(est2, 79).resultado === "concluida", `trava velha sem dono → tomada (${unidade(est2, 79).motivo || "concluida"})`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

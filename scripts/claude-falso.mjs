@@ -12,14 +12,14 @@
 //   /gm-ship … --card n --merge       mergeia a PR (estado em prs/) e fecha em PARADA, como o ship real
 //
 // Estado: $FALSO_DIR/claude.json
-//   {duracaoMs, cards: {"<n>": {pasta, fase, tasks: [{nome, onda, dep, toca}]}},
+//   {duracaoMs, planning, cards: {"<n>": {pasta, fase, tasks: [{nome, onda, dep, toca}]}},
 //    comportamento: {"<chave>": {acao: "parada"|"semlinha"|"dormir"|"fora", motivo, caminho, duracaoMs}}}
 // chave = `<estacao>:<card>:<id da task>` | `<estacao>:<card>` | `<estacao>`, a mais específica vale;
 // estacao = spec | plan-tasks | implement | ship | ship-merge.
 // Registro: $FALSO_DIR/sessoes.jsonl, uma linha por início e por fim, com o horário, para provar sobreposição.
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const dir = process.env.FALSO_DIR;
 if (!dir) {
@@ -31,6 +31,8 @@ const prompt = argv[argv.indexOf("-p") + 1] || "";
 const primeira = prompt.split("\n")[0].trim();
 const m = /^\/gm-([a-z-]+)\s*(.*)$/.exec(primeira);
 const config = existsSync(join(dir, "claude.json")) ? JSON.parse(readFileSync(join(dir, "claude.json"), "utf8")) : {};
+// config.planning (caminho absoluto): planning fora do repo, em <workspace>/planning/.
+const planning = () => config.planning || join(process.cwd(), "planning");
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function opcao(arg, flag) {
@@ -86,7 +88,7 @@ if (comportamento.acao === "parada") fim(`Parei.\n\nPARADA: ${comportamento.moti
 if (comportamento.acao === "semlinha") fim("Terminei, mas esqueci a linha de despacho.");
 
 if (estacao === "spec") {
-  const d = join(process.cwd(), "planning", cfgCard.pasta || `${card}-falso`);
+  const d = join(planning(), cfgCard.pasta || `${card}-falso`);
   mkdirSync(d, { recursive: true });
   writeFileSync(join(d, "spec.md"), `# Spec falsa do #${card}\n`);
   writeFileSync(join(d, "sensibilidade.json"), "{}\n");
@@ -94,7 +96,7 @@ if (estacao === "spec") {
 }
 
 if (estacao === "plan-tasks") {
-  const d = join(process.cwd(), "planning", pasta, "tasks", ...(cfgCard.fase ? [cfgCard.fase] : []));
+  const d = join(planning(), pasta, "tasks", ...(cfgCard.fase ? [cfgCard.fase] : []));
   mkdirSync(d, { recursive: true });
   for (const t of cfgCard.tasks || []) {
     const novas = t.onda !== undefined;
@@ -111,7 +113,7 @@ if (estacao === "implement") {
   if (branch && atual !== branch) fim(`Branch errada.\n\nPARADA: a worktree está em ${atual}, esperava ${branch}`);
   await esperar(comportamento.duracaoMs ?? config.duracaoMs ?? 1000);
 
-  const arquivo = join(process.cwd(), task);
+  const arquivo = resolve(process.cwd(), task); // relativo à raiz, ou absoluto (planning no workspace)
   const texto = readFileSync(arquivo, "utf8");
   const toca = /^Toca:\s*(.*)$/m.exec(texto)?.[1];
   const caminhos = toca ? [...toca.matchAll(/`([^`]+)`/g)].map((x) => x[1]) : [`feito/t${idTask}.txt`];
