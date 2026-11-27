@@ -92,6 +92,14 @@ if (estacao === "spec") {
   mkdirSync(d, { recursive: true });
   writeFileSync(join(d, "spec.md"), `# Spec falsa do #${card}\n`);
   writeFileSync(join(d, "sensibilidade.json"), "{}\n");
+  // Como o /gm-spec real num repo que guarda a spec (o #74 da validação do #79): cria a branch do card
+  // na worktree da spec, commita a pasta e publica.
+  if (comportamento.acao === "commitar" && comportamento.branch) {
+    git("checkout", "-q", "-b", comportamento.branch);
+    git("add", "planning");
+    git("commit", "-q", "-m", `spec do #${card}`);
+    git("push", "-q", "-u", "origin", comportamento.branch);
+  }
   fim(`Spec escrita.\n\nPROXIMO: /gm-plan-tasks ${cfgCard.pasta || `${card}-falso`} --card ${card}`);
 }
 
