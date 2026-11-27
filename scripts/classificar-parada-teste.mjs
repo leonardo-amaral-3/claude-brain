@@ -50,7 +50,7 @@ const motivosPorId = {
   "escolha-de-produto": "escolha de produto que o card não responde",
   "desvio-de-spec": "houve desvio da spec na task 3",
   "teste-vermelho": "o teste ficou vermelho",
-  producao: "o merge na dev é do Leonardo",
+  producao: "o merge na main é do Leonardo",
   "gate-aberto": "o gate G2 ficou aberto",
   outro: "a lua entrou em Peixes",
 };
@@ -60,6 +60,13 @@ for (const [id, motivo] of Object.entries(motivosPorId)) {
   vistas.add(resultado.categoria);
   afirmar(resultado.categoria === id && resultado.estado === "classificada", `"${id}" sai classificada`);
   afirmar(aviso === "", `"${id}" sem aviso`);
+}
+{
+  const { resultado } = await rodar("spec sensível; o merge na dev espera o humano");
+  afirmar(
+    resultado.categoria === "gate-aberto" && resultado.estado === "classificada",
+    "a PARADA de spec sensível (merge na dev) cai em gate-aberto, não em producao",
+  );
 }
 afirmar(vistas.size === 8 && CATEGORIAS.every((c) => vistas.has(c.id)), "as oito categorias saíram ao menos uma vez");
 
@@ -182,7 +189,7 @@ const repetida = convencoes.replace(
 afirmar(divergenciaDaLista(repetida) !== null, "(b) linha **para** repetida também diverge");
 
 console.log("C7 — a guarda dentro de `classificar` (a, b, c)");
-const motivoQualquer = "o merge na dev é do Leonardo";
+const motivoQualquer = "o merge na main é do Leonardo";
 const divergentes = {
   "(a) célula renomeada": () => convencoes.replace(`| ${celulaVelha} |`, `| ${celulaNova} |`),
   "(b) linha para a mais": () => comExtra,
@@ -203,7 +210,7 @@ for (const [nome, lerConvencoes] of Object.entries(divergentes)) {
 
 console.log("C8 — executar e lerEntrada");
 {
-  const entrada = "linha um\r\nlinha dois\r\nPARADA: o merge na dev é do Leonardo.\r\n\r\n  \r\n";
+  const entrada = "linha um\r\nlinha dois\r\nPARADA: o merge na main é do Leonardo.\r\n\r\n  \r\n";
   const feito = await executar(entrada, { cliente: criarJevFalso() });
   afirmar(feito.codigo === 0 && feito.erro === "", "texto com CRLF e brancos no fim → código 0, sem erro");
   afirmar(mesmaLista(Object.keys(JSON.parse(feito.saida)), CHAVES), "a saída tem as chaves na ordem certa");
@@ -228,8 +235,8 @@ console.log("C8 — executar e lerEntrada");
 }
 
 console.log("C8 — lerEntrada");
-const classificada = lerEntrada("linha um\r\nlinha dois\r\nPARADA: o merge na dev é do Leonardo.\r\n\r\n  \r\n");
-afirmar(classificada.motivo === "o merge na dev é do Leonardo.", "várias linhas com CRLF e brancos no fim: pega o motivo");
+const classificada = lerEntrada("linha um\r\nlinha dois\r\nPARADA: o merge na main é do Leonardo.\r\n\r\n  \r\n");
+afirmar(classificada.motivo === "o merge na main é do Leonardo.", "várias linhas com CRLF e brancos no fim: pega o motivo");
 afirmar(lerEntrada("PARADA:   com espaços   ").motivo === "com espaços", "o motivo vem aparado");
 afirmar(lerEntrada("x\n  PARADA: recuada  \t\n").motivo === "recuada", "espaço à esquerda da última linha passa (achado 8)");
 afirmar(lerEntrada("**PARADA:** x").erro === "a última linha não é PARADA:", "`**PARADA:**` em negrito continua recusada");
@@ -353,7 +360,7 @@ const ambienteIsolado = () => {
   afirmar(a.status === 2 && a.stdout === "", "(a) PROXIMO: na stdin → status 2 e stdout vazio");
 
   const b = spawnSync(process.execPath, [script], {
-    input: "PARADA: o merge na dev é do Leonardo.\n",
+    input: "PARADA: o merge na main é do Leonardo.\n",
     timeout: 4000,
     encoding: "utf8",
     env: ambienteIsolado(),
@@ -365,7 +372,7 @@ const ambienteIsolado = () => {
   // primeira opção com 0.95). Prova a costura com a forma de verdade do #42 e a emenda 1: uma parada
   // de merge com o falso no ambiente sai escala:true, porque "falso", nunca contornável.
   const e = spawnSync(process.execPath, [script], {
-    input: "PARADA: o merge na dev é do Leonardo.\n",
+    input: "PARADA: o merge na main é do Leonardo.\n",
     timeout: 4000,
     encoding: "utf8",
     env: { ...ambienteIsolado(), BRAIN_JEV: "parada", BRAIN_JEV_FALSO: "sim" },
@@ -441,7 +448,7 @@ const ambienteIsolado = () => {
     let stderr = "";
     filho.stdout.on("data", (pedaco) => (stdout += pedaco));
     filho.stderr.on("data", (pedaco) => (stderr += pedaco));
-    filho.stdin.write("PARADA: o merge na dev é do Leonardo.\n"); // e nunca `end()`
+    filho.stdin.write("PARADA: o merge na main é do Leonardo.\n"); // e nunca `end()`
     const guarda = setTimeout(() => filho.kill("SIGKILL"), 5000);
     filho.on("close", (status, signal) => {
       clearTimeout(guarda);

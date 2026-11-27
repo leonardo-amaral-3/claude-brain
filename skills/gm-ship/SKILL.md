@@ -83,14 +83,14 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
 2. Every file in `tasks/` (epic: `tasks/<fase>/`, only the phase in flight) starts with `✅ Status: Complete`; otherwise stop and point to `/gm-implement $ARGUMENTS`.
 3. Inside the module repo (nested git repository): on the feature branch, `git status` clean.
 4. **Run the test gate the workspace declares** — the item *Portão de teste* of the workspace
-   `CLAUDE.md`, wherever it sits (by convention under `## Convenções da esteira`). It says what runs
+   `CLAUDE.md`, found the way `## Ambiente na entrada` finds its item. It says what runs
    **locally before the PR** and **where the full suite runs**: `local` or `CI`. When the workspace
    has a CI, the local part always includes the typecheck the CI runs (item *Typecheck do CI*,
    wherever it sits) — a looser local check has already broken `dev`; CI declared and no such item
    → stop and ask. A workspace that declares no CI needs no *Typecheck do CI* item.
    - `local` → the full relevant suite runs here.
    - `CI` → only the local part runs here; the PR body names the CI checks that are the gate, and
-     "entregue" is still green CI (`## Report`). With no human, the CI is not waited on.
+     "entregue" is still green CI (`## Report`).
    - No *Portão de teste* item → the rule before it existed: the full relevant suite (tests +
      typecheck of the touched packages) runs here; say in one line that the workspace declares no
      gate.
@@ -289,7 +289,8 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
    `PARADA: <what the CLAUDE.md must declare>`.
 4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
    schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
-   was done and close with `PROXIMO` or `PARADA`.
+   was done and close with `PROXIMO` or `PARADA`. (The `/gm-frente` conductor is a separate process,
+   and it is the one that waits for CI and for the sessions.)
 
 ## Modo despachado
 
@@ -316,8 +317,11 @@ naming it.
 | Escolha de produto que card, spec, argumento e decisões registradas não respondem | qualquer | **para** |
 | Desvio da spec, decisão que caiu, emenda | `gm-implement`, `gm-ship`, `gm-correcao` | **para** |
 | Teste vermelho, ambiente quebrado, `CLAUDE.md` que não declara o que a skill exige | qualquer | **para**, com a saída que prova |
-| Merge, `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
-| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** |
+| Merge na dev da PR do próprio card | `gm-ship` · `Merge dev` | **decide** quando o `merge-dev.mjs` devolve `pode: true`; spec sensível ou condição falhando: para, dizendo qual |
+| Base da PR em branch de outro card | `gm-implement`, `gm-ship` | **decide**: base `dev`; outra só com `Motivo da base:` na spec |
+| Remover worktree e branch de task que a frente criou, depois de juntá-la | `gm-frente` | **decide**: `git worktree remove` sem `--force`, `git branch -d` |
+| Merge na `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
+| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** — o condutor do `/gm-frente` é processo à parte, e é ele quem espera o CI e as sessões |
 | Perguntar o que o card, a spec, o argumento ou o cofre já respondem | qualquer | **não pergunta** — lê |
 | Devolver comando `/gm-*` para alguém digitar | qualquer | **não faz** — vai na linha `PROXIMO:` |
 
