@@ -1,9 +1,9 @@
 ---
 name: gm-plan-tasks
-description: Break a spec into ordered, independent implementation tasks — each task file is the complete prompt for a fresh agent. Proposes the whole breakdown at once for the user to veto/adjust; enforces the 6-8 task ceiling; mirrors the task list on the card. Use after gm-spec, before /gm-implement.
+description: Break a spec into implementation tasks arranged in waves (Onda, Depende de, Toca) — each task file is the complete prompt for a fresh agent. Proposes the whole breakdown at once, grouped by wave, for the user to veto/adjust; enforces the 6-8 task ceiling; mirrors the task list on the card. Use after gm-spec, before /gm-implement.
 disable-model-invocation: true
 model: claude-opus-5-5
-argument-hint: [feature-folder]
+argument-hint: [feature-folder] [--card <n>]
 ---
 
 # Task Planner
@@ -49,7 +49,7 @@ and every `description` — is written in pt-BR.**
 
 ## Setup
 
-Read `planning/$ARGUMENTS/spec.md` (older folders: `tech-spec.md` + `PRD.md`). Note `## Execution` (target repo, feature branch — branch management belongs to `/gm-implement`, not to the tasks) and `## Plano de testes`. Then explore the current state of the files that will change.
+The first token of `$ARGUMENTS` is the feature folder; with `--card <n>` the card in flight is `<n>` (an epic phase: its `gm:spec-ref` and `tasks/<fase>/`; otherwise the card itself). No option → act as before. Read `planning/<folder>/spec.md` (older folders: `tech-spec.md` + `PRD.md`). Note `## Execution` (target repo, feature branch — branch management belongs to `/gm-implement`, not to the tasks) and `## Plano de testes`. Then explore the current state of the files that will change.
 
 **The spec's premises are measured, or there is no plan.** The spec has a `## Premissas medidas` section, and every line in it carries its proof and result (or the section is `N/A` with a reason): planning on an unmeasured premise is how a task stops halfway on a deviation. Which path applies depends on who could have written the section:
 
@@ -60,8 +60,8 @@ Each task's `Context` names the premise lines it leans on — from the spec's se
 
 ## Phase 1: Propose the breakdown — whole, at once
 
-Present the **entire** proposed breakdown in one message — numbered list, each task with title +
-one-line scope + the test that closes it — because a division cannot be judged without both sides
+Present the **entire** proposed breakdown in one message — grouped by wave, each task with title +
+one-line scope + the test that closes it + `Onda`, `Depende de` and `Toca` — because a division cannot be judged without both sides
 of every cut on the table. Then run the *artefato* set from `## Como perguntar e como aprovar`
 **once**, over the whole list: *Ajustar* comes back here with the correction and re-presents the
 list entire; *Rejeitar* writes no task file at all and closes by saying what would have to change
@@ -73,9 +73,13 @@ a single choice closes, and it hides the shape of the whole from the only person
 
 Rules of division:
 
-- **Code must compile after each task** — no type errors, no broken builds. Primary constraint.
+- **Code must compile after each task, and after each wave merged** — no type errors, no broken builds. Primary constraint.
 - **Each task names its verification** — the test command/suite that must pass, from the spec's test plan. "Compila" is not a Definition of Done.
-- **Dependency order** — schema → backend → frontend (adapt); no task depends on a future task.
+- **Waves, not a flat order** — schema → backend → frontend (adapt) still guides who depends on whom, but the plan is arranged in waves: tasks of one wave run at the same time, in other worktrees. "No task depends on a future task" holds per wave: every dependency sits in a lower wave. The *Regra das ondas*:
+  1. `Onda(t) = 1` with no dependency; otherwise `1 + max(Onda(d))`.
+  2. Two tasks of the same wave whose paths collide (equal, or one is a directory containing the other) → the one with the higher number drops a wave, and those that depend on it drop with it; repeat until no collision remains.
+  3. Dependency is also dependency of use: a task that uses something another creates or changes depends on it.
+  4. Valid = unique ids; every dependency exists and sits in a lower wave; no collision inside a wave; waves from 1 up, no gap; every task of the folder has the fields, or none does.
 - **Ceiling: 6–8 tasks, per card in flight.** More than that means the card is an epic in disguise — stop, say so, and send it to **`/gm-spec` Phase 6** (slicing is gm-spec's job, not gm-card's: the phase structure is an output of specification). Don't paper over it with a longer list. Deliver what you can: if the first phase already fits the ceiling, propose *its* breakdown in the same breath, so the rebound arrives with work attached instead of empty-handed.
 - **On an epic, you are planning the child card, not the parent.** Read the child's `<!-- gm:spec-ref -->` comment: it names the spec sections this phase covers and, just as importantly, what is deliberately out of scope. Task files live in `tasks/<fase>/`, point at the spec with `../../spec.md`, and carry the **child's** number in the `Card: #` trailer — the epic's number never goes in a commit.
 - **A phase that was not promoted is not plannable — stop.** Every phase of an epic exists as a sub-issue from the slicing on, but a phase still carrying `<!-- gm:fase -->` (instead of `gm:spec-ref`), with no acceptance criteria, no declared route and no place on the board, is roadmap, not work. Say exactly that and send it back to `/gm-spec` Phase 6 for promotion — planning tasks against a thin phase would invent the acceptance criteria that the promotion exists to decide with a human.
@@ -83,7 +87,7 @@ Rules of division:
 
 ## Phase 2: Write the task files
 
-`planning/$ARGUMENTS/tasks/1-short-description.md`, `2-…` etc. — or `tasks/<fase>/1-…md` when the folder belongs to an epic, since later phases reuse the numbering.
+`planning/<folder>/tasks/1-short-description.md`, `2-…` etc. — or `tasks/<fase>/1-…md` when the folder belongs to an epic, since later phases reuse the numbering.
 
 ### Task files are agent prompts
 
@@ -93,6 +97,9 @@ Each file is the ENTIRE prompt of a fresh agent — no surrounding context, no h
 
 ```markdown
 ❌ Status: Not Started
+Onda: <k>
+Depende de: <ids separated by ", "> | —
+Toca: `<path>`, `<path>`, …
 
 # Task [N]: [Title]
 
@@ -103,7 +110,7 @@ You are implementing part of a larger feature. Read this first:
 
 The code lives in the `[repo]/` directory of the workspace — **its own git repository**; run every git command from inside it. Work happens on the feature branch named in the spec's `## Execution` (already checked out by `/gm-implement`).
 
-This is task [N] of [total]. Tasks 1..[N-1] are already in the codebase.
+This is task [N] of [total]. As tasks de `Depende de:` já estão no código; outras desta onda correm ao mesmo tempo em outras worktrees e não estão aqui.
 
 ## Scope
 
@@ -128,6 +135,8 @@ This is task [N] of [total]. Tasks 1..[N-1] are already in the codebase.
 4. Flip the first line of this file to `✅ Status: Complete`.
 ```
 
+Lines 1 to 4 of every task file, in this order. `<id>` = the file name prefix before the first `-` (`3`, `3a`); `Depende de: —` when none. `Toca:` lists, relative to the repo root, every file the task creates, changes or deletes; a path ending in `/` covers everything below it; the task's own file does not go in; at least one path.
+
 ### Mirror on the card
 
 Publish the task list as a checklist comment on the card (create-or-update, first line exactly `<!-- gm:tasks -->`):
@@ -135,17 +144,17 @@ Publish the task list as a checklist comment on the card (create-or-update, firs
 ```markdown
 <!-- gm:tasks -->
 ### Tasks
-- [ ] 1 — título
-- [ ] 2 — título
+- [ ] 1 — título (onda 1)
+- [ ] 2 — título (onda 2)
 ```
 
 `gm-implement` ticks the boxes as tasks complete — progress (n/m) visible on the board without opening anything.
 
 ### Quality checks before presenting
 
-1. Tasks cover the whole spec — nothing missed. 2. Each leaves the code compilable. 3. No forward dependencies. 4. Each file works as a standalone prompt. 5. No duplication of spec content. 6. Every task names its verification command. 7. An e2e task simulates a slow external system at the edge, and a premise inherited from a catalog is checked against the environment, not assumed.
+1. Tasks cover the whole spec — nothing missed. 2. Each leaves the code compilable. 3. No forward dependencies. 4. Each file works as a standalone prompt. 5. No duplication of spec content. 6. Every task names its verification command. 7. An e2e task simulates a slow external system at the edge, and a premise inherited from a catalog is checked against the environment, not assumed. 8. `node "<Base directory for this skill>/../gm-frente/ondas.mjs" --validar <tasks folder>` exits `0`; `1` → fix the plan before presenting; the script does not exist (installation without it) → say so in one line and check the *Regra das ondas* by hand.
 
-Then offer exactly one follow-up: `/gm-implement $ARGUMENTS` (uma task por sessão, de preferência com `/clear` entre elas).
+Then offer exactly one follow-up: `/gm-implement <folder>` (uma task por sessão, de preferência com `/clear` entre elas).
 
 ## Convenções de saída
 
