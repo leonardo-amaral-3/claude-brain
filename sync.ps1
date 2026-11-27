@@ -17,6 +17,12 @@
     brain-mcp/{src,scripts}/**    <->  <brain-mcp instalado>/{src,scripts}/**
     brain-mcp/{package.json, package-lock.json, tsconfig.json, README.md, brain.config.example.json}
 
+  O CLAUDE.md do workspace (workspaces\pessoal\CLAUDE.md, so quando a pasta acima do repo se
+  chama `pessoal`) e MONTADO, nao copiado: o repo guarda so a parte generica, com uma linha
+  marcadora, e o push instala generico + CLAUDE.privado.md (local, nunca versionado, na pasta do
+  workspace, ao lado do CLAUDE.md instalado) no lugar da marcadora. O pull faz o inverso e nunca
+  escreve o privado; o status compara so a parte generica.
+
   O que NUNCA entra: brain.config.json, ~/.claude/brain-workspaces.json e o proprio
   ~/.claude/brain-sync-origem.txt (sao pessoais, de cada maquina) e a pasta data/ (o indice,
   que se reconstroi).
@@ -150,6 +156,142 @@ if ($mesmoLugar) {
   Write-Host "brain-mcp: nao achei em $BrainDir - passe -BrainDir." -ForegroundColor Yellow
 }
 
+# ---------------------------------------------------------------- CLAUDE.md do workspace
+# Generico no repo (publico), privado local. @import nao serve (e ignorado em silencio em
+# subpasta e worktree), entao o push monta e o pull desmonta. Mesmo comportamento do sync.sh.
+$wsDir = Split-Path $repo -Parent
+$wsAtivo = (Split-Path $wsDir -Leaf) -ceq 'pessoal'
+$wsRepo = Join-Path $repo 'workspaces\pessoal\CLAUDE.md'
+$wsVivo = Join-Path $wsDir 'CLAUDE.md'
+$wsPriv = Join-Path $wsDir 'CLAUDE.privado.md'
+$wsMarca = '<!-- privado: CLAUDE.privado.md entra aqui -->'
+$wsIni = '<!-- privado:inicio CLAUDE.privado.md (edite o arquivo local e rode sync push, nao aqui) -->'
+$wsFim = '<!-- privado:fim -->'
+$wsPrefixoIni = '<!-- privado:inicio '
+$utf8 = New-Object System.Text.UTF8Encoding $false
+
+function Aviso($msg) { Write-Host "aviso: $msg" -ForegroundColor Yellow }
+
+function HashTexto($texto) {
+  $sha = [Security.Cryptography.SHA256]::Create()
+  return ([BitConverter]::ToString($sha.ComputeHash($utf8.GetBytes($texto)))).Replace('-', '')
+}
+
+# Instalado -> generico: troca o bloco inicio..fim pela marcadora. Sem bloco, devolve como esta.
+# Rc 2 quando o bloco esta torto (orfao, repetido, fim antes do inicio).
+function WsDesmonta([string]$texto) {
+  $linhas = $texto -split "`n"
+  $ini = @($linhas | Where-Object { $_.StartsWith($wsPrefixoIni, [StringComparison]::Ordinal) }).Count
+  $fim = @($linhas | Where-Object { $_ -ceq $wsFim }).Count
+  if ($ini -eq 0 -and $fim -eq 0) { return [PSCustomObject]@{ Rc = 0; Texto = $texto } }
+  if ($ini -ne 1 -or $fim -ne 1) { return [PSCustomObject]@{ Rc = 2; Texto = '' } }
+  $n = $linhas.Count
+  if ($texto.EndsWith("`n")) { $n-- }
+  $saida = New-Object System.Collections.Generic.List[string]
+  $dentro = $false; $feito = $false; $torto = $false
+  for ($i = 0; $i -lt $n; $i++) {
+    $l = $linhas[$i]
+    if ($l.StartsWith($wsPrefixoIni, [StringComparison]::Ordinal)) {
+      if ($dentro -or $feito) { $torto = $true }
+      $dentro = $true; $saida.Add($wsMarca); continue
+    }
+    if ($l -ceq $wsFim) {
+      if ((-not $dentro) -or $feito) { $torto = $true }
+      $feito = $true; $dentro = $false; continue
+    }
+    if (-not $dentro) { $saida.Add($l) }
+  }
+  if ($torto) { return [PSCustomObject]@{ Rc = 2; Texto = '' } }
+  return [PSCustomObject]@{ Rc = 0; Texto = (($saida -join "`n") + "`n") }
+}
+
+# O miolo do bloco privado instalado (entre os delimitadores, sem eles), uma linha por \n.
+function WsMiolo([string]$texto) {
+  $miolo = ''; $dentro = $false
+  foreach ($l in ($texto -split "`n")) {
+    if ($l -ceq $wsFim) { $dentro = $false }
+    if ($dentro) { $miolo += $l + "`n" }
+    if ($l.StartsWith($wsPrefixoIni, [StringComparison]::Ordinal)) { $dentro = $true }
+  }
+  return $miolo
+}
+
+# O privado como o awk do sync.sh o le: termina sempre em \n (ou e vazio).
+function WsPrivNormalizado {
+  $t = [IO.File]::ReadAllText($wsPriv)
+  if ($t.Length -gt 0 -and -not $t.EndsWith("`n")) { $t += "`n" }
+  return $t
+}
+
+# Generico + privado -> instalado: a marcadora vira inicio, o conteudo do privado e fim.
+function WsMonta([string]$generico) {
+  $priv = WsPrivNormalizado
+  $linhas = $generico -split "`n"
+  $n = $linhas.Count
+  if ($generico.EndsWith("`n")) { $n-- }
+  $saida = ''; $feito = $false
+  for ($i = 0; $i -lt $n; $i++) {
+    if (($linhas[$i] -ceq $wsMarca) -and -not $feito) {
+      $saida += $wsIni + "`n" + $priv + $wsFim + "`n"; $feito = $true
+    } else { $saida += $linhas[$i] + "`n" }
+  }
+  return $saida
+}
+
+$wsOk = $wsAtivo -and (Test-Path -LiteralPath $wsRepo)
+$wsTemVivo = $false; $wsDesmontado = ''; $wsEsperado = ''; $wsRcDesmonta = 0; $wsTemPriv = $false; $wsSemMarca = $false
+if ($wsOk) {
+  $wsTemPriv = Test-Path -LiteralPath $wsPriv
+  $wsTemVivo = Test-Path -LiteralPath $wsVivo
+  $textoVivo = ''
+  if ($wsTemVivo) {
+    $textoVivo = [IO.File]::ReadAllText($wsVivo)
+    $r = WsDesmonta $textoVivo
+    $wsRcDesmonta = $r.Rc; $wsDesmontado = $r.Texto
+  }
+  if ($Acao -eq 'push') {
+    $textoRepo = [IO.File]::ReadAllText($wsRepo)
+    $nmarca = @($textoRepo -split "`n" | Where-Object { $_ -ceq $wsMarca }).Count
+    if (-not $wsTemPriv) {
+      Aviso "nao achei $wsPriv: o CLAUDE.md instalado leva so a parte generica."
+      $wsEsperado = $textoRepo
+    } elseif ($nmarca -ne 1) {
+      Aviso "workspaces/pessoal/CLAUDE.md tem $nmarca linhas marcadoras (esperada: 1): instalando o generico sem o privado."
+      $wsEsperado = $textoRepo
+    } else {
+      $wsEsperado = WsMonta $textoRepo
+    }
+  }
+  # Instalado sem bloco privado e sem marcadora (o CLAUDE.md antigo, inteiro, ou editado a mao):
+  # nao ha como saber o que nele e privado. Diferente do repo, o pull recusa e o status avisa.
+  if ($wsTemVivo -and $wsRcDesmonta -eq 0 -and
+      ($textoVivo -cnotmatch '(?m)^<!-- privado:inicio ') -and
+      -not (@($textoVivo -split "`n") -ccontains $wsMarca) -and
+      ($textoVivo -cne [IO.File]::ReadAllText($wsRepo))) {
+    $wsSemMarca = $true
+  }
+  if ($Acao -eq 'pull' -and $wsSemMarca) {
+    [Console]::Error.WriteLine("erro: $wsVivo nao tem bloco privado nem linha marcadora; sem eles nao da para separar o que e privado. Nada foi escrito (rode push primeiro ou edite o repo).")
+    exit 2
+  }
+  # Delimitador torto no instalado: o pull nao tem como desmontar e nao escreve nada.
+  if ($Acao -eq 'pull' -and $wsRcDesmonta -eq 2) {
+    [Console]::Error.WriteLine("erro: $wsVivo tem delimitador privado:inicio/privado:fim orfao ou repetido; nada foi escrito.")
+    exit 2
+  }
+  # Bloco privado instalado diferente do arquivo local: o pull/status avisam, o push resolve.
+  $wsTemBloco = $wsTemVivo -and ($textoVivo -cmatch '(?m)^<!-- privado:inicio ')
+  if ($Acao -ne 'push' -and $wsRcDesmonta -eq 0 -and $wsTemBloco) {
+    if ((-not $wsTemPriv) -or ((WsMiolo $textoVivo) -cne (WsPrivNormalizado))) {
+      if ($Acao -eq 'pull') {
+        Aviso "o bloco privado instalado difere de $wsPriv; essa edicao nao volta a lugar nenhum (o pull nunca escreve o privado)."
+      } else {
+        Aviso "o bloco privado instalado esta defasado em relacao a $wsPriv (nao conta como diferenca; rode push)."
+      }
+    }
+  }
+}
+
 # ---------------------------------------------------------------- comparacao
 # Rascunho local nao e divergencia: .bak/.orig/.tmp aparecem enquanto se mexe num arquivo e
 # so poluiriam o status com ruido que ninguem quer versionar nem instalar.
@@ -182,6 +324,28 @@ foreach ($p in $pares) {
     if (-not $ha) { $estado = 'so na maquina' }
     if (-not $hb) { $estado = 'so no repo' }
     $difs += [PSCustomObject]@{ Par = $p.nome; Arquivo = $rel; Estado = $estado; Repo = $a; Vivo = $b }
+  }
+}
+
+if ($wsOk) {
+  $wsDif = $null
+  if ($Acao -eq 'push') {
+    if ((-not $wsTemVivo) -or ((HashTexto $wsEsperado) -ne (Hash $wsVivo))) { $wsDif = $true }
+  } elseif (-not $wsTemVivo) {
+    $wsDif = $true
+  } elseif ($wsRcDesmonta -eq 2) {
+    Aviso "$wsVivo tem delimitador privado orfao ou repetido: o par entra na lista, mas nao da para desmontar."
+    $wsDif = $true
+  } elseif ($wsSemMarca) {
+    Aviso "$wsVivo nao tem bloco privado nem linha marcadora: o par entra na lista, mas o pull recusa (rode push)."
+    $wsDif = $true
+  } elseif ((HashTexto $wsDesmontado) -ne (Hash $wsRepo)) {
+    $wsDif = $true
+  }
+  if ($wsDif) {
+    $estado = if (-not $wsTemVivo) { 'so no repo' } else { 'diferente' }
+    $difs += [PSCustomObject]@{ Par = 'workspace'; Arquivo = 'workspaces/pessoal/CLAUDE.md'; Estado = $estado
+                                Repo = $wsRepo; Vivo = $wsVivo; Ws = $true }
   }
 }
 
@@ -295,6 +459,21 @@ if ($Acao -eq 'push') {
 $copiados = 0
 foreach ($d in $difs) {
   if ($Acao -eq 'pull') { $de = $d.Vivo; $para = $d.Repo } else { $de = $d.Repo; $para = $d.Vivo }
+  if ($d.Ws) {
+    # o par do workspace nao e copia: push instala o montado, pull devolve o desmontado
+    if ($Acao -eq 'pull' -and -not $wsTemVivo) {
+      Write-Host "  ? $($d.Arquivo): nao existe na origem, pulado ($($d.Estado))" -ForegroundColor DarkYellow
+      continue
+    }
+    $texto = if ($Acao -eq 'pull') { $wsDesmontado } else { $wsEsperado }
+    if ($DryRun) { Write-Host "  -> $para" -ForegroundColor Gray; $copiados++; continue }
+    $pai = Split-Path $para -Parent
+    if (-not (Test-Path $pai)) { New-Item -ItemType Directory -Force $pai | Out-Null }
+    [IO.File]::WriteAllText($para, $texto, $utf8)
+    Write-Host "  + $($d.Par): $($d.Arquivo)" -ForegroundColor Green
+    $copiados++
+    continue
+  }
   if (-not (Test-Path $de)) {
     Write-Host "  ? $($d.Arquivo): nao existe na origem, pulado ($($d.Estado))" -ForegroundColor DarkYellow
     continue
