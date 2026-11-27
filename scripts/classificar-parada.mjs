@@ -70,7 +70,7 @@ export const CATEGORIAS = [
   ),
   daTabela("desvio-de-spec", "Desvio da spec, decisão que caiu, emenda"),
   daTabela("teste-vermelho", "Teste vermelho, ambiente quebrado, `CLAUDE.md` que não declara o que a skill exige"),
-  daTabela("producao", "Merge, `main`, tag, release, deploy, produção, instalação viva, apagar", "reservada"),
+  daTabela("producao", "Merge na `main`, tag, release, deploy, produção, instalação viva, apagar", "reservada"),
   {
     id: "gate-aberto",
     linha: null,

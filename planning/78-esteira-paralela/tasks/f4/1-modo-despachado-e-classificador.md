@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: Linhas novas do `## Modo despachado` e o classificador da `PARADA`
 

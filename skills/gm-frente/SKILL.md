@@ -79,7 +79,8 @@ into every `gm-*` skill that has a closing point. Edit the source in the `claude
    `PARADA: <what the CLAUDE.md must declare>`.
 4. **With no human in the session (`claude -p`, a dispatcher), do not wait for CI and do not
    schedule a wake-up** (`ScheduleWakeup`, `/loop`), and do nothing in the background: report what
-   was done and close with `PROXIMO` or `PARADA`.
+   was done and close with `PROXIMO` or `PARADA`. (The `/gm-frente` conductor is a separate process,
+   and it is the one that waits for CI and for the sessions.)
 
 ## Modo despachado
 
@@ -106,8 +107,11 @@ naming it.
 | Escolha de produto que card, spec, argumento e decisões registradas não respondem | qualquer | **para** |
 | Desvio da spec, decisão que caiu, emenda | `gm-implement`, `gm-ship`, `gm-correcao` | **para** |
 | Teste vermelho, ambiente quebrado, `CLAUDE.md` que não declara o que a skill exige | qualquer | **para**, com a saída que prova |
-| Merge, `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
-| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** |
+| Merge na dev da PR do próprio card | `gm-ship` · `Merge dev` | **decide** quando o `merge-dev.mjs` devolve `pode: true`; spec sensível ou condição falhando: para, dizendo qual |
+| Base da PR em branch de outro card | `gm-implement`, `gm-ship` | **decide**: base `dev`; outra só com `Motivo da base:` na spec |
+| Remover worktree e branch de task que a frente criou, depois de juntá-la | `gm-frente` | **decide**: `git worktree remove` sem `--force`, `git branch -d` |
+| Merge na `main`, tag, release, deploy, produção, instalação viva, apagar | `gm-release` e `gm-hotfix` inteiras; qualquer | **para**, sempre |
+| Esperar CI, agendar retorno, rodar em segundo plano | qualquer | **não faz** — o condutor do `/gm-frente` é processo à parte, e é ele quem espera o CI e as sessões |
 | Perguntar o que o card, a spec, o argumento ou o cofre já respondem | qualquer | **não pergunta** — lê |
 | Devolver comando `/gm-*` para alguém digitar | qualquer | **não faz** — vai na linha `PROXIMO:` |
 
