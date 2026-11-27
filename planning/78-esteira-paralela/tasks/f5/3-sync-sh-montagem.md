@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: `sync.sh` — o par do workspace, montagem no `push`, desmontagem no `pull`, `status` pela parte genérica
 
