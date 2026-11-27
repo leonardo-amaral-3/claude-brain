@@ -131,8 +131,8 @@ This is task [N] of [total]. As tasks de `Depende de:` já estão no código; ou
 
 1. Implement; run the checklist.
 2. Present the summary: the verification result first, then a risk-ranked reading order — what deserves a careful look and why, not a changelog.
-3. Commit from inside `[repo]/`, message ending with the trailer `Card: #[issue]` — and put that commit to the human as a choice (*ação irreversível*), never as consent to be typed.
-4. Flip the first line of this file to `✅ Status: Complete`.
+3. Flip the first line of this file to `✅ Status: Complete` — **before** the commit, so the `✅` goes in it.
+4. Commit from inside `[repo]/`, message ending with the trailer `Card: #[issue]` — and put that commit to the human as a choice (*ação irreversível*), never as consent to be typed.
 ```
 
 Lines 1 to 4 of every task file, in this order. `<id>` = the file name prefix before the first `-` (`3`, `3a`); `Depende de: —` when none. `Toca:` lists, relative to the repo root, every file the task creates, changes or deletes; a path ending in `/` covers everything below it; the task's own file does not go in; at least one path.

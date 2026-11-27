@@ -232,7 +232,7 @@ citando a emenda.
 
 ## Conformance before the commit (every mode)
 
-When the task file has a `Toca:` line, run `node "<Base directory for this skill>/../gm-frente/ondas.mjs" --conferir <task file>` from the worktree, before the commit. Exit `1` with `fora` listing files → stop, `PARADA: a task tocou fora do Toca: <lista>`; never widen `Toca:` to fit. The script does not exist (installation without it) → say so in one line and compare `git status --porcelain` against the `Toca:` by hand (the task's own file is always allowed). A task without `Toca:` (old format) has nothing to check.
+When the task file has a `Toca:` line, run `node "<Base directory for this skill>/../gm-frente/ondas.mjs" --conferir <task file>` from the worktree, before the commit. Exit `1` with `fora` listing files → stop, `PARADA: a task tocou fora do Toca: <lista>`; never widen `Toca:` to fit. Exit `2` (unreadable argument or file) is not a pass → stop, `PARADA: ondas.mjs --conferir não leu <arquivo>`. In task mode a deviation, a slicing or an amendment (they write `spec.md` or new task files outside `Toca:`) is a stop: `PARADA: desvio em modo task, o condutor não fatia nem emenda`. The script does not exist (installation without it) → say so in one line and compare `git status --porcelain` against the `Toca:` by hand (the task's own file is always allowed), and, at the start of task mode, check each `Depende de:` id by hand (its task file first line is `✅`). A task without `Toca:` (old format) has nothing to check.
 
 ## Present for review
 
