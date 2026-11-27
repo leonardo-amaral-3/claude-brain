@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 1: `ondas.mjs` (contrato, validador, conferência) e o esqueleto de `scripts/gm-frente-teste.mjs`
 
