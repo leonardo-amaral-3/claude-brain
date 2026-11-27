@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 6: `/gm-release`: trem do corte e G5 por trem
 
