@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 3: Detector de 9-gramas no `--check` e limpeza das reafirmações
 

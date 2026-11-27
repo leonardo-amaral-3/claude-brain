@@ -83,6 +83,54 @@ function arraysIguais(a, b) {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
+// --- detector de duplicação (R4.1) ---
+// 9 palavras seguidas (minúsculas, sem ` * _ > |, espaços colapsados) de uma fonte do _comum fora dos
+// blocos carimbados são a fonte repetida à mão: acusa `skill:linha`, o trecho, e o --check sai 1.
+const TAMANHO_GRAMA = 9;
+const palavrasDe = (linha) =>
+  linha.toLowerCase().replace(/[`*_>|]/g, "").split(/\s+/).filter(Boolean);
+
+function gramasDasFontes(fontes) {
+  const mapa = new Map(); // grama → "arquivo · ## seção"
+  for (const { arquivo, secoes } of fontes) {
+    for (const secao of secoes) {
+      const palavras = palavrasDe(secao.texto.split("\n").slice(1).join("\n"));
+      for (let i = 0; i + TAMANHO_GRAMA <= palavras.length; i++) {
+        const grama = palavras.slice(i, i + TAMANHO_GRAMA).join(" ");
+        if (!mapa.has(grama)) mapa.set(grama, `${arquivo} · ${secao.cabecalho}`);
+      }
+    }
+  }
+  return mapa;
+}
+
+// → [{ linha, trecho, fonte }]: uma entrada por trecho contínuo repetido, na linha onde começa.
+// As linhas de dentro dos blocos carimbados quebram a sequência: um trecho não atravessa um bloco.
+function duplicacoesForaDosBlocos(linhas, intervalosCarimbados, gramas) {
+  const dentro = (i) => intervalosCarimbados.some(([ini, fim]) => i >= ini && i < fim);
+  const achados = [];
+  let palavras = [];
+  const varrer = () => {
+    let corrente = null;
+    for (let i = 0; i + TAMANHO_GRAMA <= palavras.length; i++) {
+      const fonte = gramas.get(palavras.slice(i, i + TAMANHO_GRAMA).map((x) => x.w).join(" "));
+      if (!fonte) continue;
+      if (corrente && i <= corrente.fim && fonte === corrente.fonte) corrente.fim = i + TAMANHO_GRAMA;
+      else achados.push((corrente = { inicio: i, fim: i + TAMANHO_GRAMA, fonte, palavras }));
+    }
+    palavras = [];
+  };
+  for (let i = 0; i < linhas.length; i++) {
+    if (dentro(i)) varrer();
+    else for (const w of palavrasDe(linhas[i])) palavras.push({ w, linha: i + 1 });
+  }
+  varrer();
+  return achados.map(({ inicio, fim, fonte, palavras: ps }) => {
+    const trecho = ps.slice(inicio, Math.min(fim, inicio + 14)).map((x) => x.w).join(" ");
+    return { linha: ps[inicio].linha, trecho: fim - inicio > 14 ? `${trecho} …` : trecho, fonte };
+  });
+}
+
 // --- fonte ---
 const caminhoFonte = join(root, "skills", "_comum", "convencoes.md");
 const textoFonte = lerUtf8(caminhoFonte);
@@ -96,6 +144,11 @@ for (const o of secoesOpcionais) {
     erro(`cabeçalho "${o.cabecalho}" está em convencoes.md e em opcionais.md — um bloco tem uma fonte só`);
   }
 }
+
+const gramasDasFontesComuns = gramasDasFontes([
+  { arquivo: "convencoes.md", secoes: secoesFonte },
+  { arquivo: "opcionais.md", secoes: secoesOpcionais },
+]);
 
 // --- alvos ---
 const skillsDir = join(root, "skills");
@@ -116,6 +169,18 @@ for (const nome of nomesSkills) {
 
   const posicoes = secoesFonte.map((s) => acharCabecalho(linhas, foraDeCerca, s.cabecalho, origem));
   const presentes = posicoes.filter((p) => p !== -1).length;
+
+  if (check) {
+    const cabecalhosDosBlocos = [...secoesFonte, ...secoesOpcionais].map((sec) => sec.cabecalho);
+    const intervalos = cabecalhosDosBlocos
+      .map((c) => acharCabecalho(linhas, foraDeCerca, c, origem))
+      .filter((h) => h !== -1)
+      .map((h) => [h, proximoCabecalhoForaDeCerca(linhas, foraDeCerca, h) ?? linhas.length]);
+    for (const d of duplicacoesForaDosBlocos(linhas, intervalos, gramasDasFontesComuns)) {
+      console.log(`${origem}:${d.linha} · trecho de ${d.fonte} repetido fora do bloco: «${d.trecho}»`);
+      algumDivergenteOuQuebrado = true;
+    }
+  }
 
   if (presentes === 0) {
     console.log(`${nome}: sem bloco`);

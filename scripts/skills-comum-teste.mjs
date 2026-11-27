@@ -153,5 +153,36 @@ function regiao(linhas, cabecalho) {
   }
 }
 
+// Cenário 5 — trecho de 9 palavras de uma fonte repetido à mão fora dos blocos → --check sai 1.
+{
+  console.log("cenário 5: trecho duplicado fora do bloco → 1");
+  const dir = copiaTemporaria();
+  try {
+    afirmar(rodar(dir, "--check").codigo === 0, "ponto de partida: --check sai 0");
+    const fontes = [
+      ["convencoes.md", "No batching, no `multiSelect`. Each answer arrives with the previous ones already settled"],
+      ["opcionais.md", "Before the first test, build or commit — a broken environment found halfway costs the minutes"],
+    ];
+    for (const [arquivo, frase] of fontes) {
+      const original = ler(dir, "gm-explore");
+      escrever(dir, "gm-explore", original.replace(/\n*$/, `\n\n## Notas\n\nlinha anterior\n${frase}\n`));
+      const c = rodar(dir, "--check");
+      const linha = ler(dir, "gm-explore").split("\n").findIndex((l) => l === frase) + 1;
+      afirmar(c.codigo === 1, `trecho de ${arquivo} repetido → --check sai 1 (saiu ${c.codigo})`);
+      afirmar(c.saida.includes(`skills/gm-explore/SKILL.md:${linha} `) && c.saida.includes(arquivo),
+        `acusa skill:linha (${linha}) e a fonte ${arquivo}`);
+      escrever(dir, "gm-explore", original);
+    }
+    // 8 palavras seguidas não acusam; a formatação (crases, negrito, caixa) não esconde a repetição.
+    const original = ler(dir, "gm-explore");
+    escrever(dir, "gm-explore", original.replace(/\n*$/, "\n\n## Notas\n\nNo batching, no multiSelect. Each answer arrives with\n"));
+    afirmar(rodar(dir, "--check").codigo === 0, "8 palavras seguidas não acusam");
+    escrever(dir, "gm-explore", original.replace(/\n*$/, "\n\n## Notas\n\n**NO BATCHING**, `no multiSelect`. _Each_ answer arrives with the previous ones already\n"));
+    afirmar(rodar(dir, "--check").codigo === 1, "caixa, crases e negrito não escondem o trecho");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 console.log(falhas === 0 ? "todos os cenários passam" : `${falhas} afirmação(ões) falharam`);
 process.exit(falhas === 0 ? 0 : 1);

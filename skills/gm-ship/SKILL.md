@@ -83,14 +83,14 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
 2. Every file in `tasks/` (epic: `tasks/<fase>/`, only the phase in flight) starts with `✅ Status: Complete`; otherwise stop and point to `/gm-implement $ARGUMENTS`.
 3. Inside the module repo (nested git repository): on the feature branch, `git status` clean.
 4. **Run the test gate the workspace declares** — the item *Portão de teste* of the workspace
-   `CLAUDE.md`, wherever it sits (by convention under `## Convenções da esteira`). It says what runs
+   `CLAUDE.md`, found the way `## Ambiente na entrada` finds its item. It says what runs
    **locally before the PR** and **where the full suite runs**: `local` or `CI`. When the workspace
    has a CI, the local part always includes the typecheck the CI runs (item *Typecheck do CI*,
    wherever it sits) — a looser local check has already broken `dev`; CI declared and no such item
    → stop and ask. A workspace that declares no CI needs no *Typecheck do CI* item.
    - `local` → the full relevant suite runs here.
    - `CI` → only the local part runs here; the PR body names the CI checks that are the gate, and
-     "entregue" is still green CI (`## Report`). With no human, the CI is not waited on.
+     "entregue" is still green CI (`## Report`).
    - No *Portão de teste* item → the rule before it existed: the full relevant suite (tests +
      typecheck of the touched packages) runs here; say in one line that the workspace declares no
      gate.

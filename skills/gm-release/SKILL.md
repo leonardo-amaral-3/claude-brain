@@ -116,8 +116,7 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
    - code in the diff **without** a validated card → *carona*: unvalidated work riding along. The
      **full** list goes in the message first — card by card, or commit by commit when there is no
      card, saying what each one touches — and then the decision is taken **one carona at a time**:
-     one `AskUserQuestion` call per item, header `Carona <k>/<N>` (`Carona 2/5` — the tool caps
-     `header` at 12 characters, so keep the counter numeric), question and options in pt-BR:
+     one `AskUserQuestion` call per item, header `Carona <k>/<N>` (`Carona 2/5`), question and options in pt-BR:
 
      > Isto entrou no payload sem ninguém ter conferido em ambiente nenhum que funciona: não passou
      > por 🧪 Validação em Dev e mesmo assim já está na `dev`. É `<PR/commit>` — <o que é> — e toca
@@ -130,10 +129,8 @@ field-id do campo) e `<opt:Campo=Valor>` (o option-id da opcao).
      > - **Reverter da `dev`** — a carona sai do payload (`git revert` na `dev`) e o resto do trem
      >   parte hoje. O trabalho revertido volta para quem o escreveu; não se perde.
 
-     This is what rule 4 of `## Como perguntar e como aprovar` exists for: N caronas never get cut
-     down to fit one menu of four. The list stays whole in the message, the loop gets longer instead
-     of wider, and `multiSelect` is out by rule 2 — a batch would settle the fifth carona while
-     nobody had yet looked at the first.
+     Rules 2 and 4 of `## Como perguntar e como aprovar` apply: the list stays whole in the message
+     and the loop gets longer instead of wider.
 
    With production far behind `dev`, the third set is the normal case, not the exception. Never omit it.
 
@@ -155,7 +152,7 @@ For a sensitive train, list every migration by name and say what each does — a
 
 ## Phase 3 — Ensaio (sensitive trains only)
 
-A **release environment** is a copy of production where the accumulated migrations and the data treatment run before they count, with acceptance queries comparing faturamento before and after; only what passes gets promoted. The workspace `CLAUDE.md` says whether one exists and how to run the payload against it (`## Convenções da esteira`, item *Ambiente de ensaio*). **Declared:** run it as declared, put the result under `### Ensaio` in the release notes, and a red result holds the train. **Not declared, or declared `não`:** do not pretend it happened. Stop: name every migration and data treatment in the payload in the message — what each one does, against which table, how much data — and then one `AskUserQuestion` call, header `Ensaio` (the tool caps `header` at 12 characters), question and options in pt-BR:
+A **release environment** is a copy of production where the accumulated migrations and the data treatment run before they count, with acceptance queries comparing faturamento before and after; only what passes gets promoted. The workspace `CLAUDE.md` says whether one exists and how to run the payload against it (`## Convenções da esteira`, item *Ambiente de ensaio*). **Declared:** run it as declared, put the result under `### Ensaio` in the release notes, and a red result holds the train. **Not declared, or declared `não`:** do not pretend it happened. Stop: name every migration and data treatment in the payload in the message — what each one does, against which table, how much data — and then one `AskUserQuestion` call, header `Ensaio`, question and options in pt-BR:
 
 > Este trem carrega <as migrations/tratamentos, pelo nome>, e este workspace não declara — ou declara
 > que não há — um ambiente de ensaio, a cópia de produção onde isto rodaria antes de valer. Não há
@@ -232,7 +229,7 @@ a person. It runs after the train PR is open and before the merge.
    **reverter da dev**), one `AskUserQuestion` call for that card; the result is never smoothed over.
 3. **`humano` items go to the person.** The **whole** list goes in the message first — card by card, each
    item with who validates it — and then one `AskUserQuestion` call per card, header `G5 <k>/<N>`
-   (`G5 3/12` — the tool caps `header` at 12 characters), question and options in pt-BR:
+   (`G5 3/12`), question and options in pt-BR:
 
    > O card #<n> (<título>) tem <m> item(ns) que só uma pessoa confere: <os itens>. Os comandos dele já
    > rodaram e passaram.
@@ -259,7 +256,7 @@ a person. It runs after the train PR is open and before the merge.
 
 ## Phase 5 — Merge, deploy, verify
 
-1. The merge is this skill's point of no return, so it goes to the human by the *ação irreversível* set from `## Como perguntar e como aprovar`: header `Merge` (12-character cap), options in pt-BR, and the physical consequence written into each `description` — never a bare verb.
+1. The merge is this skill's point of no return, so it goes to the human by the *ação irreversível* set from `## Como perguntar e como aprovar`: header `Merge`, options in pt-BR, and the physical consequence written into each `description` — never a bare verb.
 
    > - **Mergear e subir** — o faturamento passa a rodar este código em minutos: o merge em `main`
    >   dispara o `deploy.yml` sozinho e as migrations rodam no boot do contêiner. **Não existe passo
