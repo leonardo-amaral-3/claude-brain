@@ -3,7 +3,7 @@ name: gm-implement
 description: Execute the next pending task of a planned feature - right branch in the right repo (created linked to the card via Development field), task file as the prompt, tests run BEFORE presenting, risk-ranked summary, commit only after explicit approval, deviation protocol when reality contradicts the spec. Use after gm-plan-tasks, once per task, preferably in a fresh session.
 disable-model-invocation: true
 model: claude-sonnet-5-5
-argument-hint: [feature-folder]
+argument-hint: [feature-folder] [--card <n> --branch <branch> --task <file>]
 ---
 
 # Task Executor
@@ -49,7 +49,8 @@ and every `description` — is written in pt-BR.**
 
 ## Setup
 
-1. Folder: `planning/$ARGUMENTS/`. No argument → put **every** folder that still has a pending
+0. **Task mode** — `<folder> --card <n> --branch <b> --task <file>` (the dispatcher's call; `<file>` is relative to the repo root). Runs **only** that task. Steps 3 and 4 of this `## Setup` and steps 1, 2 and 4 of `## Guarantee the branch` do not apply: the working directory already is the worktree. Instead: `git branch --show-current` must equal `<b>` (different → stop, `PARADA: a worktree está na branch <atual>, não em <b>`); then, before implementing, run the conformance check described below (`--conferir <file>`) and stop on any pending dependency (`PARADA: dependência <id> não está ✅`). In task mode the session pushes nothing and ticks no checkbox — the dispatcher does both, one write at a time on the `gm:tasks` comment. No option → the steps below, as before.
+1. Folder: the first token of `$ARGUMENTS`, as `planning/<folder>/`. No argument → put **every** folder that still has a pending
    (`❌`) task in the message — how many are left in each, and the title of the one that would run
    — then one `AskUserQuestion` call; header `Pasta`, question and options in pt-BR:
 
@@ -63,8 +64,8 @@ and every `description` — is written in pt-BR.**
    stays in the message, and the message says out loud that the rest arrive through "Other". A
    folder dropped in silence is a task nobody remembers exists.
 2. Read the spec (`spec.md`; older folders: `tech-spec.md`) → `## Execution` (repo, base, feature branch), `## Requisitos & critérios de aceite`, `## Plano de testes`, and the card reference.
-3. Pick the lowest-numbered task whose first line is `❌ Status: Not Started`. A lower-numbered task not `✅` → stop and report; never guess. (Sub-tasks born from a split carry letter suffixes — `3a`, `3b` — and sort in place, before `4`.)
-4. Todas as tasks `✅` → o humano veio por um de dois motivos e assumir errado custa caro nos dois
+3. (Not in task mode.) Pick the lowest-numbered task whose first line is `❌ Status: Not Started`. A lower-numbered task not `✅` → stop and report; never guess. (Sub-tasks born from a split carry letter suffixes — `3a`, `3b` — and sort in place, before `4`.)
+4. (Not in task mode.) Todas as tasks `✅` → o humano veio por um de dois motivos e assumir errado custa caro nos dois
    sentidos: uma chamada `AskUserQuestion`, header `Fim da fila`, pergunta e opções em pt-BR:
 
    > As tasks desta feature estão todas fechadas e ainda não existe PR. Duas coisas cabem nesta
@@ -101,7 +102,7 @@ the branch slug, so the folder name says which card is in flight without opening
    > - **Deixar onde estão** — nada é mexido; seguem no checkout principal, sem commit, e esta
    >   sessão trabalha só dentro da worktree. Quem retomar depois precisa lembrar que elas existem.
    > - **Parar aqui** — nem worktree nem branch. A task espera a árvore ser resolvida à mão.
-2. `git fetch origin`, then `git worktree list` — the branch may already have a home:
+2. `git fetch origin`, then `git worktree list` — the branch may already have a home. **Never stack**: a branch that is born is born from `origin/<base>`, and `<base>` is the `dev` of the workspace `CLAUDE.md` `## Branches`; any other base (another card's branch) only with a `Motivo da base:` line in the spec's `## Execution` — without it, stop (`PARADA: base <b> sem Motivo da base: na spec`).
    - **A worktree already at `<workspace>/<repo>-<n>-<slug>`** → that is the one; continue inside
      it, fast-forwarding to origin if the branch is there.
    - **The branch checked out in the main checkout** — a card that started before this rule, like
@@ -137,9 +138,9 @@ the branch slug, so the folder name says which card is in flight without opening
    under you is one command away: `git rev-parse --show-toplevel` plus `git branch --show-current`,
    and the card's branch means the right copy.
 
-## Board (task 1 only)
+## Board (first task to run)
 
-Board the team board: move the card to 🔨 Implementação (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Implementacao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`; card fora do board → `gh project item-add <project>` antes). Missing `project` scope → ask for `! gh auth refresh -s project`, don't block.
+Only when the card is not yet in 🔨 Implementação or beyond (the first task to run finds it earlier; the others find it already there). Board the team board: move the card to 🔨 Implementação (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Implementacao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`; card fora do board → `gh project item-add <project>` antes). Missing `project` scope → ask for `! gh auth refresh -s project`, don't block.
 
 ## Execute the task
 
@@ -229,6 +230,10 @@ re-roda o `/gm-plan-tasks`, que propõe a quebra inteira de uma vez e re-propori
 Fechada a task, o `## Close the task` volta a oferecer `/gm-ship <folder>` — que agora abre a PR
 citando a emenda.
 
+## Conformance before the commit (every mode)
+
+When the task file has a `Toca:` line, run `node "<Base directory for this skill>/../gm-frente/ondas.mjs" --conferir <task file>` from the worktree, before the commit. Exit `1` with `fora` listing files → stop, `PARADA: a task tocou fora do Toca: <lista>`; never widen `Toca:` to fit. The script does not exist (installation without it) → say so in one line and compare `git status --porcelain` against the `Toca:` by hand (the task's own file is always allowed). A task without `Toca:` (old format) has nothing to check.
+
 ## Present for review
 
 Run the task's **Verification commands first** (tests + typecheck/lint as applicable). Only then present:
@@ -251,10 +256,10 @@ Só *Executar o commit* abre o `## Close the task`.
 
 ## Close the task
 
-1. Commit from inside the card's worktree — the one from `## Guarantee the branch`, never the
+1. Flip the task file's first line to `✅ Status: Complete` **before** the commit, so the `✅` goes in it (every mode; the join of a wave checks it).
+2. Commit from inside the card's worktree — the one from `## Guarantee the branch`, never the
    main checkout — message ending with the trailer `Card: #<n>`.
-2. Flip the task file's first line to `✅ Status: Complete`.
-3. Tick the task's checkbox in the card's `<!-- gm:tasks -->` comment (edit the comment in place).
+3. Tick the task's checkbox in the card's `<!-- gm:tasks -->` comment (edit the comment in place). **Task mode: no `git push` and no checkbox** — the dispatcher does them.
 4. Pending tasks remain → "próxima: `/gm-implement <folder>` (sessão nova)". All `✅` → offer `/gm-ship <folder>`.
 
 ## Convenções de saída

@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 Onda: 1
 Depende de: —
 Toca: `skills/gm-implement/SKILL.md`
