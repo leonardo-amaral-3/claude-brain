@@ -3,7 +3,7 @@ name: gm-ship
 description: Close the implementation loop - verify every task complete, run the full suite, push, open the PR carrying the acceptance-criteria contract and the dev-validation checklist, referencing the board card, and move the card to code review. Use after the last gm-implement task is approved and committed.
 disable-model-invocation: true
 model: claude-sonnet-5-5
-argument-hint: [feature-folder]
+argument-hint: [feature-folder] [--card <n>] [--merge]
 ---
 
 # Ship — PR + board
@@ -66,7 +66,20 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
 
 ## Preconditions
 
+0. **Arguments.** The first token of `$ARGUMENTS` is the planning folder — everywhere below, `$ARGUMENTS`
+   in a path means that token, not the options. Two options follow it, both optional; without them the
+   skill acts as it always did.
+   - `--card <n>` — the card in flight (the phase child, for an epic). It replaces asking which card
+     this PR is for.
+   - `--merge` — the **second pass**: the PR already exists (opened by a first pass that stopped on
+     `esperar-ci`). Skip everything up to `## Merge na dev` and enter there; the worktree is still
+     standing, because it is where this pass runs.
 1. Read the spec (`planning/$ARGUMENTS/spec.md`; older folders: `tech-spec.md`) → `## Execution`, `## Requisitos & critérios de aceite`, and the card reference. **Epic:** the card in flight is the phase child, not the parent — read its `gm:spec-ref` comment and treat the criteria it names as the ones this PR must close.
+1b. **Base.** The PR's base is the `dev` that `## Branches` of the workspace `CLAUDE.md` names — never
+   another card's branch. A different base is allowed only when the spec's `## Execution` carries a
+   `Motivo da base:` line; in that case the line is copied into the PR body (`## Contexto para
+   revisão`). Different base and no such line → stop, naming the base found and the line that is
+   missing (no human: `PARADA: base da PR não é a dev e a spec não traz Motivo da base`).
 2. Every file in `tasks/` (epic: `tasks/<fase>/`, only the phase in flight) starts with `✅ Status: Complete`; otherwise stop and point to `/gm-implement $ARGUMENTS`.
 3. Inside the module repo (nested git repository): on the feature branch, `git status` clean.
 4. **Run the test gate the workspace declares** — the item *Portão de teste* of the workspace
@@ -85,6 +98,38 @@ declares none. Applies to `gm-correcao` only on the *Corrige* path, the one that
    Red → stop and show; a PR never opens on red. **Verde não encerra a checagem** — leia o
    resultado contra as decisões da spec; se a suíte ou uma medição derruba alguma, vale a regra do
    `## Open the PR` abaixo.
+
+## G4 — revisão de IA
+
+Runs after the gate of precondition 4 is green and before the PR body is written. The workspace has no
+human reviewer beyond the author, so this is the review the PR gets before it can land.
+
+1. **Reviewer.** One independent agent (the `Agent` tool, a fresh one — never the session that wrote the
+   code), read-only. It receives **only**: the path of `spec.md`, the card's `gm:spec-ref` comment when
+   the card is an epic phase, and the range `origin/<base>...HEAD`. It returns findings, each with
+   `arquivo:linha`. It is told not to edit, not to run the suite, and not to be given the session's
+   own reading of the diff.
+2. **Treatment.** The session handles every finding, one of two ways: **corrige** (a commit, then the
+   gate of precondition 4 again) or **refuta** with the reason written down. A finding left without
+   either is not handled; a refutation without a reason is not a refutation.
+3. **Record.** After `gh pr create`, one comment on the PR, create-or-update, whose first line is
+   `<!-- gm:g4 -->`:
+
+   ```markdown
+   <!-- gm:g4 -->
+   Head revisado: <sha>
+   Head final: <sha>
+   Portão local: verde em <sha> (<comandos> → <resultado>)
+
+   | achado | arquivo:linha | tratamento |
+   |---|---|---|
+   | <o que o revisor apontou> | <arquivo:linha> | corrigido em <sha> \| refutado: <porquê> |
+   ```
+
+   `Head revisado` is the head the reviewer saw; `Head final` is the head the PR carries when the
+   comment is written (they differ when a finding was fixed). No findings → the table has only its
+   header and the comment says so. `merge-dev.mjs` reads this comment: the `tratamento` cell has to
+   start with `corrigido em <sha>` or `refutado: <porquê>`, and `Head final` has to equal the PR head.
 
 ## Open the PR
 
@@ -118,9 +163,11 @@ volta para cá pela precondição 3 quando a task estiver `✅`.
    - [x] <critério 2 …>
 
    ## Validação em dev
-   [checklist derivado dos critérios: o que conferir no ambiente dev, passo a passo, e quem valida]
-   - [ ] <passo verificável 1>
-   - [ ] <passo verificável 2>
+   [checklist derivado dos critérios. Cada item começa por `[comando]` ou `[humano]`:
+    `[comando]` leva o comando em crase e o resultado esperado e roda pela sessão, sem pessoa;
+    `[humano]` diz o passo e quem valida — só esses vão ao humano]
+   - [ ] [comando] `node scripts/x.mjs` → código 0
+   - [ ] [humano] <o passo, e quem valida>
 
    ## Contexto para revisão
    A especificação está no card #<n> (comentário `gm:spec`; cards antigos: `gm:prd` + `gm:tech-spec`).
@@ -140,17 +187,59 @@ volta para cá pela precondição 3 quando a task estiver `✅`.
 
 3. Team-visible, and the PR body is an artifact, not a formality: repo, title and the **whole** body go in the message — the tool renders no long body — and the decision comes back through the *artefato* set from `## Como perguntar e como aprovar`. *Aprovar* → create it. *Ajustar* → rewrite the part the human named (a criterion described loosely, a validation step nobody could follow) and present it again. *Rejeitar* → nothing is created; the branch stays pushed, which the board does not show, and the card does not move. Title: short, imperative, close to the card title.
 4. `gh pr create --repo <owner>/<repo> --base <base> --title "..." --body-file <file>`
+5. Write the `gm:g4` comment of `## G4 — revisão de IA` on the new PR.
 
 ## Board
 
 Move the card to 👀 Revisão on the team board (project-id `<project-id>`, Status field `<field:Status>`, option `<opt:Status=Revisao>`; item-id via `gh api graphql` on the issue's projectItems, node with `project.number == <project>`). Missing `project` scope → `! gh auth refresh -s project`.
 
+The first pass goes on to `## Merge na dev` right after the board move.
+
+## Merge na dev
+
+Entered straight from `## Board` by the first pass, and directly by `--merge`. The code goes into `dev`;
+nothing goes to production — `main` only moves through `/gm-release`.
+
+1. `--ci` for the script is `sim` when the workspace `CLAUDE.md` declares a CI (*Typecheck do CI* with
+   a command, or *Portão de teste* = `CI`), and `nao` otherwise.
+2. **G4 current?** If the `gm:g4` comment is missing, or its `Head final` is not the PR head: run the
+   local gate and the G4 over the new range (the whole range, when the comment is missing), then update
+   the comment.
+3. Run, from the PR's worktree:
+   `node <skill-dir>/merge-dev.mjs --repo <owner>/<repo> --pr <n> --spec planning/<pasta>/spec.md --base <dev> --ci <sim|nao>`
+   (`<skill-dir>` is this skill's folder; the script finds `sensivel.mjs` beside it). Code `2` → stop
+   with its message. Otherwise act on `acao`:
+   - `atualizar` → `git merge origin/<base>` in the worktree (a conflict stops here, naming the files),
+     the local gate again, `git push`, then the `gm:g4` with the new `Head final` and `Portão local`
+     (no new G4 when the join had no conflict), then `merge-dev.mjs` again. At most **two** updates;
+     after that, stop.
+   - `esperar-ci` → close with `PROXIMO: /gm-ship <pasta> --card <n> --merge`. The session does not wait.
+   - `parar` → when the failing condition is `sensivel`: `PARADA: spec sensível; o merge da PR #<pr> na
+     dev espera o humano`. Any other failure: `PARADA` with the condition and the output of the script.
+   - `merge` → see below.
+4. **`merge`.**
+   - *With a human:* one call of the *ação irreversível* set, header `Merge dev`; the description of
+     *Executar* says the code enters `dev`, nothing reaches production, and `main` only moves through
+     `/gm-release`.
+   - *No human, with the front handed over:* the session decides **only if** the `## Modo despachado`
+     table of this file has the row `Merge na dev da PR do próprio card`. That row arrives with F4
+     (#82); while it is absent → `PARADA: merge na dev pronto (condições verdes); a tabela ainda manda
+     parar`.
+   - *Merge:* `gh pr merge <pr> --repo <owner>/<repo> --merge --match-head-commit <head>` — `<head>` is
+     the one `merge-dev.mjs` read, so a push after the check makes the merge refuse instead of landing
+     code nobody reviewed. Then the card to 🧪 Validação em Dev (same board mutation as `## Board`; the
+     option id is the one the workspace `CLAUDE.md` lists for that Status), one comment on the card saying the PR landed in `dev`, and
+     `## Fechar a worktree`. Last line: `PARADA: PR #<pr> na dev; o card espera o trem do /gm-release`.
+
 ## Fechar a worktree
 
+Runs **only after the merge** of `## Merge na dev`. Without a merge — `esperar-ci`, `parar`, the
+dispatched-mode stop — the worktree stays standing: it is where the `--merge` pass and `/gm-correcao`
+run.
+
 The card's branch had a worktree of its own at `<workspace>/<repo>-<n>-<slug>` (`gm-implement`,
-`## Guarantee the branch`). With the PR open and the card in 👀 Revisão, this card has no more code
-to write in this session, so the folder goes — the branch does not, it is pushed and it carries the
-PR:
+`## Guarantee the branch`). With the PR merged into `dev` and the card in 🧪 Validação em Dev, this
+card has no more code to write, so the folder goes — the branch does not, it carries the merged PR:
 
 ```
 cd <checkout-principal>          # nunca remova a worktree de dentro dela
@@ -169,9 +258,9 @@ worktree to remove: `git worktree list` says so, and nothing in this section app
 
 ## Report
 
-PR URL + board move. **"Entregue" means green CI and the review handled — not an open PR**; until then say "PR aberta, CI/revisão pendentes". If the CI review workflow is active in the repo, mention it will comment using the card's spec; if not, the "Validação em dev" checklist is the reviewer's guide.
+PR URL + board move. **"Entregue" means green CI and the review handled — not an open PR**; say "PR aberta, CI/revisão pendentes" **only when the merge did not happen**, and then name the condition that was missing (`merge-dev.mjs` → `falhas`). If the CI review workflow is active in the repo, mention it will comment using the card's spec; if not, the "Validação em dev" checklist is the reviewer's guide.
 
-Then say what happens next, so the card does not stall in 👀 Revisão: merged into `dev` → the card goes to 🧪 Validação em Dev, where a **named person** runs the checklist above (SLA 7 dias); validated in dev → this Report does not close the card, because nothing runs at validation time: the session that receives the person's "validado" closes it (`gh issue close <n> --repo <owner>/<repo> --reason completed`). The card **stays in 🧪 Validação em Dev** (it does not wait for 🚂 Release, ✅ Produção or `/gm-release`), but the board's *Item closed* workflow, when enabled, may move it on close: re-read its Status afterwards and, if it moved, set it back with `updateProjectV2ItemFieldValue` (Status option id from the workspace `CLAUDE.md`). The train is cut later with `/gm-release`.
+Then say what happens next, so the card does not stall in 👀 Revisão: merged into `dev` → the card goes to 🧪 Validação em Dev and waits for the train. Its `## Validação em dev` checklist is run **per train**, by `/gm-release` (Phase 4b — G5 por trem): the `[comando]` items by the session, the `[humano]` ones by the **named person** each item gives. This Report does not close the card, and no session closes it on a "validado" outside the train: `/gm-release` Phase 7 moves it to ✅ Produção and closes it once its PRs are in `main`. A card closed before that falls out of the train's accounting.
 
 ## Convenções de saída
 

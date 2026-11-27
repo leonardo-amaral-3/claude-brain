@@ -4,7 +4,7 @@
 // Sai 0 se todos os cenários passam, 1 se algum falha.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -562,6 +562,108 @@ console.log("carregarJev: a fronteira com o contrato do #42, com um jev.js falso
     afirmar(CATEGORIAS.every((c) => igual(pequena.jev[c], nao(0.95))) && chamadasDoOk.length === 4, "classificar: spec que cabe → quatro perguntas, quatro nao 0,95");
   } finally {
     delete globalThis.__chamadasJev;
+    rmSync(raiz, { recursive: true, force: true });
+  }
+}
+
+console.log("CLI --consultar: só lê o registro, sem Jev e sem escrever (R3.1, F3 do #78)");
+{
+  const raiz = mkdtempSync(join(tmpdir(), "gm-spec-consultar-"));
+  try {
+    const casa = join(raiz, "casa");
+    const pasta = join(casa, "p");
+    mkdirSync(join(casa, "hooks"), { recursive: true });
+    mkdirSync(pasta, { recursive: true });
+    const script = join(casa, "sensivel.mjs");
+    copyFileSync(caminhoModulo, script);
+    // Um cliente do Jev que deixa rastro se for sequer carregado, com o opt-in ligado: se o modo
+    // consultar o tocasse, o marcador apareceria.
+    const marcador = join(casa, "jev-foi-carregado");
+    writeFileSync(join(casa, "hooks", "jev.js"), `require("node:fs").writeFileSync(${JSON.stringify(marcador)}, "x");\nmodule.exports = { MAX_ESTADO: 1e9, decidir: async () => ({}) };\n`);
+    writeFileSync(join(casa, "gm-spec-jev.json"), JSON.stringify({ enviarSpecAoJev: true }));
+    const ambiente = { PATH: process.env.PATH, HOME: casa, CLAUDE_CONFIG_DIR: casa };
+    const texto = "# Spec de exemplo\n\nAjusta o texto de uma mensagem de ajuda.\n";
+    const caminhoSpec = join(pasta, "spec.md");
+    const registroPath = join(pasta, "sensibilidade.json");
+    writeFileSync(caminhoSpec, texto);
+    const sha = createHash("sha256").update(texto).digest("hex");
+    const rodar = (argumentos) => spawnSync(process.execPath, [script, ...argumentos], { env: ambiente, encoding: "utf8", timeout: 30000 });
+    const linhaJson = (r) => {
+      const linhas = r.stdout.split("\n").filter((l) => l !== "");
+      if (linhas.length !== 1) return null;
+      try { return JSON.parse(linhas[0]); } catch { return null; }
+    };
+    const registroCom = (rodadas, uniao) => JSON.stringify({ rodadas, uniao }, null, 2) + "\n";
+    const vazia = Object.fromEntries(CATEGORIAS.map((c) => [c, []]));
+    const consultar = () => rodar(["--consultar", "--spec", caminhoSpec]);
+
+    // Sem registro → true.
+    let r = consultar();
+    let s = linhaJson(r);
+    afirmar(r.status === 0 && s?.sensivel === true && s.motivo === "sem registro" && s.linha === "Spec sensível: sim — sem registro", "sem registro → sensível, motivo `sem registro`, código 0, uma linha");
+    afirmar(!existsSync(registroPath), "sem registro: a consulta não cria o registro");
+
+    // Registro limpo, sha igual → false.
+    const limpo = registroCom([{ sha256: "0".repeat(64) }, { sha256: sha }], vazia);
+    writeFileSync(registroPath, limpo);
+    r = consultar();
+    s = linhaJson(r);
+    afirmar(r.status === 0 && s?.sensivel === false && s.linha === "Spec sensível: não", "registro limpo e sha da última rodada igual → sensivel false");
+    afirmar(readFileSync(registroPath, "utf8") === limpo, "a consulta não reescreve o registro");
+
+    // A ordem dos argumentos não importa.
+    r = rodar(["--spec", caminhoSpec, "--consultar"]);
+    afirmar(r.status === 0 && linhaJson(r)?.sensivel === false, "--spec antes de --consultar dá o mesmo veredito");
+
+    // Só a última rodada vale: sha igual numa rodada antiga não basta.
+    writeFileSync(registroPath, registroCom([{ sha256: sha }, { sha256: "0".repeat(64) }], vazia));
+    s = linhaJson(consultar());
+    afirmar(s?.sensivel === true && s.motivo === "spec mudou depois da classificação", "sha igual só numa rodada antiga → true, `spec mudou depois da classificação`");
+
+    // Spec editada depois da classificação.
+    writeFileSync(registroPath, limpo);
+    writeFileSync(caminhoSpec, texto + "uma linha a mais\n");
+    s = linhaJson(consultar());
+    afirmar(s?.sensivel === true && s.motivo === "spec mudou depois da classificação", "spec editada depois da última rodada → true");
+    writeFileSync(caminhoSpec, texto);
+
+    // Registro ilegível: JSON quebrado, forma errada, motivo desconhecido na união.
+    for (const [rotulo, conteudo] of [["JSON quebrado", "{ nao e json"], ["sem rodadas", JSON.stringify({ uniao: vazia })], ["motivo desconhecido na união", registroCom([{ sha256: sha }], { ...vazia, dado: ["talvez"] })]]) {
+      writeFileSync(registroPath, conteudo);
+      r = consultar();
+      s = linhaJson(r);
+      afirmar(r.status === 0 && s?.sensivel === true && s.motivo === "registro ilegível", `registro ilegível (${rotulo}) → true, código 0`);
+    }
+
+    // Registro presente mas sem nenhuma rodada: tratado como sem registro.
+    writeFileSync(registroPath, registroCom([], vazia));
+    s = linhaJson(consultar());
+    afirmar(s?.sensivel === true && s.motivo === "sem registro", "registro sem rodadas → `sem registro`");
+
+    // União não vazia, mesmo com sha igual.
+    writeFileSync(registroPath, registroCom([{ sha256: sha }], { ...vazia, dado: ["autor"], migration: ["jev-indisponivel"] }));
+    s = linhaJson(consultar());
+    afirmar(s?.sensivel === true && s.motivo === "união não vazia: dado, migration", "união não vazia → true, motivo lista as categorias");
+    afirmar(s?.linha === "Spec sensível: sim — autor (dado); Jev indisponível (migration)", "a linha de união é a de montarLinha");
+
+    // Nunca chamou o Jev nem escreveu: sem marcador, e a pasta só tem os dois arquivos.
+    afirmar(!existsSync(marcador), "o cliente do Jev nunca foi carregado, com o opt-in ligado");
+    const fonteDaPasta = readdirSync(pasta).sort();
+    afirmar(igual(fonteDaPasta, ["sensibilidade.json", "spec.md"]), "a pasta da spec não ganhou arquivo (nem temporário)");
+
+    // Argumento: código 2, nada no stdout.
+    for (const [rotulo, argumentos] of [
+      ["sem --spec", ["--consultar"]],
+      ["--spec sem valor", ["--consultar", "--spec"]],
+      ["--autor junto", ["--consultar", "--spec", caminhoSpec, "--autor", "dado=nao"]],
+      ["spec que não existe", ["--consultar", "--spec", join(pasta, "nao-existe", "spec.md")]],
+      ["arquivo com outro nome", ["--consultar", "--spec", join(pasta, "sensibilidade.json")]],
+      ["--consultar repetido", ["--consultar", "--consultar", "--spec", caminhoSpec]],
+    ]) {
+      r = rodar(argumentos);
+      afirmar(r.status === 2 && r.stdout === "" && r.stderr.startsWith("sensivel.mjs: "), `argumento inválido (${rotulo}) → código 2, stdout vazio`);
+    }
+  } finally {
     rmSync(raiz, { recursive: true, force: true });
   }
 }
