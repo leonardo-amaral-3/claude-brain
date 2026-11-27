@@ -1,4 +1,4 @@
-❌ Status: Not Started
+✅ Status: Complete
 
 # Task 4: `sync.ps1` com o mesmo comportamento do `sync.sh`
 
